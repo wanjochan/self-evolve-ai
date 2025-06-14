@@ -1,0 +1,86 @@
+# 语法分析器测试
+# 测试各种语法结构的解析
+
+.section .data
+    # 测试数据定义语法
+    string_var: db "Test String", 0
+    array_var: times 10 dd 0
+    align 8
+    ptr_var: dq string_var
+    
+    # 测试数值定义
+    num1: dd 1234
+    num2: dd -5678
+    num3: dd +1234
+    num4: dq 0xFFFFFFFF
+    
+    # 测试表达式
+    expr1: dd 1 + 2
+    expr2: dd 3 * 4
+    expr3: dd 10 - 5
+    expr4: dd (1 + 2) * 3
+
+.section .bss
+    # 测试未初始化数据
+    buffer: resb 1024
+    aligned_buffer: resq 128
+    
+.section .text
+    global _start
+    extern ExitProcess
+    
+_start:
+    # 测试基本块结构
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32
+    
+    # 测试条件结构
+    mov rax, 1
+    test rax, rax
+    jz .zero_case
+    jnz .non_zero_case
+    
+.zero_case:
+    xor rax, rax
+    jmp .end_if
+    
+.non_zero_case:
+    mov rax, 1
+    
+.end_if:
+    # 测试循环结构
+    mov rcx, 10
+.loop_start:
+    dec rcx
+    test rcx, rcx
+    jnz .loop_start
+    
+    # 测试函数调用
+    call .test_func
+    
+    # 测试返回
+    xor eax, eax
+    jmp .exit
+    
+.test_func:
+    # 测试局部标签
+    push rbp
+    mov rbp, rsp
+    
+    # 测试嵌套块
+    .local_label:
+        mov rax, [rbp+8]
+        test rax, rax
+        jz .local_zero
+        
+    .local_zero:
+        xor rax, rax
+        
+    pop rbp
+    ret
+    
+.exit:
+    # 如果能成功编译到这里
+    # 说明语法分析器能正确处理所有基本结构
+    call ExitProcess 

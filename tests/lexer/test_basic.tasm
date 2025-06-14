@@ -1,0 +1,50 @@
+# 词法分析器基本功能测试
+# 通过编译成功与否来验证词法分析器的正确性
+
+.section .data
+    # 测试数据
+    test_string1: db "Hello, World!", 0
+    test_number1: dd 12345
+    test_number2: dd 0xFF
+    test_number3: dd 0b1010
+    
+    # 测试标识符
+    test_label1: dq 0
+    _test_label: dq 0
+    label_123: dq 0
+
+.section .text
+    global _start
+    extern ExitProcess
+
+_start:
+    # 基本指令测试
+    push rbp
+    mov rbp, rsp
+    
+    # 寄存器测试
+    mov rax, rbx
+    mov rcx, rdx
+    mov rsi, rdi
+    mov r8, r9
+    mov r10, r11
+    
+    # 数值测试
+    mov rax, 123
+    mov rbx, 0xFF
+    mov rcx, 0b1010
+    
+    # 内存操作测试
+    mov rax, [test_string1]
+    mov [test_label1], rbx
+    mov qword [_test_label], 0x1234
+    mov dword [label_123], 0x5678
+    
+    # 复杂寻址测试
+    mov rax, [rbx + rcx*4]
+    mov [rsp + rax*8], rdx
+    
+    # 如果能成功编译到这里
+    # 说明词法分析器能正确处理所有基本token
+    xor eax, eax  ; 返回0表示成功
+    call ExitProcess 

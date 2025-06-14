@@ -1,0 +1,583 @@
+; 结构变异测试
+section .data
+    ; 变异类型常量
+    MUTATE_STRUCT_BLOCK: equ 1     ; 基本块变异
+    MUTATE_STRUCT_FLOW: equ 2      ; 控制流变异
+    MUTATE_STRUCT_FUNC: equ 3      ; 函数级变异
+    
+    ; 测试代码段
+    test_code:
+        ; 函数1：计算斐波那契数列
+        fib_start:
+            mov r1, 1              ; n = 1
+            mov r2, 1              ; result = 1
+            mov r3, 10             ; limit = 10
+        fib_loop:
+            cmp r1, r3            ; if n > limit
+            jg fib_done           ; exit loop
+            add r2, r1            ; result += n
+            add r1, 1             ; n++
+            jmp fib_loop
+        fib_done:
+            mov r7, r2            ; return result
+            
+        ; 函数2：计算阶乘
+        fact_start:
+            mov r1, 5             ; n = 5
+            mov r2, 1             ; result = 1
+        fact_loop:
+            cmp r1, 0            ; if n == 0
+            je fact_done         ; exit loop
+            mul r2, r1           ; result *= n
+            sub r1, 1            ; n--
+            jmp fact_loop
+        fact_done:
+            mov r7, r2           ; return result
+            
+        ; 主程序
+        main_start:
+            call fib_start       ; 计算斐波那契
+            push r7              ; 保存结果
+            call fact_start      ; 计算阶乘
+            pop r1               ; 恢复斐波那契结果
+            add r7, r1           ; 合并结果
+            hlt
+    test_code_size: equ $ - test_code
+    
+    ; 基本块信息
+    block_info:
+        ; 每个条目：起始偏移，大小
+        dq fib_loop - test_code, fib_done - fib_loop
+        dq fact_loop - test_code, fact_done - fact_loop
+        dq main_start - test_code, test_code_size - (main_start - test_code)
+    block_count: equ 3
+    
+    ; 变异结果存储
+    mutation_results: times 3 dq 0  ; 每种变异类型的结果
+
+section .code
+    ; 初始化
+    mov r7, 0                      ; 成功计数
+    mov r6, 0                      ; 当前变异类型
+
+test_mutation_loop:
+    ; 检查是否测试完所有变异类型
+    cmp r6, 3
+    je test_done
+    
+    ; 1. 复制测试代码到目标位置
+    mov r1, [CODE_SEGMENT_START]
+    add r1, r6
+    mul r1, 1000                   ; 每个测试间隔1000字节
+    
+    ; 备份原始代码
+    backup_code r1, test_code_size
+    
+    ; 写入测试代码
+    write_code r1, test_code, test_code_size
+    
+    ; 2. 执行结构变异
+    add r6, 1                      ; 变异类型从1开始
+    push r6                        ; 保存变异类型
+    call mutate_structure
+    pop r6                         ; 恢复变异类型
+    sub r6, 1                      ; 恢复索引
+    
+    ; 3. 验证变异后的代码
+    push r6
+    call verify_structure
+    pop r6
+    
+    ; 4. 执行变异后的代码
+    push r6                        ; 保存变异类型索引
+    push r1                        ; 保存代码地址
+    jmp r1
+    
+    ; 5. 如果执行成功返回这里
+    pop r1                         ; 恢复代码地址
+    pop r6                         ; 恢复变异类型索引
+    
+    ; 6. 记录结果
+    mov [mutation_results + r6*8], r7
+    
+    ; 7. 恢复原始代码
+    restore_code r1
+    
+next_mutation:
+    add r6, 1
+    jmp test_mutation_loop
+    
+test_done:
+    hlt                            ; 返回成功计数
+
+; 结构变异函数
+; 输入：
+;   r1 = 代码地址
+;   r6 = 变异类型
+; 输出：
+;   r7 = 成功标志
+mutate_structure:
+    push r1
+    push r2
+    push r3
+    push r4
+    
+    ; 根据变异类型选择策略
+    cmp r6, MUTATE_STRUCT_BLOCK
+    je mutate_block
+    cmp r6, MUTATE_STRUCT_FLOW
+    je mutate_flow
+    cmp r6, MUTATE_STRUCT_FUNC
+    je mutate_func
+    jmp mutate_structure_failed
+
+mutate_block:
+    ; 基本块变异：重排指令顺序
+    ; 1. 随机选择一个基本块
+    mov r2, block_count
+    push r1
+    push r2
+    call get_random_offset
+    pop r2
+    pop r1
+    
+    ; 2. 获取块信息
+    mov r2, block_info
+    mul r7, 16                     ; 每个条目16字节
+    add r2, r7
+    
+    mov r3, [r2]                   ; 块起始偏移
+    mov r4, [r2+8]                 ; 块大小
+    
+    ; 3. 重排块内指令
+    push r1
+    push r3
+    push r4
+    call shuffle_instructions
+    pop r4
+    pop r3
+    pop r1
+    
+    jmp mutate_structure_success
+
+mutate_flow:
+    ; 控制流变异：修改跳转条件
+    ; 1. 查找跳转指令
+    mov r2, test_code_size
+    mov r3, 0                      ; 当前偏移
+    
+flow_search_loop:
+    cmp r3, r2
+    je mutate_structure_failed
+    
+    ; 读取操作码
+    mov r4, [r1+r3]
+    and r4, 0xFF
+    
+    ; 检查是否是跳转指令
+    cmp r4, 0x40                   ; jmp
+    je found_jump
+    cmp r4, 0x41                   ; je
+    je found_jump
+    cmp r4, 0x42                   ; jne
+    je found_jump
+    
+    add r3, 3                      ; 移动到下一条指令
+    jmp flow_search_loop
+    
+found_jump:
+    ; 2. 变异跳转条件
+    push r1
+    push r3
+    call get_random_opcode
+    pop r3
+    pop r1
+    
+    ; 确保是跳转指令
+    and r7, 0x03
+    add r7, 0x40
+    
+    ; 更新操作码
+    mov [r1+r3], r7
+    
+    jmp mutate_structure_success
+
+mutate_func:
+    ; 函数级变异：调整函数顺序
+    ; 1. 交换两个函数的位置
+    mov r2, fib_start - test_code  ; 函数1起始
+    mov r3, fact_start - test_code ; 函数2起始
+    mov r4, fact_start - fib_start ; 函数1大小
+    
+    ; 2. 备份函数1
+    push r1
+    push r2
+    push r3
+    push r4
+    call backup_function
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    
+    ; 3. 移动函数2到函数1的位置
+    mov r5, fact_done - fact_start ; 函数2大小
+    push r1
+    push r2
+    push r3
+    push r5
+    call move_function
+    pop r5
+    pop r3
+    pop r2
+    pop r1
+    
+    ; 4. 移动函数1到函数2的原位置
+    push r1
+    push r3
+    push r2
+    push r4
+    call move_function
+    pop r4
+    pop r2
+    pop r3
+    pop r1
+    
+    ; 5. 更新主程序中的调用
+    mov r2, main_start - test_code
+    mov r3, test_code_size - (main_start - test_code)
+    
+    push r1
+    push r2
+    push r3
+    call update_calls
+    pop r3
+    pop r2
+    pop r1
+    
+    jmp mutate_structure_success
+
+mutate_structure_success:
+    mov r7, 1
+    jmp mutate_structure_done
+    
+mutate_structure_failed:
+    mov r7, 0
+    
+mutate_structure_done:
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 指令重排函数
+; 输入：
+;   r1 = 代码基址
+;   r3 = 块偏移
+;   r4 = 块大小
+shuffle_instructions:
+    push r1
+    push r2
+    push r3
+    push r4
+    push r5
+    
+    ; 计算指令数量
+    mov r5, r4
+    div r5, 3                      ; 每条指令3字节
+    
+    ; 至少需要两条指令才能重排
+    cmp r5, 2
+    jl shuffle_done
+    
+shuffle_loop:
+    ; 生成随机索引
+    push r1
+    push r5
+    call get_random_offset
+    pop r5
+    pop r1
+    
+    ; 计算源地址
+    mov r2, r7
+    mul r2, 3
+    add r2, r3
+    add r2, r1
+    
+    ; 生成目标索引
+    push r1
+    push r5
+    call get_random_offset
+    pop r5
+    pop r1
+    
+    ; 计算目标地址
+    mov r4, r7
+    mul r4, 3
+    add r4, r3
+    add r4, r1
+    
+    ; 交换指令
+    mov r5, [r2]                   ; 保存源指令
+    mov r6, [r4]                   ; 保存目标指令
+    mov [r2], r6                   ; 写入目标指令
+    mov [r4], r5                   ; 写入源指令
+    
+    sub r5, 1
+    jnz shuffle_loop
+    
+shuffle_done:
+    pop r5
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 函数备份函数
+; 输入：
+;   r1 = 代码基址
+;   r2 = 函数偏移
+;   r3 = 目标偏移
+;   r4 = 函数大小
+backup_function:
+    push r1
+    push r2
+    push r3
+    push r4
+    push r5
+    
+    ; 复制函数代码到临时区域
+    mov r5, 0                      ; 当前偏移
+    
+backup_loop:
+    cmp r5, r4
+    je backup_done
+    
+    mov r6, [r1+r2+r5]            ; 读取源字节
+    mov [r1+r3+r5], r6            ; 写入目标位置
+    
+    add r5, 1
+    jmp backup_loop
+    
+backup_done:
+    pop r5
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 函数移动函数
+; 输入：
+;   r1 = 代码基址
+;   r2 = 源偏移
+;   r3 = 目标偏移
+;   r4 = 函数大小
+move_function:
+    push r1
+    push r2
+    push r3
+    push r4
+    push r5
+    
+    ; 复制函数代码到新位置
+    mov r5, 0                      ; 当前偏移
+    
+move_loop:
+    cmp r5, r4
+    je move_done
+    
+    mov r6, [r1+r2+r5]            ; 读取源字节
+    mov [r1+r3+r5], r6            ; 写入目标位置
+    
+    add r5, 1
+    jmp move_loop
+    
+move_done:
+    pop r5
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 更新函数调用
+; 输入：
+;   r1 = 代码基址
+;   r2 = 代码偏移
+;   r3 = 代码大小
+update_calls:
+    push r1
+    push r2
+    push r3
+    push r4
+    
+    ; 扫描代码查找call指令
+    mov r4, 0                      ; 当前偏移
+    
+update_loop:
+    cmp r4, r3
+    je update_done
+    
+    ; 读取操作码
+    mov r5, [r1+r2+r4]
+    and r5, 0xFF
+    
+    ; 检查是否是call指令
+    cmp r5, 0x50                   ; call
+    je update_call
+    
+    add r4, 3                      ; 移动到下一条指令
+    jmp update_loop
+    
+update_call:
+    ; 更新调用地址
+    mov r5, [r1+r2+r4+1]          ; 读取目标地址
+    
+    ; 检查是否调用fib_start
+    cmp r5, fib_start - test_code
+    je update_fib_call
+    
+    ; 检查是否调用fact_start
+    cmp r5, fact_start - test_code
+    je update_fact_call
+    
+    add r4, 3                      ; 移动到下一条指令
+    jmp update_loop
+    
+update_fib_call:
+    ; 更新为fact_start
+    mov r5, fact_start - test_code
+    mov [r1+r2+r4+1], r5
+    add r4, 3
+    jmp update_loop
+    
+update_fact_call:
+    ; 更新为fib_start
+    mov r5, fib_start - test_code
+    mov [r1+r2+r4+1], r5
+    add r4, 3
+    jmp update_loop
+    
+update_done:
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 结构验证函数
+; 输入：
+;   r1 = 代码地址
+; 输出：
+;   r7 = 验证结果
+verify_structure:
+    push r1
+    push r2
+    push r3
+    
+    mov r7, 1                      ; 假设验证成功
+    mov r2, 0                      ; 当前偏移
+    
+verify_loop:
+    cmp r2, test_code_size
+    je verify_done
+    
+    ; 读取操作码
+    mov r3, [r1+r2]
+    and r3, 0xFF
+    
+    ; 验证操作码有效性
+    call verify_opcode
+    cmp r7, 0
+    je verify_failed
+    
+    ; 验证操作数
+    add r2, 1
+    mov r3, [r1+r2]               ; 第一个操作数
+    call verify_operand
+    cmp r7, 0
+    je verify_failed
+    
+    add r2, 1
+    mov r3, [r1+r2]               ; 第二个操作数
+    call verify_operand
+    cmp r7, 0
+    je verify_failed
+    
+    add r2, 1
+    jmp verify_loop
+    
+verify_failed:
+    mov r7, 0
+    
+verify_done:
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 操作码验证
+; 输入：
+;   r3 = 操作码
+; 输出：
+;   r7 = 验证结果
+verify_opcode:
+    push r1
+    
+    mov r7, 0                      ; 假设验证失败
+    
+    ; 检查是否是有效操作码
+    cmp r3, 0x01                   ; mov
+    je verify_opcode_valid
+    cmp r3, 0x10                   ; add
+    je verify_opcode_valid
+    cmp r3, 0x11                   ; sub
+    je verify_opcode_valid
+    cmp r3, 0x12                   ; mul
+    je verify_opcode_valid
+    cmp r3, 0x13                   ; div
+    je verify_opcode_valid
+    cmp r3, 0x40                   ; jmp
+    je verify_opcode_valid
+    cmp r3, 0x41                   ; je
+    je verify_opcode_valid
+    cmp r3, 0x42                   ; jne
+    je verify_opcode_valid
+    cmp r3, 0x50                   ; call
+    je verify_opcode_valid
+    cmp r3, 0xFF                   ; hlt
+    je verify_opcode_valid
+    jmp verify_opcode_done
+    
+verify_opcode_valid:
+    mov r7, 1
+    
+verify_opcode_done:
+    pop r1
+    ret
+
+; 操作数验证
+; 输入：
+;   r3 = 操作数
+; 输出：
+;   r7 = 验证结果
+verify_operand:
+    push r1
+    
+    mov r7, 1                      ; 假设验证成功
+    
+    ; 检查寄存器编号是否有效
+    cmp r3, 8
+    jge verify_operand_failed
+    
+    jmp verify_operand_done
+    
+verify_operand_failed:
+    mov r7, 0
+    
+verify_operand_done:
+    pop r1
+    ret 

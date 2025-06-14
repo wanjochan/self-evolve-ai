@@ -1,0 +1,84 @@
+; 代码完整性验证测试
+section .data
+    ; 测试代码段
+    test_code:
+        ; 简单的加法程序
+        db 0x01, 0x01, 0x0A        ; mov r1, 10
+        db 0x01, 0x02, 0x14        ; mov r2, 20
+        db 0x10, 0x01, 0x02        ; add r1, r2
+        db 0xFF                    ; hlt
+    test_code_size: equ $ - test_code
+
+    ; 校验和计算区域
+    checksum: dq 0
+    temp_sum: dq 0
+
+section .code
+    ; 1. 计算原始代码的校验和
+    mov r1, test_code              ; 源地址
+    mov r2, test_code_size         ; 大小
+    call calc_checksum
+    mov [checksum], r7             ; 保存原始校验和
+
+    ; 2. 复制代码到新位置
+    mov r3, [CODE_SEGMENT_START]
+    add r3, 100                    ; 目标位置
+    write_code r3, test_code, test_code_size
+
+    ; 3. 验证复制的代码
+    mov r1, r3                     ; 新代码地址
+    mov r2, test_code_size         ; 大小
+    call calc_checksum
+    
+    ; 4. 比较校验和
+    mov r1, [checksum]
+    cmp r7, r1
+    jne verify_failed
+
+    ; 5. 执行基本语法检查
+    verify_code r3, test_code_size
+    
+    ; 6. 如果验证通过，执行新代码
+    jmp r3
+
+    ; 验证失败处理
+verify_failed:
+    mov r7, 1                      ; 返回错误码
+    hlt
+
+; 计算校验和函数
+; 输入：
+;   r1 = 代码地址
+;   r2 = 代码大小
+; 输出：
+;   r7 = 校验和
+calc_checksum:
+    push r1                        ; 保存寄存器
+    push r2
+    push r3
+    push r4
+    
+    mov [temp_sum], 0             ; 初始化校验和
+    
+checksum_loop:
+    cmp r2, 0                     ; 检查是否处理完
+    je checksum_done
+    
+    mov r3, [r1]                  ; 读取一个字节
+    mov r4, [temp_sum]
+    add r4, r3                    ; 累加到校验和
+    rol r4, 1                     ; 循环左移1位
+    mov [temp_sum], r4
+    
+    add r1, 1                     ; 移动到下一个字节
+    sub r2, 1
+    jmp checksum_loop
+    
+checksum_done:
+    mov r7, [temp_sum]            ; 返回校验和
+    
+    pop r4                        ; 恢复寄存器
+    pop r3
+    pop r2
+    pop r1
+    ret 

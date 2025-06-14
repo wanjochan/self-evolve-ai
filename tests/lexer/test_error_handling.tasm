@@ -1,0 +1,70 @@
+# 词法分析器错误处理测试
+# 本文件包含各种预期会产生词法错误的情况
+# 编译器应该能够正确识别和报告这些错误
+
+.section .data
+    # 1. 非法字符测试
+    illegal_char: db "@#$"  # 应该报告非法字符错误
+    
+    # 2. 非法标识符测试
+    123illegal_id: db 0     # 数字开头的标识符
+    illegal-id: db 0        # 包含非法字符的标识符
+    
+    # 3. 非法数值测试
+    illegal_hex: dd 0xGH    # 非法十六进制数
+    illegal_bin: dd 0b12    # 非法二进制数
+    overflow_num: dd 999999999999999999  # 数值溢出
+    
+    # 4. 非法字符串测试
+    unterminated_str: db "未闭合的字符串
+    illegal_escape: db "非法转义字符\k"
+    
+    # 5. 特殊情况测试
+    null_char: db `\0      # 未闭合的字符常量
+    unicode_err: db "非法Unicode字符\u123"  # 非法Unicode转义
+
+.section .text
+    global _start
+    extern ExitProcess
+
+_start:
+    # 6. 非法指令测试
+    movv rax, rbx          # 拼写错误的指令
+    push123 rax            # 非法指令名
+    
+    # 7. 非法寄存器测试
+    mov raxw, 1           # 非法寄存器名
+    mov [rbx + rzx], rax  # 非法寄存器在寻址中
+    
+    # 8. 非法操作数测试
+    mov rax, [rbx + 2*rcx]  # 非法的比例因子
+    mov rax, [rsp + 2**4]   # 非法的表达式
+    
+    # 9. 注释错误测试
+    /* 未闭合的多行注释
+    
+    # 10. 边界测试
+    mov rax, 0x123456789ABCDEF0123  # 超出范围的立即数
+    
+    # 11. 特殊字符测试
+    mov rax, '未闭合的字符常量
+    
+    # 12. 多重错误测试
+    mov123 rax#, [rbx + 2**4]  # 多个错误在同一行
+    
+    # 13. 空指令测试
+    ,,,,,                 # 连续的非法字符
+    
+    # 14. 标点符号测试
+    mov rax;rbx           # 缺少分隔符
+    add [rax + * rcx]     # 非法的操作符组合
+    
+    # 15. 空白字符测试
+    mov    rax,    	    # 未完成的指令
+    
+    # 如果编译器能正确报告以上所有错误
+    # 并且不会因为这些错误而崩溃
+    # 那么就说明错误处理机制是有效的
+    
+    xor eax, eax
+    call ExitProcess 

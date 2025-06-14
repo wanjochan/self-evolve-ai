@@ -1,0 +1,31 @@
+; 测试程序 - Hello World
+section .data
+    msg db "Hello, World!", 0
+
+section .code
+    ; 获取标准输出句柄
+    mov r0, 0xFFFFFFF5  ; STD_OUTPUT_HANDLE
+    syscall 1           ; GetStdHandle
+    mov r1, r0          ; 保存句柄
+
+    ; 计算消息长度
+    mov r2, 0           ; 长度计数器
+    mov r3, msg         ; 消息地址
+.strlen:
+    load r4, [r3]       ; 加载字符
+    cmp r4, 0           ; 检查是否到达字符串结尾
+    je .print           ; 如果是，跳转到打印
+    inc r2              ; 增加长度计数器
+    inc r3              ; 移动到下一个字符
+    jmp .strlen         ; 继续计算长度
+
+.print:
+    ; 打印消息
+    mov r0, r1          ; 控制台句柄
+    mov r1, msg         ; 消息地址
+    ; r2已经包含长度
+    syscall 2           ; WriteConsoleA
+
+    ; 退出程序
+    mov r0, 0           ; 退出码
+    syscall 4           ; ExitProcess 

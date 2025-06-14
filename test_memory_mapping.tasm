@@ -1,0 +1,139 @@
+; 内存映射可靠性测试
+section .data
+    ; 测试区域大小
+    TEST_SIZE: equ 4096           ; 4KB测试区域
+    PAGE_SIZE: equ 4096           ; 系统页大小
+    
+    ; 测试模式
+    test_patterns:
+        ; 页边界测试
+        dq 0                      ; 页起始
+        dq PAGE_SIZE              ; 页中间
+        dq PAGE_SIZE - 8          ; 页结束
+        ; 访问模式测试
+        dq TEST_SIZE / 4          ; 前四分之一
+        dq TEST_SIZE / 2          ; 中间
+        dq TEST_SIZE * 3 / 4      ; 后四分之一
+    pattern_count: equ 6
+    
+    ; 测试结果
+    mapping_results: times 6 dq 0  ; 每个测试点的结果
+
+section .code
+    ; 初始化
+    mov r7, 0                      ; 成功计数
+    mov r6, 0                      ; 当前测试索引
+
+test_loop:
+    ; 检查是否完成所有测试
+    cmp r6, pattern_count
+    je test_done
+    
+    ; 1. 获取当前测试偏移
+    mov r1, [test_patterns + r6*8]
+    
+    ; 2. 计算测试地址
+    mov r2, [CODE_SEGMENT_START]
+    add r2, r1                     ; 测试地址 = 基址 + 偏移
+    
+    ; 3. 写入测试代码
+    push r6
+    call write_test_code
+    pop r6
+    cmp r7, 0                      ; 检查写入是否成功
+    je test_failed
+    
+    ; 4. 执行映射测试
+    push r6
+    call test_mapping
+    pop r6
+    cmp r7, 0                      ; 检查测试是否成功
+    je test_failed
+    
+    ; 5. 记录成功
+    mov [mapping_results + r6*8], 1
+    add r7, 1                      ; 增加成功计数
+    jmp next_test
+    
+test_failed:
+    mov [mapping_results + r6*8], 0
+    
+next_test:
+    add r6, 1                      ; 移动到下一个测试
+    jmp test_loop
+    
+test_done:
+    hlt                            ; 返回成功计数
+
+; 写入测试代码
+; 输入：r2 = 目标地址
+; 输出：r7 = 成功标志
+write_test_code:
+    push r1
+    push r2
+    push r3
+    push r4
+    
+    ; 创建测试代码
+    mov r3, test_code             ; 源代码
+    mov r4, test_code_size        ; 代码大小
+    
+    ; 写入代码
+    write_code r2, r3, r4
+    verify_code r2, r4            ; 验证写入
+    
+    mov r7, 1                     ; 设置成功标志
+    
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 测试内存映射
+; 输入：r2 = 测试地址
+; 输出：r7 = 成功标志
+test_mapping:
+    push r1
+    push r2
+    push r3
+    push r4
+    
+    ; 1. 读取权限测试
+    mov r7, 1                     ; 假设成功
+    
+    ; 尝试读取
+    mov r3, [r2]
+    cmp r3, 0x01                  ; 应该是mov指令
+    jne mapping_failed
+    
+    ; 2. 写入权限测试
+    mov r3, 0x01
+    mov [r2], r3
+    mov r4, [r2]
+    cmp r4, r3
+    jne mapping_failed
+    
+    ; 3. 执行权限测试
+    push r2
+    jmp r2                        ; 执行测试代码
+    ; 如果执行成功，代码会返回这里
+    pop r2
+    
+    jmp mapping_done
+    
+mapping_failed:
+    mov r7, 0
+    
+mapping_done:
+    pop r4
+    pop r3
+    pop r2
+    pop r1
+    ret
+
+; 测试用的代码段
+test_code:
+    mov r1, 1                     ; 设置成功标志
+    ret                          ; 返回
+test_code_size: equ $ - test_code 

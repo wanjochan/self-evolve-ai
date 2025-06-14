@@ -1,0 +1,210 @@
+; 性能评估测试
+section .data
+    ; 性能指标类型
+    PERF_INSTRUCTION_COUNT: equ 1  ; 指令计数
+    PERF_MEMORY_ACCESS: equ 2     ; 内存访问
+    PERF_MUTATION_TIME: equ 3     ; 变异时间
+    PERF_EXECUTION_TIME: equ 4    ; 执行时间
+    
+    ; 测试参数
+    TEST_ITERATIONS: equ 1000     ; 测试迭代次数
+    MEMORY_SIZE: equ 1024         ; 测试内存大小
+    CODE_SIZE: equ 100           ; 测试代码大小
+    
+    ; 测试代码模板
+    test_code:
+        ; 计算密集型代码
+        mov r1, 0                 ; 计数器
+        mov r2, 1000             ; 上限
+    loop_start:
+        cmp r1, r2
+        jge loop_done
+        add r1, 1
+        mul r1, 2
+        div r1, 3
+        jmp loop_start
+    loop_done:
+        hlt
+    test_code_size: equ $ - test_code
+    
+    ; 性能结果存储
+    perf_results: times 4 dq 0    ; 每种指标的结果
+    
+    ; 临时存储区
+    temp_buffer: times 1024 db 0
+
+section .code
+    ; 初始化
+    mov r7, 0                     ; 总测试计数
+    mov r6, 0                     ; 当前测试类型
+
+test_loop:
+    ; 检查是否完成所有测试
+    cmp r6, 4
+    je test_done
+    
+    ; 根据测试类型执行不同的测试
+    add r6, 1                     ; 测试类型从1开始
+    
+    cmp r6, PERF_INSTRUCTION_COUNT
+    je measure_instruction_count
+    cmp r6, PERF_MEMORY_ACCESS
+    je measure_memory_access
+    cmp r6, PERF_MUTATION_TIME
+    je measure_mutation_time
+    cmp r6, PERF_EXECUTION_TIME
+    je measure_execution_time
+    
+    jmp next_test
+
+measure_instruction_count:
+    ; 准备测试代码
+    mov r1, [CODE_SEGMENT_START]
+    add r1, 1000                  ; 测试位置
+    write_code r1, test_code, test_code_size
+    
+    ; 重置指令计数器
+    mov [INSTRUCTION_COUNT], 0
+    
+    ; 执行测试代码
+    push r6
+    push r1
+    jmp r1                        ; 执行代码
+    
+    ; 返回后记录结果
+    pop r1
+    pop r6
+    mov r2, [INSTRUCTION_COUNT]
+    mov [perf_results], r2
+    
+    jmp next_test
+
+measure_memory_access:
+    ; 准备测试内存
+    mov r1, temp_buffer
+    mov r2, MEMORY_SIZE
+    mov r3, 0                     ; 当前偏移
+    
+    ; 重置访问计数器
+    mov [MEMORY_ACCESS_COUNT], 0
+    
+memory_test_loop:
+    cmp r3, r2
+    je memory_test_done
+    
+    ; 写入测试
+    mov [r1+r3], r3
+    
+    ; 读取测试
+    mov r4, [r1+r3]
+    
+    add r3, 1
+    jmp memory_test_loop
+    
+memory_test_done:
+    ; 记录结果
+    mov r2, [MEMORY_ACCESS_COUNT]
+    mov [perf_results+8], r2
+    
+    jmp next_test
+
+measure_mutation_time:
+    ; 准备测试代码
+    mov r1, [CODE_SEGMENT_START]
+    add r1, 2000                  ; 测试位置
+    write_code r1, test_code, test_code_size
+    
+    ; 重置时间计数器
+    mov [TIME_COUNT], 0
+    
+    ; 执行多次变异
+    mov r2, TEST_ITERATIONS
+    mov r3, 0                     ; 当前迭代
+    
+mutation_test_loop:
+    cmp r3, r2
+    je mutation_test_done
+    
+    ; 执行变异
+    push r1
+    push r2
+    push r3
+    mutate_code r1, test_code_size, 1
+    pop r3
+    pop r2
+    pop r1
+    
+    add r3, 1
+    jmp mutation_test_loop
+    
+mutation_test_done:
+    ; 记录结果
+    mov r2, [TIME_COUNT]
+    mov [perf_results+16], r2
+    
+    jmp next_test
+
+measure_execution_time:
+    ; 准备测试代码
+    mov r1, [CODE_SEGMENT_START]
+    add r1, 3000                  ; 测试位置
+    write_code r1, test_code, test_code_size
+    
+    ; 重置时间计数器
+    mov [TIME_COUNT], 0
+    
+    ; 执行多次测试
+    mov r2, TEST_ITERATIONS
+    mov r3, 0                     ; 当前迭代
+    
+execution_test_loop:
+    cmp r3, r2
+    je execution_test_done
+    
+    ; 执行代码
+    push r1
+    push r2
+    push r3
+    jmp r1
+    pop r3
+    pop r2
+    pop r1
+    
+    add r3, 1
+    jmp execution_test_loop
+    
+execution_test_done:
+    ; 记录结果
+    mov r2, [TIME_COUNT]
+    mov [perf_results+24], r2
+    
+    jmp next_test
+
+next_test:
+    add r7, 1                     ; 增加测试计数
+    jmp test_loop
+
+test_done:
+    ; 计算平均值
+    mov r1, 0                     ; 结果索引
+    
+average_loop:
+    cmp r1, 32                    ; 4个结果 * 8字节
+    je test_complete
+    
+    ; 读取结果
+    mov r2, [perf_results+r1]
+    
+    ; 除以迭代次数
+    mov r3, TEST_ITERATIONS
+    div r2, r3
+    
+    ; 保存平均值
+    mov [perf_results+r1], r2
+    
+    add r1, 8
+    jmp average_loop
+    
+test_complete:
+    mov r7, 1                     ; 返回成功
+    hlt 

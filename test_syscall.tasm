@@ -1,0 +1,16 @@
+; SYSCALL指令测试程序
+
+; 1. 基本SYSCALL测试
+syscall 0x01     ; API_WIN_GETSTDHANDLE
+mov r7, r0       ; 保存返回值
+
+; 2. 多个SYSCALL测试
+syscall 0x02     ; API_WIN_WRITECONSOLEA
+mov r7, r0       ; 保存返回值
+
+syscall 0x03     ; API_WIN_READCONSOLEA
+mov r7, r0       ; 保存返回值
+
+; 3. 退出程序
+syscall 0x04     ; API_WIN_EXITPROCESS
+hlt              ; 停止执行 

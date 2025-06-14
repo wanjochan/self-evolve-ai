@@ -1,0 +1,66 @@
+# 基本指令编码测试
+# 返回值0表示测试通过,非0表示失败
+
+.section .data
+    test_count: dd 0
+    fail_count: dd 0
+
+.section .text
+    global _start
+    extern ExitProcess
+
+_start:
+    # 初始化
+    mov dword [test_count], 0
+    mov dword [fail_count], 0
+    
+    # 测试1: 基本算术运算
+    inc dword [test_count]
+    mov rax, 5
+    add rax, 3
+    cmp rax, 8
+    je .test1_pass
+    inc dword [fail_count]
+.test1_pass:
+
+    # 测试2: 位运算
+    inc dword [test_count]
+    mov rax, 0xFF
+    and rax, 0xF0
+    cmp rax, 0xF0
+    je .test2_pass
+    inc dword [fail_count]
+.test2_pass:
+
+    # 测试3: 条件跳转
+    inc dword [test_count]
+    mov rax, 1
+    cmp rax, 1
+    jne .test3_fail
+    jmp .test3_pass
+.test3_fail:
+    inc dword [fail_count]
+.test3_pass:
+
+    # 测试4: 栈操作
+    inc dword [test_count]
+    mov rax, 0x12345678
+    push rax
+    pop rbx
+    cmp rbx, rax
+    je .test4_pass
+    inc dword [fail_count]
+.test4_pass:
+
+    # 测试5: 内存操作
+    inc dword [test_count]
+    mov qword [rsp-8], 0xAABBCCDD
+    mov rax, [rsp-8]
+    cmp rax, 0xAABBCCDD
+    je .test5_pass
+    inc dword [fail_count]
+.test5_pass:
+
+    # 返回测试结果
+    mov eax, [fail_count]
+    call ExitProcess    ; 如果所有测试通过,返回0 

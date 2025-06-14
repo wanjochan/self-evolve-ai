@@ -1,0 +1,10 @@
+; 最小化TASM程序
+; 目标：验证Python编译器的基本功能
+
+section data
+msg: db "Hello from TASM!", 0
+
+section code
+start:
+    mov r0, 0
+    syscall 4 

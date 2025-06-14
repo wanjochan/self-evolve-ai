@@ -1,0 +1,34 @@
+; 自修改代码测试
+section .data
+    ; 新代码段
+    new_code:
+        db 0x01, 0x01, 0x0A        ; mov r1, 10
+        db 0x01, 0x02, 0x14        ; mov r2, 20
+        db 0x10, 0x01, 0x02        ; add r1, r2
+        db 0xFF                    ; hlt
+
+section .code
+    ; 1. 初始化测试
+    mov r1, 0                  ; r1 = 0 (初始值)
+    mov r2, 0                  ; r2 = 0 (初始值)
+
+    ; 2. 读取当前代码段位置
+    mov r3, [CODE_SEGMENT_START]
+    mov r4, [CODE_SEGMENT_SIZE]
+
+    ; 3. 计算新代码的目标位置（当前位置+100字节）
+    mov r5, r3
+    add r5, 100
+
+    ; 4. 写入新代码
+    write_code r5, new_code, 10
+
+    ; 5. 验证新代码
+    verify_code r5, 10
+
+    ; 6. 跳转到新代码
+    jmp r5
+
+    ; 如果执行到这里，说明出错了
+    mov r7, 1
+    hlt 
