@@ -1,0 +1,4 @@
+# 简单的TASM测试文件
+.section .text
+_start:
+    ret 

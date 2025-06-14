@@ -44,7 +44,20 @@ typedef enum {
     TOK_WHILE,     /* while */
     TOK_RETURN,    /* return */
     TOK_FUNCTION,  /* function */
-    TOK_VAR        /* var */
+    TOK_VAR,       /* var */
+    
+    /* TASM特有标记 */
+    TOK_SECTION,   /* .section */
+    TOK_DB,        /* db */
+    TOK_DW,        /* dw */
+    TOK_DD,        /* dd */
+    TOK_DQ,        /* dq */
+    TOK_EQU,       /* equ */
+    TOK_TIMES,     /* times */
+    TOK_COMMENT,   /* # 注释 */
+    TOK_REGISTER,  /* 寄存器 */
+    TOK_LABEL,     /* 标签: */
+    TOK_INSTRUCTION/* 指令 */
 } TokenType;
 
 /* 令牌结构 */
@@ -71,7 +84,19 @@ typedef enum {
     OP_JNZ,        /* 非零跳转 */
     OP_CALL,       /* 调用函数 */
     OP_RET,        /* 返回 */
-    OP_MOV         /* 移动 */
+    OP_MOV,        /* 移动 */
+    OP_XOR,        /* 异或 */
+    OP_LEAVE,      /* 离开函数 */
+    
+    /* TASM特有操作码 */
+    OP_SECTION,    /* 定义节 */
+    OP_LABEL,      /* 定义标签 */
+    OP_DB,         /* 定义字节 */
+    OP_DW,         /* 定义字 */
+    OP_DD,         /* 定义双字 */
+    OP_DQ,         /* 定义四字 */
+    OP_EQU,        /* 定义常量 */
+    OP_TIMES       /* 重复定义 */
 } OpCode;
 
 /* IR指令 */
@@ -103,6 +128,19 @@ typedef struct {
     u32 capacity;
 } SymbolTable;
 
+/* 常量定义 */
+typedef struct {
+    char *name;
+    u64 value;
+} Constant;
+
+/* 常量表 */
+typedef struct {
+    Constant *constants;
+    u32 count;
+    u32 capacity;
+} ConstantTable;
+
 /* 词法分析器 */
 typedef struct {
     char *source;
@@ -123,6 +161,7 @@ typedef struct {
 typedef struct {
     IRProgram *program;
     SymbolTable *symbols;
+    ConstantTable *constants;
     u8 *code;
     u32 code_size;
     u32 code_capacity;
@@ -149,5 +188,6 @@ CodeGen* codegen_create(IRProgram *program);
 void codegen_destroy(CodeGen *codegen);
 void codegen_generate_x86_64(CodeGen *codegen);
 int codegen_write_elf(CodeGen *codegen, const char *filename);
+int codegen_write_pe(CodeGen *codegen, const char *filename);
 
 #endif /* BOOTSTRAP_H */ 
