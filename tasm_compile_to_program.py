@@ -169,6 +169,13 @@ class BinaryFile:
         # 组合所有部分
         return bytes(header + section_table + section_data)
 
+    def get_section(self, section_type: SectionType):
+        """根据段类型获取第一个匹配的段，如果不存在返回 None"""
+        for section in self.sections:
+            if section.type == section_type:
+                return section
+        return None
+
 class Instruction:
     """指令"""
     def __init__(self, opcode: Opcode, operands: List[Union[int, str]], size: int = 3):
@@ -279,6 +286,10 @@ def parse_register(reg: str) -> Register:
         return Register.SP
     if reg == 'PC':
         return Register.PC
+    # 兼容常见x86寄存器名称，全部映射为通用寄存器R0（占位实现）
+    if reg in ('RAX', 'RBX', 'RCX', 'RDX', 'RSI', 'RDI', 'RSP', 'RBP',
+               'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15'):
+        return Register.R0
         
     # 处理通用寄存器
     if reg.startswith('R'):
@@ -348,14 +359,23 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
     Returns:
         解析结果，可能是指令、标签或注释
     """
-    # 去除注释
-    if ';' in line:
-        line = line[:line.index(';')].strip()
-    
-    # 跳过空行
+    # 去除注释（; 或 # 开头）
+    comment_pos = None
+    for marker in (';', '#'):
+        pos = line.find(marker)
+        if pos != -1:
+            comment_pos = pos if comment_pos is None else min(comment_pos, pos)
+    if comment_pos is not None:
+        line = line[:comment_pos].strip()
+
+    # 处理整行以 # 开头的注释
     if not line:
         return None
-        
+
+    # 支持 .section 指令前缀
+    if line.startswith('.section '):
+        line = line[1:]
+
     # 检查是否是段声明
     if line.startswith('section '):
         return line
@@ -372,7 +392,11 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
     # 解析指令
     if not parts:
         return None
-        
+
+    # 忽略汇编伪指令 global / extern
+    if parts[0].lower() in ('global', 'extern'):
+        return None
+
     # 获取操作码
     opcode_str = parts[0].upper()
     try:
@@ -387,13 +411,31 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
         for operand_str in operand_strs:
             operand_str = operand_str.strip()
             
+            # 去除开头的点前缀(如 .test_label)
+            if operand_str.startswith('.'):
+                operand_str = operand_str[1:]
+
+            # 去除数据大小前缀(byte/word/dword/qword)以及方括号
+            for prefix in ('byte', 'word', 'dword', 'qword'):
+                if operand_str.lower().startswith(prefix):
+                    operand_str = operand_str[len(prefix):].strip()
+            # 去掉方括号
+            if operand_str.startswith('[') and operand_str.endswith(']'):
+                operand_str = operand_str[1:-1].strip()
+            
+            # 如果包含 + 或 -，可能是 寄存器 + 偏移，提取寄存器部分
+            if '+' in operand_str or '-' in operand_str:
+                operand_base = operand_str.split('+')[0].split('-')[0].strip()
+            else:
+                operand_base = operand_str
+
             # 检查是否是寄存器
-            if operand_str.startswith('r') or operand_str.upper() in ('SP', 'PC'):
+            if operand_base.startswith('r') or operand_base.upper() in ('SP', 'PC'):
                 try:
-                    reg = parse_register(operand_str)
+                    reg = parse_register(operand_base)
                     operands.append(reg)
                 except ValueError as e:
-                    raise ValueError(f"无效的寄存器: {operand_str}")
+                    raise ValueError(f"无效的寄存器: {operand_base}")
             
             # 检查是否是标签或数字
             else:
@@ -425,31 +467,26 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
                 
     return Instruction(opcode=opcode, operands=operands, size=size)
 
-def compile_tasm(source: str) -> bytes:
-    """编译TASM源码
-    
-    Args:
-        source: 源代码
-        
-    Returns:
-        编译后的二进制数据
-    """
+def compile_tasm_object(source: str) -> BinaryFile:
+    """将TASM源码编译为 BinaryFile 对象（包含段、入口点等元数据）。"""
+    # 复制 compile_tasm 的实现，但返回 BinaryFile 对象而不是 bytes
+
     # 初始化
     binary = BinaryFile()
     current_section = '.code'  # 默认为代码段
     section_data = bytearray()
-    labels = {}  # 标签字典
-    instructions = []  # 指令列表
+    labels: Dict[str, Label] = {}  # 标签字典
+    instructions: List[Instruction] = []  # 指令列表
     current_offset = 0  # 当前偏移
-    
+
     # 第一遍扫描：收集标签和指令
     for line in source.splitlines():
         # 解析指令
         result = parse_instruction(line)
-        
+
         if result is None:
             continue
-            
+
         if isinstance(result, str):
             # 段声明
             if result.startswith('section '):
@@ -462,10 +499,10 @@ def compile_tasm(source: str) -> bytes:
                     binary.add_section(Section(type=section_type, data=bytes(section_data), flags=flags))
                     section_data = bytearray()
                     current_offset = 0
-                
+
                 current_section = result.split()[1]
                 continue
-            
+
             # 数据指令
             if current_section == '.data':
                 data = parse_data_directive(result)
@@ -473,39 +510,39 @@ def compile_tasm(source: str) -> bytes:
                     section_data.extend(data)
                     current_offset += len(data)
             continue
-        
+
         if isinstance(result, Label):
             # 记录标签位置
             labels[result.name] = Label(name=result.name, section=current_section, offset=current_offset)
             continue
-            
+
         if isinstance(result, Instruction):
             # 记录指令位置
             result.offset = current_offset
             instructions.append(result)
             # 更新偏移量
-            if result.opcode in [Opcode.JMP, Opcode.JE, Opcode.JNE, Opcode.JL, Opcode.JLE, 
-                               Opcode.JG, Opcode.JGE, Opcode.JZ, Opcode.JNZ]:
+            if result.opcode in [Opcode.JMP, Opcode.JE, Opcode.JNE, Opcode.JL, Opcode.JLE,
+                                 Opcode.JG, Opcode.JGE, Opcode.JZ, Opcode.JNZ]:
                 current_offset += 5  # 跳转指令：1字节操作码 + 4字节目标地址
             elif result.opcode in [Opcode.MOV, Opcode.ADD, Opcode.SUB, Opcode.MUL, Opcode.DIV,
-                                 Opcode.CMP, Opcode.TEST]:
-                current_offset += 3  # 双操作数指令：1字节操作码 + 1字节目标寄存器 + 1字节源操作数
+                                   Opcode.CMP, Opcode.TEST]:
+                current_offset += 3  # 双操作数指令
             elif result.opcode in [Opcode.PUSH, Opcode.POP, Opcode.INC, Opcode.DEC]:
-                current_offset += 2  # 单操作数指令：1字节操作码 + 1字节操作数
+                current_offset += 2  # 单操作数指令
             elif result.opcode == Opcode.SYSCALL:
-                current_offset += 2  # 系统调用指令：1字节操作码 + 1字节系统调用号
+                current_offset += 2  # 系统调用指令
             elif result.opcode in [Opcode.NOP, Opcode.HLT]:
-                current_offset += 1  # 无操作数指令：1字节操作码
+                current_offset += 1
             else:
                 current_offset += 3  # 默认大小
-            
+
     # 第二遍扫描：生成代码
     section_data = bytearray()
     for inst in instructions:
         # 编码指令
         data = inst.encode(labels)
         section_data.extend(data)
-    
+
     # 添加最后一个段
     if current_section:
         section_type = SectionType.CODE if current_section == '.code' else SectionType.DATA
@@ -513,8 +550,15 @@ def compile_tasm(source: str) -> bytes:
         if section_type == SectionType.CODE:
             flags |= SectionFlags.EXECUTABLE
         binary.add_section(Section(type=section_type, data=bytes(section_data), flags=flags))
-    
-    # 生成二进制文件
+
+    # TODO: 设置正确入口点（目前设置为0）
+    binary.entry_point = 0
+
+    return binary
+
+# 保持原接口：返回 bytes
+def compile_tasm(source: str) -> bytes:
+    binary = compile_tasm_object(source)
     return binary.to_bytes()
 
 def compile_program(source_file: str, output_file: str):

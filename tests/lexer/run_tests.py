@@ -13,7 +13,7 @@ from typing import List
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from tasm_common import Lexer, TokenType, CompileError
+from tasm_common import Lexer, TokenType, CompileError, Token
 
 class LexerTestRunner:
     def __init__(self):
