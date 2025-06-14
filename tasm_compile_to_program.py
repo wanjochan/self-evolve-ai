@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERROR#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 TASM编译器 - 将TASM源码编译为Program格式(TIR)
@@ -423,13 +423,19 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
             if operand_str.startswith('[') and operand_str.endswith(']'):
                 operand_str = operand_str[1:-1].strip()
             
+            # 如果包含 + 或 -，可能是 寄存器 + 偏移，提取寄存器部分
+            if '+' in operand_str or '-' in operand_str:
+                operand_base = operand_str.split('+')[0].split('-')[0].strip()
+            else:
+                operand_base = operand_str
+
             # 检查是否是寄存器
-            if operand_str.startswith('r') or operand_str.upper() in ('SP', 'PC'):
+            if operand_base.startswith('r') or operand_base.upper() in ('SP', 'PC'):
                 try:
-                    reg = parse_register(operand_str)
+                    reg = parse_register(operand_base)
                     operands.append(reg)
                 except ValueError as e:
-                    raise ValueError(f"无效的寄存器: {operand_str}")
+                    raise ValueError(f"无效的寄存器: {operand_base}")
             
             # 检查是否是标签或数字
             else:
