@@ -1,0 +1,113 @@
+# 词法分析器宏指令测试
+# 本文件用于测试词法分析器对宏指令的支持
+
+.section .data
+    # 测试数据
+    test_value: dd 0
+
+.section .text
+    global _start
+    extern ExitProcess
+
+# 基本宏定义
+%macro PRINT_MSG 1
+    mov rax, 1      # 系统调用号: write
+    mov rdi, 1      # 文件描述符: stdout
+    mov rsi, %1     # 消息缓冲区
+    mov rdx, %1_len # 消息长度
+    syscall
+%endmacro
+
+# 带参数计数的宏
+%macro ADD_VALUES 2-4
+    mov rax, %1
+    add rax, %2
+    %if %0 >= 3
+        add rax, %3
+    %endif
+    %if %0 >= 4
+        add rax, %4
+    %endif
+%endmacro
+
+# 条件宏
+%macro CONDITIONAL_MOVE 3
+    %if %3 == 0
+        mov %1, %2
+    %else
+        xor %1, %1
+    %endif
+%endmacro
+
+# 重复宏
+%macro PUSH_MULTIPLE 1-*
+    %rep %0
+        push %1
+        %rotate 1
+    %endrep
+%endmacro
+
+# 嵌套宏
+%macro NESTED_MACRO 2
+    %define INNER_VALUE %1
+    %macro INNER_MACRO 1
+        mov rax, INNER_VALUE
+        add rax, %1
+    %endmacro
+    INNER_MACRO %2
+%endmacro
+
+_start:
+    # 测试基本宏
+    PRINT_MSG hello_msg
+    
+    # 测试带参数计数的宏
+    ADD_VALUES 10, 20
+    ADD_VALUES 10, 20, 30
+    ADD_VALUES 10, 20, 30, 40
+    
+    # 测试条件宏
+    CONDITIONAL_MOVE rax, 100, 0
+    CONDITIONAL_MOVE rbx, 200, 1
+    
+    # 测试重复宏
+    PUSH_MULTIPLE rax, rbx, rcx, rdx
+    
+    # 测试嵌套宏
+    NESTED_MACRO 50, 25
+    
+    # 测试宏中的特殊字符和转义
+    %define SPECIAL_CHAR "特殊字符: \", \', \\, \n"
+    
+    # 测试宏中的注释
+    %macro COMMENT_MACRO 1
+        # 这是宏内的注释
+        mov rax, %1  ; 这是行内注释
+        /* 这是多行注释
+           在宏内部 */
+    %endmacro
+    
+    # 测试宏展开
+    %define TEMP_VALUE 42
+    mov rax, TEMP_VALUE
+    %undef TEMP_VALUE
+    
+    # 测试宏中的标签
+    %macro LABEL_MACRO 1
+    .local_%1:
+        mov rax, %1
+        jmp .end_%1
+    .end_%1:
+    %endmacro
+    
+    LABEL_MACRO 1
+    LABEL_MACRO 2
+    
+    # 如果能成功编译到这里
+    # 说明词法分析器能正确处理宏指令
+    xor eax, eax  ; 返回0表示成功
+    call ExitProcess
+    
+.section .data
+    hello_msg: db "Hello, Macro World!", 10
+    hello_msg_len: equ $ - hello_msg

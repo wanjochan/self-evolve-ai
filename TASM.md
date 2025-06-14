@@ -7,6 +7,11 @@ TASM (Token-ASM) 是自进化AI系统的统一中间表示，设计目标：
 - Program: 能作为平台无关的可执行格式，支持解释执行和JIT
 - Loader: 便于生成各平台的本地加载器
 
+本文档规范并不固化！当前工作重点为：尽快定义和实现最小子集实现（示意如下）：
+python tasm_compiler_to_exe.py compile0.tasm compile0.exe
+compile0.exe compile0.tasm compile1.exe
+compile1.exe compile1.tasm compile2.exe
+
 ## 2. TASM 二进制格式
 
 ### 文件头 (16字节)

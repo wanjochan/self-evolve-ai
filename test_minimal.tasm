@@ -1,0 +1,21 @@
+# 最小TASM程序
+# 用于测试编译器
+
+.section .data
+    message: db "Hello, World!", 0
+
+.section .text
+    global _start
+
+_start:
+    # 基本指令测试
+    mov rax, 1      # 系统调用号: write
+    mov rdi, 1      # 文件描述符: stdout
+    mov rsi, message # 消息缓冲区
+    mov rdx, 13     # 消息长度
+    syscall
+    
+    # 退出程序
+    mov rax, 60     # 系统调用号: exit
+    xor rdi, rdi    # 返回值: 0
+    syscall 

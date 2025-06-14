@@ -235,6 +235,16 @@ class Instruction:
                 if self.operands[1] > 255:
                     raise ValueError(f"立即数超出范围(0-255): {self.operands[1]}")
                 data.append(self.operands[1])
+            elif isinstance(self.operands[1], str):  # 标签
+                if labels is None:
+                    raise ValueError("未提供标签字典")
+                if self.operands[1] not in labels:
+                    raise ValueError(f"未定义的标签: {self.operands[1]}")
+                # 使用标签的偏移量作为立即数
+                offset = labels[self.operands[1]].offset
+                if offset > 255:
+                    raise ValueError(f"标签偏移量超出范围(0-255): {offset}")
+                data.append(offset)
             else:
                 raise ValueError(f"无效的源操作数: {self.operands[1]}")
                 
@@ -331,11 +341,41 @@ def parse_data_directive(line: str) -> Optional[bytes]:
     if line.startswith('db '):
         # 解析字节数据
         data = []
-        for item in line[3:].split(','):
+        # 处理字符串和数字混合的情况
+        items = []
+        in_string = False
+        quote_char = None
+        current_item = ""
+        
+        for char in line[3:]:
+            if in_string:
+                current_item += char
+                if char == quote_char:
+                    in_string = False
+                    items.append(current_item)
+                    current_item = ""
+            else:
+                if char in ('"', "'"):
+                    in_string = True
+                    quote_char = char
+                    current_item = char
+                elif char == ',':
+                    if current_item.strip():
+                        items.append(current_item.strip())
+                    current_item = ""
+                else:
+                    current_item += char
+        
+        if current_item.strip():
+            items.append(current_item.strip())
+        
+        for item in items:
             item = item.strip()
-            if item.startswith('"') and item.endswith('"'):
+            if (item.startswith('"') and item.endswith('"')) or \
+               (item.startswith("'") and item.endswith("'")):
                 # 字符串
-                data.extend(item[1:-1].encode('utf-8'))
+                string_content = item[1:-1]
+                data.extend(string_content.encode('utf-8'))
             else:
                 # 数字
                 data.append(parse_number(item) & 0xFF)
@@ -445,10 +485,8 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
                     operands.append(value)
                 except ValueError:
                     # 如果不是数字，则作为标签处理
-                    if operand_str.isidentifier():  # 检查是否是有效的标识符
-                        operands.append(operand_str)  # 标签名
-                    else:
-                        raise ValueError(f"无效的操作数: {operand_str}")
+                    # 不需要检查是否是有效的标识符，直接作为标签名
+                    operands.append(operand_str)  # 标签名
     
     # 根据指令类型设置指令大小
     size = 3  # 默认大小
@@ -469,8 +507,6 @@ def parse_instruction(line: str) -> Optional[Union[Instruction, Label, str]]:
 
 def compile_tasm_object(source: str) -> BinaryFile:
     """将TASM源码编译为 BinaryFile 对象（包含段、入口点等元数据）。"""
-    # 复制 compile_tasm 的实现，但返回 BinaryFile 对象而不是 bytes
-
     # 初始化
     binary = BinaryFile()
     current_section = '.code'  # 默认为代码段
@@ -478,81 +514,109 @@ def compile_tasm_object(source: str) -> BinaryFile:
     labels: Dict[str, Label] = {}  # 标签字典
     instructions: List[Instruction] = []  # 指令列表
     current_offset = 0  # 当前偏移
+    data_sections = {}  # 数据段内容
+    code_sections = {}  # 代码段内容
 
     # 第一遍扫描：收集标签和指令
-    for line in source.splitlines():
-        # 解析指令
-        result = parse_instruction(line)
+    for line_num, line in enumerate(source.splitlines(), 1):
+        line = line.strip()
+        
+        # 跳过空行和注释行
+        if not line or line.startswith(';') or line.startswith('#'):
+            continue
+            
+        # 检查是否是标签定义
+        if ':' in line:
+            parts = line.split(':', 1)
+            label_name = parts[0].strip()
+            rest_of_line = parts[1].strip() if len(parts) > 1 else ""
+            
+            # 记录标签位置
+            labels[label_name] = Label(name=label_name, section=current_section, offset=current_offset)
+            
+            # 如果标签后面还有内容，继续处理
+            line = rest_of_line
+            if not line:
+                continue
+        
+        # 检查是否是段声明
+        if line.startswith('.section ') or line.startswith('section '):
+            if current_section:
+                # 保存当前段的内容和偏移
+                if current_section.endswith('.data'):
+                    data_sections[current_section] = (section_data, current_offset)
+                else:
+                    code_sections[current_section] = (instructions.copy(), current_offset)
+                
+                # 重置状态
+                section_data = bytearray()
+                instructions = []
+                current_offset = 0
 
-        if result is None:
+            current_section = line.split()[1] if line.startswith('section ') else line.split()[1]
+            continue
+            
+        # 忽略汇编伪指令 global / extern
+        if line.startswith('global ') or line.startswith('extern '):
             continue
 
-        if isinstance(result, str):
-            # 段声明
-            if result.startswith('section '):
-                if current_section:
-                    # 添加当前段
-                    section_type = SectionType.CODE if current_section == '.code' else SectionType.DATA
-                    flags = SectionFlags.READABLE
-                    if section_type == SectionType.CODE:
-                        flags |= SectionFlags.EXECUTABLE
-                    binary.add_section(Section(type=section_type, data=bytes(section_data), flags=flags))
-                    section_data = bytearray()
-                    current_offset = 0
-
-                current_section = result.split()[1]
-                continue
-
+        # 解析指令或数据指令
+        if current_section.endswith('.data'):
             # 数据指令
-            if current_section == '.data':
-                data = parse_data_directive(result)
+            if line.startswith('db '):
+                data = parse_data_directive(line)
                 if data:
                     section_data.extend(data)
                     current_offset += len(data)
-            continue
+            elif line.startswith('times '):
+                parts = line[6:].split(' ', 1)
+                if len(parts) == 2:
+                    count = parse_number(parts[0])
+                    rest = parts[1]
+                    if rest.startswith('db '):
+                        data = parse_data_directive(rest)
+                        if data:
+                            section_data.extend(data * count)
+                            current_offset += len(data) * count
+        else:
+            # 代码指令
+            result = parse_instruction(line)
+            if result and isinstance(result, Instruction):
+                # 记录指令位置
+                result.offset = current_offset
+                instructions.append(result)
+                # 更新偏移量
+                current_offset += result.size
 
-        if isinstance(result, Label):
-            # 记录标签位置
-            labels[result.name] = Label(name=result.name, section=current_section, offset=current_offset)
-            continue
-
-        if isinstance(result, Instruction):
-            # 记录指令位置
-            result.offset = current_offset
-            instructions.append(result)
-            # 更新偏移量
-            if result.opcode in [Opcode.JMP, Opcode.JE, Opcode.JNE, Opcode.JL, Opcode.JLE,
-                                 Opcode.JG, Opcode.JGE, Opcode.JZ, Opcode.JNZ]:
-                current_offset += 5  # 跳转指令：1字节操作码 + 4字节目标地址
-            elif result.opcode in [Opcode.MOV, Opcode.ADD, Opcode.SUB, Opcode.MUL, Opcode.DIV,
-                                   Opcode.CMP, Opcode.TEST]:
-                current_offset += 3  # 双操作数指令
-            elif result.opcode in [Opcode.PUSH, Opcode.POP, Opcode.INC, Opcode.DEC]:
-                current_offset += 2  # 单操作数指令
-            elif result.opcode == Opcode.SYSCALL:
-                current_offset += 2  # 系统调用指令
-            elif result.opcode in [Opcode.NOP, Opcode.HLT]:
-                current_offset += 1
-            else:
-                current_offset += 3  # 默认大小
+    # 保存最后一个段的内容
+    if current_section:
+        if current_section.endswith('.data'):
+            data_sections[current_section] = (section_data, current_offset)
+        else:
+            code_sections[current_section] = (instructions.copy(), current_offset)
 
     # 第二遍扫描：生成代码
-    section_data = bytearray()
-    for inst in instructions:
-        # 编码指令
-        data = inst.encode(labels)
-        section_data.extend(data)
-
-    # 添加最后一个段
-    if current_section:
-        section_type = SectionType.CODE if current_section == '.code' else SectionType.DATA
-        flags = SectionFlags.READABLE
-        if section_type == SectionType.CODE:
-            flags |= SectionFlags.EXECUTABLE
+    for section_name, (section_insts, _) in code_sections.items():
+        section_data = bytearray()
+        for inst in section_insts:
+            # 编码指令
+            data = inst.encode(labels)
+            section_data.extend(data)
+            
+        # 添加代码段
+        section_type = SectionType.CODE
+        flags = SectionFlags.READABLE | SectionFlags.EXECUTABLE
+        binary.add_section(Section(type=section_type, data=bytes(section_data), flags=flags))
+        
+    # 添加数据段
+    for section_name, (section_data, _) in data_sections.items():
+        section_type = SectionType.DATA
+        flags = SectionFlags.READABLE | SectionFlags.WRITABLE
         binary.add_section(Section(type=section_type, data=bytes(section_data), flags=flags))
 
-    # TODO: 设置正确入口点（目前设置为0）
-    binary.entry_point = 0
+    # 设置入口点
+    if '_start' in labels:
+        binary.entry_point = labels['_start'].offset
 
     return binary
 

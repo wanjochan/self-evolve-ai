@@ -1,0 +1,259 @@
+# 词法分析器性能测试
+# 本文件用于测试词法分析器的性能表现
+# 包含大量重复代码和各种类型的词法单元，用于测试分析速度和内存使用
+
+.section .data
+    # 大量字符串常量 - 测试字符串处理性能
+    str_001: db "性能测试字符串 001", 0
+    str_002: db "性能测试字符串 002", 0
+    str_003: db "性能测试字符串 003", 0
+    str_004: db "性能测试字符串 004", 0
+    str_005: db "性能测试字符串 005", 0
+    str_006: db "性能测试字符串 006", 0
+    str_007: db "性能测试字符串 007", 0
+    str_008: db "性能测试字符串 008", 0
+    str_009: db "性能测试字符串 009", 0
+    str_010: db "性能测试字符串 010", 0
+    
+    # 大量数值常量 - 测试数值处理性能
+    num_dec_001: dd 1001
+    num_dec_002: dd 1002
+    num_dec_003: dd 1003
+    num_dec_004: dd 1004
+    num_dec_005: dd 1005
+    num_hex_001: dd 0x1A01
+    num_hex_002: dd 0x1A02
+    num_hex_003: dd 0x1A03
+    num_hex_004: dd 0x1A04
+    num_hex_005: dd 0x1A05
+    num_bin_001: dd 0b10101001
+    num_bin_002: dd 0b10101010
+    num_bin_003: dd 0b10101011
+    num_bin_004: dd 0b10101100
+    num_bin_005: dd 0b10101101
+    
+    # 大量标识符 - 测试标识符处理性能
+    id_001: dq 0
+    id_002: dq 0
+    id_003: dq 0
+    id_004: dq 0
+    id_005: dq 0
+    _id_006: dq 0
+    _id_007: dq 0
+    _id_008: dq 0
+    _id_009: dq 0
+    _id_010: dq 0
+    id_011_long_identifier_name_for_performance_testing: dq 0
+    id_012_long_identifier_name_for_performance_testing: dq 0
+    id_013_long_identifier_name_for_performance_testing: dq 0
+    id_014_long_identifier_name_for_performance_testing: dq 0
+    id_015_long_identifier_name_for_performance_testing: dq 0
+
+.section .text
+    global _start
+    extern ExitProcess
+
+# 大量标签 - 测试标签处理性能
+label_001:
+label_002:
+label_003:
+label_004:
+label_005:
+label_006:
+label_007:
+label_008:
+label_009:
+label_010:
+
+_start:
+    # 大量注释 - 测试注释处理性能
+    # 这是注释 001
+    # 这是注释 002
+    # 这是注释 003
+    # 这是注释 004
+    # 这是注释 005
+    
+    /* 这是多行注释 001
+       包含多行内容
+       测试多行注释处理性能 */
+       
+    /* 这是多行注释 002
+       包含多行内容
+       测试多行注释处理性能 */
+       
+    /* 这是多行注释 003
+       包含多行内容
+       测试多行注释处理性能 */
+    
+    # 大量指令 - 测试指令处理性能
+    # 块 1 - 基本指令
+    push rbp
+    mov rbp, rsp
+    sub rsp, 64
+    xor rax, rax
+    xor rbx, rbx
+    xor rcx, rcx
+    xor rdx, rdx
+    xor rsi, rsi
+    xor rdi, rdi
+    xor r8, r8
+    xor r9, r9
+    
+    # 块 2 - 数据移动
+    mov rax, 1
+    mov rbx, 2
+    mov rcx, 3
+    mov rdx, 4
+    mov rsi, 5
+    mov rdi, 6
+    mov r8, 7
+    mov r9, 8
+    mov r10, 9
+    mov r11, 10
+    
+    # 块 3 - 内存操作
+    mov rax, [num_dec_001]
+    mov rbx, [num_dec_002]
+    mov rcx, [num_dec_003]
+    mov rdx, [num_dec_004]
+    mov rsi, [num_dec_005]
+    mov rdi, [num_hex_001]
+    mov r8, [num_hex_002]
+    mov r9, [num_hex_003]
+    mov r10, [num_hex_004]
+    mov r11, [num_hex_005]
+    
+    # 块 4 - 复杂寻址
+    mov rax, [rbx + rcx*4]
+    mov rbx, [rcx + rdx*4]
+    mov rcx, [rdx + rsi*4]
+    mov rdx, [rsi + rdi*4]
+    mov rsi, [rdi + r8*4]
+    mov rdi, [r8 + r9*4]
+    mov r8, [r9 + r10*4]
+    mov r9, [r10 + r11*4]
+    mov r10, [r11 + rax*4]
+    mov r11, [rax + rbx*4]
+    
+    # 块 5 - 条件跳转
+    cmp rax, rbx
+    je label_001
+    cmp rbx, rcx
+    jne label_002
+    cmp rcx, rdx
+    jl label_003
+    cmp rdx, rsi
+    jle label_004
+    cmp rsi, rdi
+    jg label_005
+    cmp rdi, r8
+    jge label_006
+    cmp r8, r9
+    jz label_007
+    cmp r9, r10
+    jnz label_008
+    
+    # 块 6 - 算术运算
+    add rax, rbx
+    sub rbx, rcx
+    mul rcx
+    div rdx
+    inc rsi
+    dec rdi
+    neg r8
+    not r9
+    and r10, r11
+    or r11, rax
+    xor rax, rbx
+    shl rbx, 4
+    shr rcx, 4
+    
+    # 块 7 - 函数调用
+    call label_009
+    ret
+    
+    # 块 8 - 系统调用
+    mov rax, 1      # write
+    mov rdi, 1      # stdout
+    mov rsi, str_001
+    mov rdx, 20
+    syscall
+    
+    mov rax, 60     # exit
+    xor rdi, rdi
+    syscall
+    
+    # 如果能成功分析这个文件
+    # 说明词法分析器具有良好的性能
+    xor eax, eax
+    call ExitProcess
+
+# 额外的大段代码，用于测试大文件处理性能
+# 重复上面的代码块多次
+
+# 重复块 1
+    push rbp
+    mov rbp, rsp
+    sub rsp, 64
+    xor rax, rax
+    xor rbx, rbx
+    xor rcx, rcx
+    xor rdx, rdx
+    xor rsi, rsi
+    xor rdi, rdi
+    xor r8, r8
+    xor r9, r9
+
+# 重复块 2
+    mov rax, 1
+    mov rbx, 2
+    mov rcx, 3
+    mov rdx, 4
+    mov rsi, 5
+    mov rdi, 6
+    mov r8, 7
+    mov r9, 8
+    mov r10, 9
+    mov r11, 10
+
+# 重复块 3
+    mov rax, [num_dec_001]
+    mov rbx, [num_dec_002]
+    mov rcx, [num_dec_003]
+    mov rdx, [num_dec_004]
+    mov rsi, [num_dec_005]
+    mov rdi, [num_hex_001]
+    mov r8, [num_hex_002]
+    mov r9, [num_hex_003]
+    mov r10, [num_hex_004]
+    mov r11, [num_hex_005]
+
+# 重复块 4
+    mov rax, [rbx + rcx*4]
+    mov rbx, [rcx + rdx*4]
+    mov rcx, [rdx + rsi*4]
+    mov rdx, [rsi + rdi*4]
+    mov rsi, [rdi + r8*4]
+    mov rdi, [r8 + r9*4]
+    mov r8, [r9 + r10*4]
+    mov r9, [r10 + r11*4]
+    mov r10, [r11 + rax*4]
+    mov r11, [rax + rbx*4]
+
+# 重复块 5
+    cmp rax, rbx
+    je label_001
+    cmp rbx, rcx
+    jne label_002
+    cmp rcx, rdx
+    jl label_003
+    cmp rdx, rsi
+    jle label_004
+    cmp rsi, rdi
+    jg label_005
+    cmp rdi, r8
+    jge label_006
+    cmp r8, r9
+    jz label_007
+    cmp r9, r10
+    jnz label_008

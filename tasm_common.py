@@ -310,9 +310,20 @@ class TokenType(Enum):
     COMMA = ','          # 逗号
     LBRACKET = '['      # 左方括号
     RBRACKET = ']'      # 右方括号
+    LPAREN = '('        # 左括号
+    RPAREN = ')'        # 右括号
     PLUS = '+'          # 加号
     MINUS = '-'         # 减号
     STAR = '*'          # 星号
+    CURRENT_POSITION = '$'  # 当前位置
+    
+    # 比较运算符
+    EQUALS = '=='       # 等于
+    NOT_EQUALS = '!='   # 不等于
+    GREATER = '>'       # 大于
+    GREATER_EQUALS = '>='  # 大于等于
+    LESS = '<'          # 小于
+    LESS_EQUALS = '<='  # 小于等于
     
     # 关键字
     SECTION = 'section'  # 段声明
@@ -320,14 +331,24 @@ class TokenType(Enum):
     DW = 'dw'           # 字定义
     DD = 'dd'           # 双字定义
     DQ = 'dq'           # 四字定义
+    RESB = 'resb'       # 保留字节
+    RESW = 'resw'       # 保留字
+    RESD = 'resd'       # 保留双字
+    RESQ = 'resq'       # 保留四字
+    TIMES = 'times'     # 重复
+    ALIGN = 'align'     # 对齐
     GLOBAL = 'global'   # 全局标签
     EXTERN = 'extern'   # 外部标签
     
     # 标识符和常量
     IDENTIFIER = 'IDENTIFIER'  # 标识符
-    NUMBER = 'NUMBER'         # 数字
-    STRING = 'STRING'         # 字符串
-    REGISTER = 'REGISTER'     # 寄存器
+    NUMBER = 'NUMBER'          # 数字
+    STRING = 'STRING'          # 字符串
+    REGISTER = 'REGISTER'      # 寄存器
+    
+    # 宏相关
+    MACRO = 'MACRO'            # 宏指令
+    MACRO_PARAM = 'MACRO_PARAM'  # 宏参数
 
 @dataclass
 class Token:
@@ -443,8 +464,8 @@ class Lexer:
         # 记录起始位置
         start_line = self.line
         start_column = self.column
-        quote = self.current_char  # 引号类型 (" 或 ')
         result = ''
+        quote = self.current_char  # 引号类型 (" 或 ')
         self.advance()  # 跳过引号
         
         while self.current_char and self.current_char != quote:
@@ -453,10 +474,24 @@ class Lexer:
                 if not self.current_char:
                     self.error("字符串未闭合")
                 # 处理转义字符
-                if self.current_char in 'nrt\\':
+                if self.current_char in 'nrt\\\'"':
+                    # 支持常见转义字符: \n, \r, \t, \\, \', \"
                     result += '\\' + self.current_char
+                elif self.current_char == 'n':
+                    result += '\n'  # 换行符
+                elif self.current_char == 'r':
+                    result += '\r'  # 回车符
+                elif self.current_char == 't':
+                    result += '\t'  # 制表符
+                elif self.current_char == '\\':
+                    result += '\\'  # 反斜杠
+                elif self.current_char == '"':
+                    result += '"'  # 双引号
+                elif self.current_char == '\'':
+                    result += '\''  # 单引号
                 else:
-                    self.error(f"无效的转义字符: \\{self.current_char}")
+                    # 对于其他未知的转义序列，保留原样
+                    result += '\\' + self.current_char
             else:
                 result += self.current_char
             self.advance()
@@ -474,14 +509,32 @@ class Lexer:
         start_column = self.column
         result = ''
         
+        # 检查是否是宏指令（以%开头）
+        is_macro = False
+        if self.current_char == '%':
+            is_macro = True
+            result += self.current_char
+            self.advance()
+        
         while self.current_char and (self.current_char.isalnum() or 
               self.current_char == '_'):
             result += self.current_char
             self.advance()
             
+        # 如果是宏指令，直接返回
+        if is_macro:
+            # 检查常见的宏指令关键字
+            if result.lower() in ['%macro', '%endmacro', '%if', '%else', '%endif', 
+                                '%rep', '%endrep', '%define', '%undef', '%rotate']:
+                return Token(TokenType.MACRO, result, start_line, start_column)
+            # 宏参数（如 %1, %2 等）
+            if len(result) > 1 and result[1:].isdigit():
+                return Token(TokenType.MACRO_PARAM, result, start_line, start_column)
+            return Token(TokenType.MACRO, result, start_line, start_column)
+            
         # 检查是否是关键字
         upper = result.upper()
-        if upper in ['SECTION', 'DB', 'DW', 'DD', 'DQ', 'GLOBAL', 'EXTERN']:
+        if upper in ['SECTION', 'DB', 'DW', 'DD', 'DQ', 'RESB', 'RESW', 'RESD', 'RESQ', 'TIMES', 'ALIGN', 'GLOBAL', 'EXTERN']:
             return Token(TokenType[upper], result, start_line, start_column)
             
         # 检查是否是寄存器
@@ -509,6 +562,39 @@ class Lexer:
             line = self.line
             column = self.column
             
+            # 处理当前位置符号($)
+            if self.current_char == '$':
+                self.advance()
+                return Token(TokenType.CURRENT_POSITION, '$', line, column)
+                
+            # 处理比较运算符
+            if self.current_char == '=':
+                self.advance()
+                if self.current_char == '=':
+                    self.advance()
+                    return Token(TokenType.EQUALS, '==', line, column)
+                # 单个等号暂不处理，可能是赋值操作
+                self.error(f"无效的字符序列: =")
+            elif self.current_char == '!':
+                self.advance()
+                if self.current_char == '=':
+                    self.advance()
+                    return Token(TokenType.NOT_EQUALS, '!=', line, column)
+                # 单个感叹号暂不处理
+                self.error(f"无效的字符序列: !")
+            elif self.current_char == '>':
+                self.advance()
+                if self.current_char == '=':
+                    self.advance()
+                    return Token(TokenType.GREATER_EQUALS, '>=', line, column)
+                return Token(TokenType.GREATER, '>', line, column)
+            elif self.current_char == '<':
+                self.advance()
+                if self.current_char == '=':
+                    self.advance()
+                    return Token(TokenType.LESS_EQUALS, '<=', line, column)
+                return Token(TokenType.LESS, '<', line, column)
+            
             # 处理标点符号
             if self.current_char == ':':
                 self.advance()
@@ -522,6 +608,12 @@ class Lexer:
             elif self.current_char == ']':
                 self.advance()
                 return Token(TokenType.RBRACKET, ']', line, column)
+            elif self.current_char == '(':
+                self.advance()
+                return Token(TokenType.LPAREN, '(', line, column)
+            elif self.current_char == ')':
+                self.advance()
+                return Token(TokenType.RPAREN, ')', line, column)
             elif self.current_char == '+':
                 self.advance()
                 return Token(TokenType.PLUS, '+', line, column)
@@ -540,8 +632,8 @@ class Lexer:
             if self.current_char in '"\'':
                 return self.read_string()
                 
-            # 处理标识符和关键字
-            if self.current_char.isalpha() or self.current_char == '_':
+            # 处理标识符和关键字（包括宏指令）
+            if self.current_char.isalpha() or self.current_char == '_' or self.current_char == '%':
                 return self.read_identifier()
                 
             # 处理点前缀(如 .section .data)
@@ -553,4 +645,306 @@ class Lexer:
             self.error(f"无效的字符: {self.current_char}")
             
         # 文件结束
-        return Token(TokenType.EOF, '', self.line, self.column) 
+        return Token(TokenType.EOF, '', self.line, self.column)
+
+@dataclass
+class Node:
+    """语法树节点"""
+    type: str
+    value: str = ''
+    line: int = 0
+    column: int = 0
+    children: List['Node'] = None
+    
+    def __post_init__(self):
+        if self.children is None:
+            self.children = []
+    
+    def add_child(self, node: 'Node'):
+        """添加子节点"""
+        self.children.append(node)
+        
+    def __str__(self):
+        """字符串表示"""
+        return self._str_indent(0)
+        
+    def _str_indent(self, indent: int) -> str:
+        """带缩进的字符串表示"""
+        result = ' ' * indent + f"{self.type}"
+        if self.value:
+            result += f"({self.value})"
+        result += f" [{self.line}:{self.column}]"
+        
+        if self.children:
+            result += ":\n"
+            for child in self.children:
+                result += child._str_indent(indent + 2) + "\n"
+        return result
+
+
+class Parser:
+    """语法分析器"""
+    def __init__(self, source: str, filename: str = ""):
+        self.lexer = Lexer(source, filename)
+        self.current_token = None
+        self.filename = filename
+        self.advance()  # 获取第一个词法单元
+        
+    def advance(self):
+        """获取下一个词法单元"""
+        self.current_token = self.lexer.get_next_token()
+        
+    def error(self, message: str):
+        """报告语法错误"""
+        raise CompileError(message, self.current_token.line, 
+                         self.current_token.column, self.filename)
+        
+    def eat(self, token_type: TokenType):
+        """消费当前词法单元"""
+        if self.current_token.type == token_type:
+            token = self.current_token
+            self.advance()
+            return token
+        else:
+            self.error(f"语法错误: 期望 {token_type.name}，但得到 {self.current_token.type.name}")
+            
+    def synchronize(self):
+        """错误恢复 - 跳过当前语句"""
+        # 跳过直到遇到语句分隔符或新的语句开始
+        while self.current_token.type != TokenType.EOF:
+            if self.current_token.type == TokenType.NEWLINE:
+                self.advance()
+                return
+            if self.current_token.type == TokenType.SECTION:
+                return
+            if self.current_token.type == TokenType.IDENTIFIER and \
+               self.current_token.value.lower() in ['global', 'extern']:
+                return
+            self.advance()
+            
+    def parse(self) -> Node:
+        """解析程序"""
+        root = Node('PROGRAM', line=1, column=1)
+        
+        while self.current_token.type != TokenType.EOF:
+            try:
+                statement = self.parse_statement()
+                if statement:
+                    root.add_child(statement)
+            except CompileError as e:
+                print(f"错误: {e}")
+                self.synchronize()
+                
+        return root
+        
+    def parse_statement(self) -> Optional[Node]:
+        """解析语句"""
+        if self.current_token.type == TokenType.SECTION:
+            return self.parse_section()
+        elif self.current_token.type == TokenType.IDENTIFIER:
+            if self.current_token.value.lower() == 'global':
+                return self.parse_global()
+            elif self.current_token.value.lower() == 'extern':
+                return self.parse_extern()
+            else:
+                # 检查是否是标签
+                token = self.current_token
+                self.advance()
+                if self.current_token.type == TokenType.COLON:
+                    self.advance()
+                    node = Node('LABEL', token.value, token.line, token.column)
+                    return node
+                else:
+                    # 指令
+                    node = Node('INSTRUCTION', token.value, token.line, token.column)
+                    # 解析操作数
+                    while self.current_token.type != TokenType.EOF and \
+                          self.current_token.type != TokenType.NEWLINE:
+                        if self.current_token.type == TokenType.COMMA:
+                            self.advance()
+                            continue
+                        operand = self.parse_operand()
+                        node.add_child(operand)
+                        if self.current_token.type != TokenType.COMMA:
+                            break
+                    return node
+        elif self.current_token.type in [TokenType.DB, TokenType.DW, TokenType.DD, TokenType.DQ]:
+            return self.parse_data_definition()
+        elif self.current_token.type in [TokenType.RESB, TokenType.RESW, TokenType.RESD, TokenType.RESQ]:
+            return self.parse_reserve_definition()
+        elif self.current_token.type == TokenType.TIMES:
+            return self.parse_times_directive()
+        elif self.current_token.type == TokenType.ALIGN:
+            return self.parse_align_directive()
+        
+        # 跳过不能识别的语句
+        self.synchronize()
+        return None
+        
+    def parse_section(self) -> Node:
+        """解析段声明"""
+        token = self.eat(TokenType.SECTION)
+        name = self.eat(TokenType.IDENTIFIER).value
+        return Node('SECTION', name, token.line, token.column)
+        
+    def parse_global(self) -> Node:
+        """解析全局标签声明"""
+        token = self.eat(TokenType.GLOBAL)
+        name = self.eat(TokenType.IDENTIFIER).value
+        return Node('GLOBAL', name, token.line, token.column)
+        
+    def parse_extern(self) -> Node:
+        """解析外部标签声明"""
+        token = self.eat(TokenType.EXTERN)
+        name = self.eat(TokenType.IDENTIFIER).value
+        return Node('EXTERN', name, token.line, token.column)
+        
+    def parse_data_definition(self) -> Node:
+        """解析数据定义"""
+        token = self.current_token
+        self.advance()
+        node = Node(token.type.name, '', token.line, token.column)
+        
+        # 解析数据值
+        value = self.parse_expression()
+        node.add_child(value)
+        
+        return node
+        
+    def parse_operand(self) -> Node:
+        """解析操作数"""
+        token = self.current_token
+        
+        if token.type == TokenType.REGISTER:
+            self.advance()
+            return Node('REGISTER', token.value, token.line, token.column)
+        elif token.type == TokenType.NUMBER:
+            self.advance()
+            return Node('NUMBER', token.value, token.line, token.column)
+        elif token.type == TokenType.STRING:
+            self.advance()
+            return Node('STRING', token.value, token.line, token.column)
+        elif token.type == TokenType.LBRACKET:
+            # 内存操作数
+            self.advance()
+            node = Node('MEMORY', '', token.line, token.column)
+            
+            # 解析内存表达式
+            expr = self.parse_expression()
+            node.add_child(expr)
+            
+            self.eat(TokenType.RBRACKET)
+            return node
+        elif token.type == TokenType.IDENTIFIER:
+            self.advance()
+            return Node('IDENTIFIER', token.value, token.line, token.column)
+        else:
+            self.error(f"无效的操作数: {token.value}")
+            
+    def parse_expression(self) -> Node:
+        """解析表达式"""
+        return self.parse_additive_expression()
+        
+    def parse_additive_expression(self) -> Node:
+        """解析加减表达式"""
+        node = self.parse_multiplicative_expression()
+        
+        while self.current_token.type in [TokenType.PLUS, TokenType.MINUS]:
+            token = self.current_token
+            if token.type == TokenType.PLUS:
+                self.advance()
+                right = self.parse_multiplicative_expression()
+                node = Node('BINARY_OP', '+', token.line, token.column, [node, right])
+            elif token.type == TokenType.MINUS:
+                self.advance()
+                right = self.parse_multiplicative_expression()
+                node = Node('BINARY_OP', '-', token.line, token.column, [node, right])
+            
+        return node
+        
+    def parse_multiplicative_expression(self) -> Node:
+        """解析乘除表达式"""
+        node = self.parse_primary_expression()
+        
+        while self.current_token.type == TokenType.STAR:
+            token = self.current_token
+            self.advance()
+            right = self.parse_primary_expression()
+            node = Node('BINARY_OP', '*', token.line, token.column, [node, right])
+            
+        return node
+        
+    def parse_primary_expression(self) -> Node:
+        """解析基本表达式"""
+        token = self.current_token
+        
+        if token.type == TokenType.LPAREN:
+            self.advance()
+            node = self.parse_expression()
+            self.eat(TokenType.RPAREN)
+            return node
+        elif token.type == TokenType.NUMBER:
+            self.advance()
+            return Node('NUMBER', token.value, token.line, token.column)
+        elif token.type == TokenType.STRING:
+            self.advance()
+            return Node('STRING', token.value, token.line, token.column)
+        elif token.type == TokenType.REGISTER:
+            self.advance()
+            return Node('REGISTER', token.value, token.line, token.column)
+        elif token.type == TokenType.IDENTIFIER:
+            self.advance()
+            return Node('IDENTIFIER', token.value, token.line, token.column)
+        elif token.type == TokenType.PLUS:
+            self.advance()
+            operand = self.parse_primary_expression()
+            return Node('UNARY_PLUS', '+', token.line, token.column, [operand])
+        elif token.type == TokenType.MINUS:
+            self.advance()
+            operand = self.parse_primary_expression()
+            return Node('UNARY_MINUS', '-', token.line, token.column, [operand])
+        else:
+            self.error(f"无效的表达式: {token.value}")
+
+    def parse_reserve_definition(self) -> Node:
+        """解析保留空间定义"""
+        token = self.current_token
+        self.advance()
+        node = Node(token.type.name, '', token.line, token.column)
+        
+        # 解析大小
+        size = self.parse_expression()
+        node.add_child(size)
+        
+        return node
+        
+    def parse_times_directive(self) -> Node:
+        """解析times指令"""
+        token = self.eat(TokenType.TIMES)
+        node = Node('TIMES', '', token.line, token.column)
+        
+        # 解析重复次数
+        count = self.parse_expression()
+        node.add_child(count)
+        
+        # 解析重复的指令或数据定义
+        if self.current_token.type in [TokenType.DB, TokenType.DW, TokenType.DD, TokenType.DQ]:
+            directive = self.parse_data_definition()
+        elif self.current_token.type in [TokenType.RESB, TokenType.RESW, TokenType.RESD, TokenType.RESQ]:
+            directive = self.parse_reserve_definition()
+        else:
+            directive = self.parse_statement()
+        
+        node.add_child(directive)
+        return node
+        
+    def parse_align_directive(self) -> Node:
+        """解析align指令"""
+        token = self.eat(TokenType.ALIGN)
+        node = Node('ALIGN', '', token.line, token.column)
+        
+        # 解析对齐值
+        value = self.parse_expression()
+        node.add_child(value)
+        
+        return node
