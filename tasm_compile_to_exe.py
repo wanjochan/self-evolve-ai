@@ -13,6 +13,8 @@ from tasm_common import (
     SectionType, SectionFlags, Opcode, Section, BinaryFile,
     Label, Instruction, Register
 )
+from tasm_compile_to_program import compile_tasm_object
+from dataclasses import dataclass
 
 # PE文件格式常量
 IMAGE_DOS_SIGNATURE = 0x5A4D      # MZ
@@ -25,11 +27,20 @@ IMAGE_SCN_MEM_EXECUTE = 0x20000000
 IMAGE_SCN_MEM_READ = 0x40000000
 IMAGE_SCN_MEM_WRITE = 0x80000000
 
+@dataclass
+class PESection:
+    """PE节信息简单封装，用于PEBuilder内部"""
+    name: str
+    data: bytes
+    flags: int
+    file_offset: int = 0
+    virtual_address: int = 0
+
 class PEBuilder:
     """PE文件构建器"""
     
     def __init__(self):
-        self.sections: List[Section] = []
+        self.sections: List[PESection] = []
         self.entry_point = 0
         self.image_base = 0x400000
         self.section_alignment = 0x1000
@@ -38,7 +49,7 @@ class PEBuilder:
         
     def add_section(self, name: str, data: bytes, flags: int):
         """添加节"""
-        self.sections.append(Section(
+        self.sections.append(PESection(
             name=name,
             data=data,
             flags=flags
@@ -86,7 +97,7 @@ class PEBuilder:
         ])
         
         # PE头
-        pe_header = struct.pack('<IHHIIIHHHHHHHH',
+        pe_header = struct.pack('<IHHIIIHHHHHHHHH',
             IMAGE_NT_SIGNATURE,        # Signature
             IMAGE_FILE_MACHINE_AMD64,  # Machine
             len(self.sections),        # NumberOfSections
@@ -182,8 +193,8 @@ def compile_to_exe(source_file: str, output_file: str):
     with open(source_file, 'r', encoding='utf-8') as f:
         source = f.read()
     
-    # 编译为TASM格式
-    binary = compile_tasm(source)
+    # 编译为 BinaryFile 对象
+    binary = compile_tasm_object(source)
     
     # 创建PE构建器
     builder = PEBuilder()

@@ -382,7 +382,7 @@ class Lexer:
     def skip_comment(self) -> None:
         """跳过注释"""
         # 单行注释
-        if self.current_char == ';':
+        if self.current_char == ';' or self.current_char == '#':
             while self.current_char and self.current_char != '\n':
                 self.advance()
             return
@@ -500,7 +500,7 @@ class Lexer:
                 continue
                 
             # 处理注释
-            if self.current_char == ';' or (self.current_char == '/' and 
+            if self.current_char in (';', '#') or (self.current_char == '/' and 
                self.peek() == '*'):
                 self.skip_comment()
                 continue
@@ -543,6 +543,12 @@ class Lexer:
             # 处理标识符和关键字
             if self.current_char.isalpha() or self.current_char == '_':
                 return self.read_identifier()
+                
+            # 处理点前缀(如 .section .data)
+            if self.current_char == '.':
+                # 直接跳过点，下一轮会解析标识符
+                self.advance()
+                continue
                 
             self.error(f"无效的字符: {self.current_char}")
             
