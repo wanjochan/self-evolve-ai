@@ -191,7 +191,11 @@ static Token lexer_read_identifier(Lexer *lexer) {
     } else if (strcmp(value, "var") == 0) {
         token.type = TOK_VAR;
     } else {
+        // 默认为标识符
+        token.type = TOK_IDENT;
+        
         // 检查是否是标签定义
+        lexer_skip_whitespace(lexer);
         char next_char = lexer_current_char(lexer);
         if (next_char == ':') {
             token.type = TOK_LABEL;
@@ -207,8 +211,6 @@ static Token lexer_read_identifier(Lexer *lexer) {
                 // 标记为已经处理了equ
                 token.type = TOK_LABEL;
             }
-        } else {
-            token.type = TOK_IDENT;
         }
     }
     
@@ -419,7 +421,7 @@ static void parser_expect(Parser *parser, TokenType type, const char *message) {
     if (parser->current.type == type) {
         parser_advance(parser);
     } else {
-        fprintf(stderr, "语法错误: %s 在 %d:%d\n", 
+        fprintf(stderr, "Syntax error: %s at %d:%d\n", 
                 message, parser->current.line, parser->current.column);
         exit(1);
     }
@@ -511,7 +513,7 @@ static void parse_tasm_statement(Parser *parser, IRProgram *program) {
                 u64 value = strtoul(parser->previous.value, NULL, 0);
                 ir_program_add(program, OP_EQU, (u64)name, value, 0);
             } else {
-                fprintf(stderr, "语法错误: EQU后应有数值 在 %d:%d\n", 
+                fprintf(stderr, "Syntax error: Expected number after EQU at %d:%d\n", 
                         parser->current.line, parser->current.column);
                 exit(1);
             }
@@ -563,7 +565,7 @@ static void parse_tasm_statement(Parser *parser, IRProgram *program) {
     }
     
     // 未知语句
-    fprintf(stderr, "语法错误: 未知的TASM语句 在 %d:%d\n", 
+    fprintf(stderr, "Syntax error: Unknown TASM statement at %d:%d\n", 
             parser->current.line, parser->current.column);
     exit(1);
 }
@@ -571,7 +573,7 @@ static void parse_tasm_statement(Parser *parser, IRProgram *program) {
 /* 解析节定义 */
 static void parse_tasm_section(Parser *parser, IRProgram *program) {
     // 期望标识符作为节名
-    parser_expect(parser, TOK_IDENT, "节定义后应有节名");
+    parser_expect(parser, TOK_IDENT, "Expected section name after section directive");
     char *section_name = parser->previous.value;
     
     // 添加节定义指令
@@ -593,7 +595,7 @@ static void parse_tasm_label(Parser *parser, IRProgram *program) {
             u64 value = strtoul(parser->previous.value, NULL, 0);
             ir_program_add(program, OP_EQU, (u64)label_name, value, 0);
         } else {
-            fprintf(stderr, "语法错误: EQU后应有数值 在 %d:%d\n", 
+            fprintf(stderr, "Syntax error: Expected number after EQU at %d:%d\n", 
                     parser->current.line, parser->current.column);
             exit(1);
         }
@@ -607,7 +609,7 @@ static void parse_tasm_instruction(Parser *parser, IRProgram *program) {
     int inst_index = is_instruction(inst_name);
     
     if (inst_index < 0) {
-        fprintf(stderr, "语法错误: 未知指令 '%s' 在 %d:%d\n", 
+        fprintf(stderr, "Syntax error: Unknown instruction '%s' at %d:%d\n", 
                 inst_name, parser->current.line, parser->current.column);
         exit(1);
     }
@@ -819,10 +821,26 @@ static void codegen_destroy(CodeGen *codegen) {
     if (codegen) {
         if (codegen->symbols) {
             if (codegen->symbols->symbols) {
+                // 释放符号名称内存
+                for (u32 i = 0; i < codegen->symbols->count; i++) {
+                    free(codegen->symbols->symbols[i].name);
+                }
                 free(codegen->symbols->symbols);
             }
             free(codegen->symbols);
         }
+        
+        if (codegen->constants) {
+            if (codegen->constants->constants) {
+                // 释放常量名称内存
+                for (u32 i = 0; i < codegen->constants->count; i++) {
+                    free(codegen->constants->constants[i].name);
+                }
+                free(codegen->constants->constants);
+            }
+            free(codegen->constants);
+        }
+        
         if (codegen->code) {
             free(codegen->code);
         }
@@ -939,13 +957,16 @@ static void codegen_generate_x86_64(CodeGen *codegen) {
     // 当前代码偏移
     u32 code_offset = 0;
     
-    // 第一遍：收集标签和符号
+    // 第一遍：收集标签、符号和常量
     for (u32 i = 0; i < codegen->program->count; i++) {
         IRInst *inst = &codegen->program->insts[i];
         
         switch (inst->op) {
             case OP_LABEL:
                 codegen_add_symbol(codegen, (const char*)inst->arg1, code_offset, 0);
+                break;
+            case OP_EQU:
+                codegen_add_constant(codegen, (const char*)inst->arg1, inst->arg2);
                 break;
             case OP_DB:
                 code_offset += 1;
@@ -1039,13 +1060,32 @@ static void codegen_generate_x86_64(CodeGen *codegen) {
                     // MOV r64, r64
                     codegen_emit_byte(codegen, 0x48); // REX.W
                     codegen_emit_byte(codegen, 0x89); // MOV r/m64, r64
-                    codegen_emit_byte(codegen, 0xC0 | ((inst->arg1 & 0xFF) << 3) | (inst->arg2 & 0xFF)); // ModR/M
+                    codegen_emit_byte(codegen, 0xC0 | ((inst->arg2 & 0xFF) << 3) | (inst->arg1 & 0xFF)); // ModR/M
                 } else if (inst->arg1 & 0x100) {
-                    // MOV r64, imm32
-                    codegen_emit_byte(codegen, 0x48); // REX.W
-                    codegen_emit_byte(codegen, 0xC7); // MOV r/m64, imm32
-                    codegen_emit_byte(codegen, 0xC0 | (inst->arg1 & 0xFF)); // ModR/M
-                    codegen_emit_dword(codegen, inst->arg2); // imm32
+                    // 检查是否是常量引用
+                    if (inst->arg2 > 0 && !(inst->arg2 & 0x100) && ((char*)inst->arg2)[0] != '\0') {
+                        // 可能是常量名称
+                        Constant *constant = codegen_find_constant(codegen, (const char*)inst->arg2);
+                        if (constant) {
+                            // 是常量引用，使用常量值
+                            // MOV r64, imm64
+                            codegen_emit_byte(codegen, 0x48 + ((inst->arg1 & 8) >> 1)); // REX.W + r8-r15
+                            codegen_emit_byte(codegen, 0xB8 + (inst->arg1 & 7)); // MOV r64, imm64
+                            codegen_emit_qword(codegen, constant->value); // 常量值
+                        } else {
+                            // 未找到常量，可能是标签引用
+                            // MOV r64, imm32
+                            codegen_emit_byte(codegen, 0x48); // REX.W
+                            codegen_emit_byte(codegen, 0xC7); // MOV r/m64, imm32
+                            codegen_emit_byte(codegen, 0xC0 | (inst->arg1 & 0xFF)); // ModR/M
+                            codegen_emit_dword(codegen, 0); // 占位符
+                        }
+                    } else {
+                        // MOV r64, imm64
+                        codegen_emit_byte(codegen, 0x48 + ((inst->arg1 & 8) >> 1)); // REX.W + r8-r15
+                        codegen_emit_byte(codegen, 0xB8 + (inst->arg1 & 7)); // MOV r64, imm64
+                        codegen_emit_qword(codegen, inst->arg2); // imm64
+                    }
                 }
                 break;
             case OP_PUSH:
