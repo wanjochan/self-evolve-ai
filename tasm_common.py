@@ -97,6 +97,7 @@ class Opcode(Enum):
     NOT = 0x23    # 取反
     SHL = 0x24    # 左移
     SHR = 0x25    # 右移
+    LEAVE = 0x26  # 恢复栈帧
     
     # 比较指令
     CMP = 0x30    # 比较

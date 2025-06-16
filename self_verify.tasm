@@ -1,0 +1,107 @@
+; 自验证机制 - 确保生成的代码符合预期
+
+section .data
+    test_cases:
+        ; 测试用例1: 简单加法
+        db OP_MOV, R1, 0x01, 0x00, 0x00, 0x00  ; mov R1, 1
+        db OP_MOV, R2, 0x02, 0x00, 0x00, 0x00  ; mov R2, 2
+        db OP_ADD, R1, R2, R3, 0x00, 0x00      ; add R1, R2 -> R3
+        db OP_JZ, 0x01, 0x00, 0x00, 0x00       ; jz error (如果R3 != 3)
+        db OP_HLT, 0x00, 0x00, 0x00, 0x00      ; 成功
+        
+        ; 更多测试用例...
+        
+    error_msg db "Verification failed!", 0
+    success_msg db "All tests passed!", 0
+
+section .text
+    global _start
+    
+_start:
+    mov esi, test_cases
+    mov ecx, 0  ; 测试用例计数
+    
+run_test:
+    ; 执行测试用例
+    push esi
+    call execute_test
+    pop esi
+    
+    ; 检查结果
+    test eax, eax
+    jnz test_failed
+    
+    ; 移动到下一个测试用例
+    add esi, 24  ; 每个测试用例24字节
+    inc ecx
+    cmp ecx, 1   ; 当前只有1个测试用例
+    jl run_test
+    
+    ; 所有测试通过
+    mov eax, 4        ; sys_write
+    mov ebx, 1        ; stdout
+    mov ecx, success_msg
+    mov edx, 17       ; 消息长度
+    int 0x80
+    
+    ; 正常退出
+    mov eax, 1
+    xor ebx, ebx
+    int 0x80
+    
+test_failed:
+    ; 测试失败
+    mov eax, 4        ; sys_write
+    mov ebx, 1        ; stdout
+    mov ecx, error_msg
+    mov edx, 19       ; 消息长度
+    int 0x80
+    
+    ; 错误退出
+    mov eax, 1
+    mov ebx, 1
+    int 0x80
+
+; 执行单个测试用例
+execute_test:
+    push ebp
+    mov ebp, esp
+    
+    ; 保存寄存器
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    
+    ; 执行测试代码
+    mov esi, [ebp+8]  ; 获取测试用例地址
+    mov edi, code_buffer
+    mov ecx, 24       ; 测试用例大小
+    rep movsb         ; 复制到可执行区域
+    
+    ; 跳转到测试代码
+    call code_buffer
+    
+    ; 检查结果 (R3 应该是3)
+    cmp dword [registers + R3*4], 3
+    jne .test_failed
+    
+    ; 测试通过
+    xor eax, eax
+    jmp .done
+    
+.test_failed:
+    mov eax, 1
+    
+.done:
+    ; 恢复寄存器
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    
+    mov esp, ebp
+    pop ebp
+    ret

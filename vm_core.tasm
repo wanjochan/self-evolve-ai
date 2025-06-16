@@ -1,0 +1,120 @@
+; 虚拟机核心 - 实现指令执行引擎
+
+%include "opcodes.inc"
+
+section .data
+    ; 寄存器文件
+    registers times REG_COUNT dd 0
+    
+    ; 标志寄存器
+    flags db 0
+    
+    ; 内存 (64KB)
+    memory_size equ 65536
+    memory times memory_size db 0
+    
+    ; 指令指针
+    ip dd 0
+    
+    ; 堆栈指针 (从内存顶部开始)
+    stack_top equ memory_size
+    
+    ; 运行状态
+    running db 1
+
+section .text
+    global _start
+    
+_start:
+    ; 初始化堆栈指针
+    mov dword [registers + REG_ESP * 4], stack_top
+    mov dword [registers + REG_EBP * 4], stack_top
+    
+    ; 主执行循环
+execute_loop:
+    ; 检查运行状态
+    cmp byte [running], 0
+    je execution_done
+    
+    ; 获取下一条指令
+    mov esi, [ip]
+    movzx eax, byte [memory + esi]
+    inc dword [ip]
+    
+    ; 指令分派
+    cmp eax, OP_HLT
+    je op_hlt
+    
+    cmp eax, OP_MOV
+    je op_mov
+    
+    ; 其他指令处理...
+    
+    jmp execute_loop
+
+execution_done:
+    ; 清理并退出
+    mov eax, 1
+    xor ebx, ebx
+    int 0x80
+
+; 指令实现
+op_hlt:
+    mov byte [running], 0
+    ret
+
+op_mov:
+    ; 获取目标操作数
+    mov esi, [ip]
+    mov al, [memory + esi]
+    inc dword [ip]
+    
+    ; 解析目标寄存器
+    mov edi, eax
+    and edi, 0x07  ; 取低3位作为寄存器索引
+    
+    ; 检查操作数类型
+    test al, 0x80
+    jnz .immediate
+    
+    ; 寄存器到寄存器传输
+    mov esi, [ip]
+    mov al, [memory + esi]
+    inc dword [ip]
+    
+    and eax, 0x07
+    mov eax, [registers + eax * 4]
+    mov [registers + edi * 4], eax
+    ret
+    
+.immediate:
+    ; 立即数到寄存器
+    mov eax, [memory + esi + 1]
+    add dword [ip], 4
+    mov [registers + edi * 4], eax
+    ret
+
+; 其他指令实现...
+
+; 辅助函数
+set_flags:
+    ; 根据运算结果设置标志位
+    push eax
+    pushf
+    pop eax
+    and eax, (FLAG_ZF | FLAG_SF | FLAG_OF | FLAG_CF)
+    mov [flags], al
+    pop eax
+    ret
+
+; 内存访问函数
+read_mem32:
+    ; eax = 地址
+    ; 返回: eax = 值
+    mov eax, [memory + eax]
+    ret
+
+write_mem32:
+    ; eax = 地址, ebx = 值
+    mov [memory + eax], ebx
+    ret

@@ -1,0 +1,163 @@
+; 测试运行器 - 验证指令实现的正确性
+
+%include "opcodes.inc"
+
+section .data
+    ; 测试用例结构
+    ; 指令字节, 预期寄存器值, 预期标志位
+    
+    test_mov_imm:
+        db OP_MOV, (REG_EAX | 0x80)  ; mov eax, 0x12345678
+        dd 0x12345678
+        db 0  ; 预期标志位
+        
+    test_add_reg:
+        db OP_ADD, (REG_EAX << 3) | REG_EBX  ; add eax, ebx
+        dd 0  ; 不检查寄存器
+        db FLAG_ZF  ; 预期标志位
+        
+    ; 更多测试用例...
+    
+    test_count equ 2  ; 测试用例数量
+    
+    test_passed db "Test passed!", 0
+    test_failed db "Test failed!", 0
+    newline db 10, 0
+
+section .text
+    global _start
+    
+_start:
+    ; 初始化测试环境
+    call init_test_environment
+    
+    ; 运行测试用例
+    mov esi, test_mov_imm
+    call run_test_case
+    
+    mov esi, test_add_reg
+    call run_test_case
+    
+    ; 测试完成
+    mov eax, 1
+    xor ebx, ebx
+    int 0x80
+
+; 初始化测试环境
+init_test_environment:
+    ; 初始化寄存器
+    xor eax, eax
+    mov ecx, REG_COUNT
+    lea edi, [registers]
+    rep stosd
+    
+    ; 初始化内存
+    mov edi, memory
+    mov ecx, memory_size / 4
+    xor eax, eax
+    rep stosd
+    
+    ; 设置堆栈指针
+    mov dword [registers + REG_ESP * 4], stack_top
+    mov dword [registers + REG_EBP * 4], stack_top
+    
+    ret
+
+; 运行单个测试用例
+; 输入: esi = 测试用例地址
+run_test_case:
+    pusha
+    
+    ; 保存测试用例地址
+    mov ebp, esp
+    
+    ; 1. 设置初始状态
+    ; 这里可以添加测试前的寄存器/内存设置
+    
+    ; 2. 执行指令
+    mov edi, [ip]
+    mov al, [esi]  ; 获取操作码
+    mov [memory + edi], al
+    
+    ; 复制操作数
+    mov ecx, get_operand_size(al)
+    inc esi
+    rep movsb
+    
+    ; 执行指令
+    call execute_instruction
+    
+    ; 3. 验证结果
+    ; 检查寄存器
+    mov ecx, REG_COUNT
+    lea edi, [registers]
+    
+.verify_registers:
+    cmp dword [esi], 0
+    je .check_flags
+    
+    mov eax, [edi]
+    cmp eax, [esi]
+    jne .test_failed
+    
+    add esi, 4
+    add edi, 4
+    loop .verify_registers
+    
+.check_flags:
+    ; 检查标志位
+    mov al, [flags]
+    and al, [esi]
+    cmp al, [esi]
+    jne .test_failed
+    
+    ; 测试通过
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, test_passed
+    mov edx, 12
+    int 0x80
+    jmp .done
+    
+.test_failed:
+    ; 测试失败
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, test_failed
+    mov edx, 12
+    int 0x80
+    
+.done:
+    ; 输出换行
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, newline
+    mov edx, 1
+    int 0x80
+    
+    popa
+    ret
+
+; 获取操作数大小
+; 输入: al = 操作码
+; 输出: ecx = 操作数字节数
+get_operand_size:
+    push eax
+    
+    cmp al, OP_MOV
+    je .mov_size
+    
+    ; 默认返回0
+    xor ecx, ecx
+    jmp .done
+    
+.mov_size:
+    mov ecx, 1  ; 操作数描述符
+    test byte [esi + 1], 0x80
+    jz .reg_only
+    add ecx, 4  ; 立即数
+.reg_only:
+    
+.done:
+    pop eax
+    ret
