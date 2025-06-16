@@ -1,9 +1,0 @@
-# 简单的TASM测试程序
-
-.section .text
-    # 入口点
-    entry_point:
-        push rbp
-        mov rbp, rsp
-        pop rbp
-        ret 
