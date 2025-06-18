@@ -27,15 +27,16 @@
 // ====================================
 
 
-// 宏定义结构
+// 宏定义
 typedef struct Macro {
-    char *name;              // 宏名称
-    char **params;           // 参数列表（对于函数式宏）
+    char *name;             // 宏名
+    char *replacement;      // 替换文本
+    char **params;          // 参数名数组
     int num_params;         // 参数数量
-    char *replacement;       // 替换文本
-    int is_function_like;    // 是否为函数式宏
-    int is_variadic;         // 是否支持可变参数
-    struct Macro *next;      // 下一个宏
+    int is_function_like;   // 是否为函数式宏
+    int is_variadic;        // 是否支持可变参数
+    int has_va_args;        // 是否包含__VA_ARGS__
+    struct Macro *next;    // 下一个宏
 } Macro;
 
 // 宏表
@@ -173,42 +174,45 @@ static Macro* find_macro(const char *name) {
 }
 
 // 添加宏
-static void add_macro(const char *name, const char *replacement, int is_function_like, char **params, int num_params) {
-    if (!name || !replacement) return;
-    
-    // 如果宏已存在，先删除
+extern void add_macro(const char *name, const char *replacement, int is_function_like, char **params, int num_params) {
+    // 检查是否已存在同名宏
     Macro *existing = find_macro(name);
     if (existing) {
+        // 如果已存在，先释放旧的宏定义
         free(existing->replacement);
-        if (existing->params) {
-            for (int i = 0; i < existing->num_params; i++) {
-                free(existing->params[i]);
-            }
-            free(existing->params);
+        free_macro_args(existing->params, existing->num_params);
+    } else {
+        // 创建新宏
+        existing = (Macro*)malloc(sizeof(Macro));
+        if (!existing) return;
+        
+        existing->name = strdup(name);
+        existing->next = NULL;
+        
+        // 添加到链表尾部
+        if (!macro_table.head) {
+            macro_table.head = macro_table.tail = existing;
+        } else {
+            macro_table.tail->next = existing;
+            macro_table.tail = existing;
         }
-        existing->replacement = strdup(replacement);
-        existing->is_function_like = is_function_like;
-        existing->num_params = num_params;
-        existing->params = params;
-        return;
     }
     
-    // 创建新宏
-    Macro *macro = (Macro*)malloc(sizeof(Macro));
-    if (!macro) return;
+    // 检查是否包含__VA_ARGS__
+    int has_va_args = (strstr(replacement, "__VA_ARGS__") != NULL);
     
-    macro->name = strdup(name);
-    macro->replacement = strdup(replacement);
-    macro->is_function_like = is_function_like;
-    macro->is_variadic = 0;  // 默认不支持可变参数
-    macro->num_params = num_params;
-    macro->params = params;
-    macro->next = NULL;
+    // 设置宏属性
+    existing->replacement = strdup(replacement);
+    existing->is_function_like = is_function_like;
+    existing->is_variadic = (is_function_like && num_params > 0 && 
+                           strcmp(params[num_params - 1], "...") == 0);
+    existing->has_va_args = has_va_args;
+    existing->num_params = num_params;
+    existing->params = params;
     
-    // 添加到链表
-    if (!macro_table.head) {
-        macro_table.head = macro_table.tail = macro;
-    } else {
+    // 如果最后一个参数是...，则实际参数数量减1
+    if (existing->is_variadic) {
+        existing->num_params--;
         macro_table.tail->next = macro;
         macro_table.tail = macro;
     }
@@ -234,7 +238,7 @@ static void free_macro_table(void) {
 }
 
 // 展开宏
-static char* expand_macro(const char *name, char **args, int num_args) {
+static char* expand_macro(const char *name, char **args, int num_args, int is_variadic) {
     Macro *macro = find_macro(name);
     if (!macro) return strdup(name);  // 不是宏，原样返回
     
@@ -243,54 +247,131 @@ static char* expand_macro(const char *name, char **args, int num_args) {
         return strdup(macro->replacement);
     }
     
-    // 函数式宏
-    if (num_args != macro->num_params) {
+    // 检查参数数量
+    int expected_args = macro->num_params;
+    if (is_variadic) {
+        if (num_args < expected_args) {
+            fprintf(stderr, "Error: macro %s expects at least %d arguments, but got %d\n", 
+                    name, expected_args, num_args);
+            return strdup(name);
+        }
+    } else if (num_args != expected_args) {
         fprintf(stderr, "Error: macro %s expects %d arguments, but got %d\n", 
-                name, macro->num_params, num_args);
+                name, expected_args, num_args);
         return strdup(name);
     }
     
-    // 简单的参数替换实现
-    char *result = strdup(macro->replacement);
-    char *pos = result;
-    size_t result_size = strlen(result) + 1;
+    // 分配结果缓冲区
+    size_t result_size = strlen(macro->replacement) + 1;
+    char *result = malloc(result_size);
+    if (!result) return strdup(name);
+    result[0] = '\0';
     
-    // 对每个参数进行替换
-    for (int i = 0; i < macro->num_params; i++) {
-        char param_token[64];
-        snprintf(param_token, sizeof(param_token), "%s", macro->params[i]);
-        
-        // 简单的字符串替换（实际实现需要更复杂的词法分析）
-        char *found;
-        while ((found = strstr(pos, param_token)) != NULL) {
-            // 确保匹配的是完整的标识符
-            if ((found == result || !isalnum(found[-1]) && found[-1] != '_') && 
-                !isalnum(found[strlen(param_token)]) && found[strlen(param_token)] != '_') {
-                
-                // 计算新结果的大小
-                size_t prefix_len = found - result;
-                size_t suffix_len = strlen(found + strlen(param_token));
-                size_t new_size = prefix_len + (args[i] ? strlen(args[i]) : 0) + suffix_len + 1;
-                
-                // 分配新内存
-                char *new_result = malloc(new_size);
-                
-                // 构建新字符串
-                strncpy(new_result, result, prefix_len);
-                new_result[prefix_len] = '\0';
-                if (args[i]) strcat(new_result, args[i]);
-                strcat(new_result, found + strlen(param_token));
-                
-                // 更新指针和大小
-                free(result);
-                result = new_result;
-                pos = result + prefix_len + (args[i] ? strlen(args[i]) : 0);
-                break;
+    const char *src = macro->replacement;
+    char *dst = result;
+    
+    // 处理替换文本
+    while (*src) {
+        // 检查是否是参数
+        if (isalpha(*src) || *src == '_') {
+            const char *ident_start = src++;
+            while (isalnum(*src) || *src == '_') src++;
+            
+            char ident[128];
+            int ident_len = src - ident_start;
+            if (ident_len >= sizeof(ident)) ident_len = sizeof(ident) - 1;
+            strncpy(ident, ident_start, ident_len);
+            ident[ident_len] = '\0';
+            
+            // 检查是否是参数名
+            int param_index = -1;
+            for (int i = 0; i < macro->num_params; i++) {
+                if (strcmp(ident, macro->params[i]) == 0) {
+                    param_index = i;
+                    break;
+                }
             }
-            pos = found + 1;
+            
+            // 处理__VA_ARGS__
+            if (param_index == -1 && strcmp(ident, "__VA_ARGS__") == 0 && macro->is_variadic) {
+                param_index = macro->num_params;  // 最后一个参数
+            }
+            
+            // 替换参数
+            if (param_index >= 0) {
+                const char *replacement = "";
+                size_t rep_len = 0;
+                
+                // 处理可变参数
+                if (macro->is_variadic && param_index == macro->num_params) {
+                    // 收集所有剩余参数
+                    size_t total_len = 0;
+                    for (int i = macro->num_params; i < num_args; i++) {
+                        if (i > macro->num_params) total_len += 2; // 逗号和空格
+                        total_len += strlen(args[i]);
+                    }
+                    
+                    char *va_args = malloc(total_len + 1);
+                    if (va_args) {
+                        va_args[0] = '\0';
+                        for (int i = macro->num_params; i < num_args; i++) {
+                            if (i > macro->num_params) strcat(va_args, ", ");
+                            strcat(va_args, args[i]);
+                        }
+                        replacement = va_args;
+                        rep_len = strlen(replacement);
+                    }
+                } else if (param_index < num_args) {
+                    replacement = args[param_index];
+                    rep_len = strlen(replacement);
+                }
+                
+                // 确保有足够空间
+                size_t new_size = (dst - result) + rep_len + 1;
+                if (new_size > result_size) {
+                    size_t offset = dst - result;
+                    result_size = new_size * 2;
+                    char *new_result = realloc(result, result_size);
+                    if (!new_result) {
+                        if (replacement != args[param_index]) free((void*)replacement);
+                        free(result);
+                        return strdup(name);
+                    }
+                    result = new_result;
+                    dst = result + offset;
+                }
+                
+                // 复制替换文本
+                memcpy(dst, replacement, rep_len);
+                dst += rep_len;
+                
+                if (replacement != args[param_index]) {
+                    free((void*)replacement);
+                }
+                
+                continue;
+            }
+            
+            // 不是参数，原样复制
+            src = ident_start;
         }
+        
+        // 复制一个字符
+        if (dst - result + 1 >= result_size) {
+            size_t offset = dst - result;
+            result_size *= 2;
+            char *new_result = realloc(result, result_size);
+            if (!new_result) {
+                free(result);
+                return strdup(name);
+            }
+            result = new_result;
+            dst = result + offset;
+        }
+        *dst++ = *src++;
     }
     
+    *dst = '\0';
     return result;
 }
 
@@ -3057,7 +3138,7 @@ static char* read_self_source() {
 }
 
 // 解析宏参数
-static char** parse_macro_arguments(const char **p, int *num_args) {
+static char** parse_macro_arguments(const char **p, int *num_args, int is_variadic) {
     if (**p != '(') {
         return NULL;
     }
@@ -3066,8 +3147,9 @@ static char** parse_macro_arguments(const char **p, int *num_args) {
     char **args = NULL;
     int capacity = 4;
     int count = 0;
+    int va_args_start = -1;  // 可变参数开始位置
     
-    args = malloc(sizeof(char*) * capacity);
+    args = malloc(sizeof(char*) * (capacity + 1)); // 额外空间用于__VA_ARGS__
     if (!args) return NULL;
     
     while (**p && **p != ')') {
@@ -3078,11 +3160,35 @@ static char** parse_macro_arguments(const char **p, int *num_args) {
         // 查找参数结束位置
         const char *arg_start = *p;
         int paren_level = 0;
+        int in_string = 0;
+        int in_char = 0;
         
-        while (**p && (paren_level > 0 || (**p != ',' && **p != ')'))) {
-            if (**p == '(') paren_level++;
-            else if (**p == ')') paren_level--;
+        while (**p && (paren_level > 0 || in_string || in_char || 
+                     (is_variadic && count < *num_args - 1) ? 
+                     (**p != ',' && **p != ')') : **p != ')' && !(count == *num_args - 1 && **p == ',' && *(*p + 1) == '.' && *(*p + 2) == '.' && *(*p + 3) == '.'))) {
+            if (!in_string && !in_char) {
+                if (**p == '(') paren_level++;
+                else if (**p == ')') paren_level--;
+                else if (**p == '"' && (p == arg_start || *(p - 1) != '\\')) in_string = 1;
+                else if (**p == '\'' && (p == arg_start || *(p - 1) != '\\')) in_char = 1;
+            } else if (in_string && **p == '"' && (p == arg_start || *(p - 1) != '\\')) {
+                in_string = 0;
+            } else if (in_char && **p == '\'' && (p == arg_start || *(p - 1) != '\\')) {
+                in_char = 0;
+            }
             (*p)++;
+        }
+        
+        // 处理可变参数
+        if (is_variadic && count == *num_args - 1 && **p == ',') {
+            va_args_start = count;
+            // 检查是否是可变参数列表的开始
+            const char *check = *p + 1;
+            while (isspace(*check)) check++;
+            if (strncmp(check, "...", 3) == 0) {
+                *p = check + 3;  // 跳过...
+                break;
+            }
         }
         
         // 分配并保存参数
@@ -3098,7 +3204,7 @@ static char** parse_macro_arguments(const char **p, int *num_args) {
         // 添加到参数列表
         if (count >= capacity) {
             capacity *= 2;
-            char **new_args = realloc(args, sizeof(char*) * capacity);
+            char **new_args = realloc(args, sizeof(char*) * (capacity + 1));
             if (!new_args) {
                 free(arg);
                 free_macro_args(args, count);
@@ -3110,6 +3216,32 @@ static char** parse_macro_arguments(const char **p, int *num_args) {
         
         // 跳过逗号
         if (**p == ',') (*p)++;
+    }
+    
+    // 处理可变参数
+    if (is_variadic && va_args_start >= 0) {
+        // 合并剩余参数到__VA_ARGS__
+        if (count > va_args_start) {
+            // 计算合并后的参数长度
+            size_t total_len = 0;
+            for (int i = va_args_start; i < count; i++) {
+                total_len += strlen(args[i]) + 2; // +2 for ", "
+            }
+            
+            char *va_args = malloc(total_len + 1);
+            if (va_args) {
+                va_args[0] = '\0';
+                for (int i = va_args_start; i < count; i++) {
+                    if (i > va_args_start) {
+                        strcat(va_args, ", ");
+                    }
+                    strcat(va_args, args[i]);
+                    free(args[i]);
+                }
+                args[va_args_start] = va_args;
+                count = va_args_start + 1;
+            }
+        }
     }
     
     if (**p == ')') (*p)++;
@@ -3190,105 +3322,77 @@ static char* replace_macro_parameters(const char *replacement, char **params, in
             *dst++ = *src++;
         }
     }
-
-// 计算需要的最大长度
-size_t max_len = strlen(replacement) * 2 + 1;
-char *result = malloc(max_len);
-if (!result) return NULL;
-
-const char *src = replacement;
-char *dst = result;
-
-while (*src) {
-    if (*src == '#' && *(src + 1) == '#') {
-        // 处理 ## 操作符
-        *dst++ = '#';
-        *dst++ = '#';
-        src += 2;
-    } else if (*src == '#' && isalpha(*(src + 1))) {
-        // 处理 # 操作符（字符串化）
-        const char *param_start = ++src;
-        while (isalnum(*src) || *src == '_') src++;
-
-        char param_name[128];
-        int param_len = src - param_start;
-        if (param_len >= sizeof(param_name)) param_len = sizeof(param_name) - 1;
-        strncpy(param_name, param_start, param_len);
-        param_name[param_len] = '\0';
-
-        // 查找参数
-        for (int i = 0; i < num_params; i++) {
-            if (strcmp(params[i], param_name) == 0) {
-                // 添加字符串化的参数
-                *dst++ = '"';
-                strcpy(dst, params[i]);
-                dst += strlen(params[i]);
-                *dst++ = '"';
-                break;
-            }
-        }
-    } else if (isalpha(*src) || *src == '_') {
-        // 处理标识符（可能是参数）
-        const char *ident_start = src;
-        while (isalnum(*src) || *src == '_') src++;
-
-        char ident[128];
-        int ident_len = src - ident_start;
-        if (ident_len >= sizeof(ident)) ident_len = sizeof(ident) - 1;
-        strncpy(ident, ident_start, ident_len);
-        ident[ident_len] = '\0';
-
-        // 检查是否是参数
-        int is_param = 0;
-        for (int i = 0; i < num_params; i++) {
-            if (strcmp(params[i], ident) == 0) {
-                // 替换为参数值
-                strcpy(dst, params[i]);
-                dst += strlen(params[i]);
-                is_param = 1;
-                break;
-            }
-        }
-
-        if (!is_param) {
-            // 不是参数，原样复制
-            strncpy(dst, ident_start, src - ident_start);
-            dst += src - ident_start;
-        }
-    } else {
-        // 其他字符原样复制
-        *dst++ = *src++;
-    }
-}
-
-*dst = '\0';
-return result;
+    
+    *dst = '\0';
+    return result;
 }
 
 // 处理标识符
 static int handle_identifier(BootstrapCompiler *compiler, const char *start, const char **p, int line) {
-const char *ident_start = start;
-while (isalnum(**p) || **p == '_') (*p)++;
-
-int ident_len = *p - ident_start;
-char ident[128] = {0};
-strncpy(ident, ident_start, ident_len < 127 ? ident_len : 127);
-
-// 检查是否是预定义宏
-if (is_predefined_macro(ident)) {
-    char *expanded = expand_predefined_macro(ident, line, compiler->filename ? compiler->filename : "<unknown>");
-    if (expanded) {
-        // 将展开的文本添加到输入流中
-        size_t expanded_len = strlen(expanded);
-        char *new_input = malloc(expanded_len + 1);
-        strcpy(new_input, expanded);
-        strcat(new_input, *p);
-
-        // 更新输入指针
-        *p = new_input;
-
+    if (macro_expansion.level > 0) {
+        return 0; // 已经在宏展开中，不处理
+    }
+    
+    const char *ident_start = start;
+    while (isalnum(**p) || **p == '_') (*p)++;
+    
+    int ident_len = *p - ident_start;
+    char ident[128] = {0};
+    strncpy(ident, ident_start, ident_len < 127 ? ident_len : 127);
+    
+    // 检查是否是预定义宏
+    if (is_predefined_macro(ident)) {
+        char *expanded = expand_predefined_macro(ident, line, 
+            compiler->filename ? compiler->filename : "<unknown>");
+        if (expanded) {
+            // 将展开的文本添加到输入流中
+            size_t expanded_len = strlen(expanded);
+            char *new_input = malloc(expanded_len + strlen(*p) + 1);
+            if (!new_input) {
+                free(expanded);
+                return 0;
+            }
+            strcpy(new_input, expanded);
+            strcat(new_input, *p);
+            
+            // 更新输入指针
+            *p = new_input;
+            free(expanded);
+            return 0; // 让主循环重新处理
+        }
+    }
+    
+    // 查找宏定义
+    Macro *macro = find_macro(ident);
+    if (!macro) {
+        // 不是宏，作为普通标识符处理
+        Token *token = &compiler->tokens[compiler->token_count++];
+        token->type = TOKEN_IDENTIFIER;
+        token->value = strdup(ident);
+        token->line = line;
+        return 1;
+    }
+    
+    // 保存宏名用于错误报告
+    char *name = strdup(ident);
+    if (!name) return 0;
+    
+    // 保存当前位置
+    const char *save_p = *p;
+    
+    if (macro->is_function_like) {
+        // 函数式宏需要检查是否有参数列表
+        // 跳过空白
+        while (isspace(**p)) (*p)++;
+        
+        if (**p != '(') {
+            // 不是函数调用语法，不展开
+            *p = save_p;
+            free(name);
             return 0;
         }
+        
+        (*p)++; // 跳过'('
         
         // 解析参数
         int num_args = 0;
