@@ -71,7 +71,7 @@ typedef enum {
     TOKEN_PP_OTHER,        // Other preprocessor tokens
     
     // 数据类型关键字
-    TOKEN_VOID, TOKEN_CHAR, TOKEN_SHORT, TOKEN_INT, TOKEN_LONG, 
+    TOKEN_VOID, TOKEN_SHORT, TOKEN_INT, TOKEN_LONG, 
     TOKEN_FLOAT, TOKEN_DOUBLE, TOKEN_SIGNED, TOKEN_UNSIGNED, TOKEN_BOOL,
     
     // 存储类说明符
@@ -505,8 +505,8 @@ extern void add_macro(const char *name, const char *replacement, int is_function
     // 如果最后一个参数是...，则实际参数数量减1
     if (existing->is_variadic) {
         existing->num_params--;
-        macro_table.tail->next = macro;
-        macro_table.tail = macro;
+        macro_table.tail->next = existing;
+        macro_table.tail = existing;
     }
 }
 
@@ -667,25 +667,63 @@ static char* expand_macro(const char *name, char **args, int num_args, int is_va
     return result;
 }
 
-// ====================================
+// WASM 类型定义
+typedef struct {
+    uint8_t *param_types;
+    uint8_t *return_types;
+    uint32_t param_count;
+    uint32_t return_count;
+} WasmFuncType;
+
+typedef struct {
+    uint32_t type_index;
+    uint8_t *locals;
+    uint32_t local_count;
+    uint8_t *code;
+    size_t code_size;
+    const char *export_name;
+} WasmFunction;
+
+typedef struct {
+    uint8_t *data;
+    size_t size;
+    size_t capacity;
+} WasmBuffer;
+
+// WASM 常量定义
+#define WASM_TYPE_I32 0x7F
+#define WASM_OP_GET_LOCAL 0x20
+#define WASM_OP_SET_LOCAL 0x21
+#define WASM_OP_I32_CONST 0x41
+#define WASM_OP_I32_ADD 0x6A
+#define WASM_OP_I32_SUB 0x6B
+#define WASM_OP_I32_MUL 0x6C
+#define WASM_OP_I32_LE_S 0x4C
+#define WASM_OP_I32_GE_U 0x4F
+#define WASM_OP_I32_LOAD 0x28
+#define WASM_OP_IF 0x04
+#define WASM_OP_ELSE 0x05
+#define WASM_OP_END 0x0B
+#define WASM_OP_LOOP 0x03
+#define WASM_OP_BR 0x0C
+#define WASM_OP_BR_IF 0x0D
+#define WASM_OP_RETURN 0x0F
+#define WASM_SECTION_TYPE 1
+#define WASM_SECTION_FUNCTION 3
+#define WASM_SECTION_MEMORY 5
+#define WASM_SECTION_EXPORT 7
+#define WASM_SECTION_CODE 10
+#define WASM_SECTION_DATA 11
+#define WASM_EXPORT_FUNC 0
+
+
 // 全局变量定义
-// ====================================
-
-// 全局宏展开状态
-static MacroExpansionState macro_expansion = {NULL, NULL, 0, NULL, NULL, 0, NULL, 0, 0};
-
-// 全局宏表
-static MacroTable macro_table = {NULL, NULL};
-
-// 全局函数类型表
 static WasmFuncType* wasm_func_types = NULL;
 static uint32_t wasm_func_type_count = 0;
-
-// 全局函数表
 static WasmFunction* wasm_functions = NULL;
 static uint32_t wasm_function_count = 0;
 
-// ====================================
+
 // 函数定义
 // ====================================
 
@@ -1509,7 +1547,7 @@ typedef enum {
     WASM_TABLE_COPY = 0xFC0E,     // 表复制
     WASM_TABLE_GROW = 0xFC0F,     // 表增长
     WASM_TABLE_SIZE = 0xFC10,     // 表大小
-    WASM_TABLE_FILL = 0xFC11      // 表填充
+    WASM_TABLE_FILL = 0xFC11,     // 表填充
     
     // ===== 扩展节点 (WASM-C) =====
     // 声明和定义
@@ -2381,646 +2419,6 @@ static int serialize_ast_to_astc(ASTNode *root, const char *filename) {
 }
 
 // 输出格式
-enum OutputFormat {
-    FORMAT_AST,    // 输出AST二进制文件
-    FORMAT_WASM,   // 输出WASM模块
-    FORMAT_EXE,    // 输出可执行文件
-    FORMAT_DEFAULT = FORMAT_EXE  // 默认输出格式
-};
-#define MAX_TOKENS 10000
-#define MAX_FUNCTIONS 100
-#define MAX_MACHINE_CODE 8192
-#define GENERATION_FILE "generation.txt"
-
-// 词法分析器
-typedef enum {
-    TOKEN_EOF = 0,
-    TOKEN_IDENTIFIER,
-    TOKEN_NUMBER,
-    TOKEN_FLOAT_NUMBER,
-    TOKEN_STRING,
-    TOKEN_CHAR_LITERAL,  // 'a', '\n', etc.
-    TOKEN_WCHAR_LITERAL, // L'a', L'\u1234', etc.
-    TOKEN_WIDE_STRING,   // L"wide string"
-    TOKEN_CHAR,
-    // Preprocessor tokens
-    TOKEN_PP_INCLUDE,      // #include
-    TOKEN_PP_DEFINE,       // #define
-    TOKEN_PP_UNDEF,        // #undef
-    TOKEN_PP_IFDEF,        // #ifdef
-    TOKEN_PP_IFNDEF,       // #ifndef
-    TOKEN_PP_IF,           // #if
-    TOKEN_PP_ELIF,         // #elif
-    TOKEN_PP_ELSE,         // #else
-    TOKEN_PP_ENDIF,        // #endif
-    TOKEN_PP_LINE,         // #line
-    TOKEN_PP_ERROR,        // #error
-    TOKEN_PP_PRAGMA,       // #pragma
-    TOKEN_PP_DEFINED,      // defined()
-    TOKEN_PP_HASH,         // #
-    TOKEN_PP_HASHHASH,     // ##
-    TOKEN_PP_STRINGIZE,    // #
-    TOKEN_PP_HEADER_NAME,  // <header.h> or "header.h" in #include
-    TOKEN_PP_NUMBER,       // Preprocessing number
-    TOKEN_PP_IDENTIFIER,   // Preprocessing identifier
-    TOKEN_PP_OTHER,        // Other preprocessor tokens
-    
-    // 数据类型关键字
-    TOKEN_VOID, TOKEN_CHAR, TOKEN_SHORT, TOKEN_INT, TOKEN_LONG, 
-    TOKEN_FLOAT, TOKEN_DOUBLE, TOKEN_SIGNED, TOKEN_UNSIGNED, TOKEN_BOOL,
-    
-    // 存储类说明符
-    TOKEN_TYPEDEF, TOKEN_EXTERN, TOKEN_STATIC, TOKEN_AUTO, TOKEN_REGISTER,
-    
-    // 类型限定符
-    TOKEN_CONST, TOKEN_VOLATILE, TOKEN_RESTRICT, TOKEN_ATOMIC,
-    
-    // 函数说明符
-    TOKEN_INLINE, TOKEN_NORETURN,
-    
-    // 控制流关键字
-    TOKEN_IF, TOKEN_ELSE, TOKEN_SWITCH, TOKEN_CASE, TOKEN_DEFAULT,
-    TOKEN_WHILE, TOKEN_DO, TOKEN_FOR, TOKEN_BREAK, TOKEN_CONTINUE, 
-    TOKEN_GOTO, TOKEN_RETURN,
-    
-    // 结构、联合、枚举
-    TOKEN_STRUCT, TOKEN_UNION, TOKEN_ENUM, TOKEN_SIZEOF,
-    
-    // 标点符号
-    TOKEN_LBRACE, TOKEN_RBRACE, TOKEN_LPAREN, TOKEN_RPAREN,
-    TOKEN_LBRACKET, TOKEN_RBRACKET, TOKEN_SEMICOLON, TOKEN_COLON,
-    TOKEN_COMMA, TOKEN_DOT, TOKEN_ELLIPSIS, TOKEN_QUESTION,
-    TOKEN_ARROW,
-    
-    // 操作符
-    // 赋值
-    TOKEN_ASSIGN, TOKEN_ADD_ASSIGN, TOKEN_SUB_ASSIGN, TOKEN_MUL_ASSIGN,
-    TOKEN_DIV_ASSIGN, TOKEN_MOD_ASSIGN, TOKEN_LEFT_SHIFT_ASSIGN, 
-    TOKEN_RIGHT_SHIFT_ASSIGN, TOKEN_BIT_AND_ASSIGN, TOKEN_BIT_XOR_ASSIGN,
-    TOKEN_BIT_OR_ASSIGN,
-    
-    // 算术
-    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MULTIPLY, TOKEN_DIVIDE, TOKEN_MOD,
-    TOKEN_INCREMENT, TOKEN_DECREMENT,
-    
-    // 关系
-    TOKEN_EQUAL, TOKEN_NOT_EQUAL, TOKEN_LESS, TOKEN_GREATER,
-    TOKEN_LESS_EQUAL, TOKEN_GREATER_EQUAL,
-    
-    // 逻辑
-    TOKEN_LOGICAL_AND, TOKEN_LOGICAL_OR, TOKEN_LOGICAL_NOT,
-    
-    // 位运算
-    TOKEN_BIT_AND, TOKEN_BIT_OR, TOKEN_BIT_XOR, TOKEN_BIT_NOT,
-    TOKEN_LEFT_SHIFT, TOKEN_RIGHT_SHIFT,
-    
-    // 预处理器指令
-    TOKEN_INCLUDE, TOKEN_DEFINE, TOKEN_UNDEF, TOKEN_IFDEF, TOKEN_IFNDEF,
-    TOKEN_ELIF, TOKEN_ENDIF, TOKEN_LINE, TOKEN_ERROR_DIRECTIVE,
-    TOKEN_PRAGMA,
-    
-    // 标准库函数
-    TOKEN_PRINTF, TOKEN_SCANF, TOKEN_MALLOC, TOKEN_FREE, TOKEN_EXIT
-} TokenType;
-
-typedef struct {
-    TokenType type;
-    char *value;
-    int line;
-} Token;
-
-// 简化的AST节点
-typedef struct ASTNode {
-    TokenType type;
-    char *value;
-    struct ASTNode *left;
-    struct ASTNode *right;
-    struct ASTNode *next;
-} ASTNode;
-
-// 机器码生成器
-typedef struct {
-    unsigned char code[MAX_MACHINE_CODE];
-    int size;
-    int entry_point;
-} MachineCode;
-
-// 编译器配置
-typedef struct {
-    enum OutputFormat output_format;
-    bool verbose;
-    bool optimize;
-    const char *output_file;
-    const char *target_arch;  // 目标架构 (x86_64, arm64, etc.)
-} CompilerConfig;
-
-// 编译器状态
-typedef struct {
-    Token tokens[MAX_TOKENS];
-    int token_count;
-    int current_token;
-    MachineCode machine_code;
-    char *source_code;
-    CompilerConfig config;
-} BootstrapCompiler;
-
-// 核心自举函数
-static char* read_self_source();
-static int bootstrap_compile_real(const char *source, const CompilerConfig *config);
-// 创建AST节点
-static ASTNode *create_ast_node(NodeType type, int line, int col) {
-    ASTNode *node = (ASTNode *)calloc(1, sizeof(ASTNode));
-    if (node) {
-        node->type = type;
-        node->line = line;
-        node->column = col;
-        node->type_info.basic_type = BT_INT; // 默认类型
-        node->type_info.qualifiers = 0;
-        node->type_info.size = 0;
-        node->type_info.align = 0;
-    }
-    return node;
-}
-
-// 创建标识符节点
-static ASTNode *create_identifier_node(const char *name, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_IDENTIFIER, line, col);
-    if (node) {
-        node->id.name = strdup(name);
-    }
-    return node;
-}
-
-// 创建整数字面量节点
-static ASTNode *create_integer_literal(long long value, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_INTEGER_LITERAL, line, col);
-    if (node) {
-        node->u.int_val = value;
-    }
-    return node;
-}
-
-// 创建函数声明节点
-static ASTNode *create_function_decl(const char *name, ASTNode *return_type, 
-                                   ASTNode *params, ASTNode *body, 
-                                   int line, int col) {
-    ASTNode *node = create_ast_node(NODE_FUNCTION_DECL, line, col);
-    if (node) {
-        node->decl.name = strdup(name);
-        node->decl.type = return_type;
-        node->u.compound.stmts = malloc(sizeof(ASTNode*) * 32); // 简单的固定大小数组
-        node->u.compound.stmts[0] = body;
-        node->u.compound.num_stmts = 1;
-    }
-    return node;
-}
-
-// 创建返回语句节点
-static ASTNode *create_return_stmt(ASTNode *expr, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_RETURN_STMT, line, col);
-    if (node) {
-        node->u.ctrl.cond = expr; // 复用cond字段存储返回值表达式
-    }
-    return node;
-}
-
-// 创建二元操作节点
-static ASTNode *create_binary_op(BinaryOp op, ASTNode *lhs, ASTNode *rhs, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_BINARY_OP, line, col);
-    if (node) {
-        node->u.binary_op.op = op;
-        node->u.binary_op.lhs = lhs;
-        node->u.binary_op.rhs = rhs;
-    }
-    return node;
-}
-
-// 创建变量声明节点
-static ASTNode *create_var_decl(const char *name, ASTNode *type, ASTNode *init, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_VAR_DECL, line, col);
-    if (node) {
-        node->decl.name = strdup(name);
-        node->decl.type = type;
-        node->decl.init = init;
-    }
-    return node;
-}
-
-// 创建函数调用节点
-static ASTNode *create_function_call(const char *name, ASTNode **args, int num_args, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_FUNCTION_CALL, line, col);
-    if (node) {
-        node->id.name = strdup(name);
-        node->u.call.args = args;
-        node->u.call.num_args = num_args;
-    }
-    return node;
-}
-
-// 创建if语句节点
-static ASTNode *create_if_stmt(ASTNode *cond, ASTNode *then_block, ASTNode *else_block, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_IF_STMT, line, col);
-    if (node) {
-        node->u.if_stmt.cond = cond;
-        node->u.if_stmt.then_block = then_block;
-        node->u.if_stmt.else_block = else_block;
-    }
-    return node;
-}
-
-// 创建while循环节点
-static ASTNode *create_while_loop(ASTNode *cond, ASTNode *body, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_WHILE_STMT, line, col);
-    if (node) {
-        node->u.while_loop.cond = cond;
-        node->u.while_loop.body = body;
-    }
-    return node;
-}
-
-// 创建数组访问节点
-static ASTNode *create_array_access(ASTNode *array, ASTNode *index, int line, int col) {
-    ASTNode *node = create_ast_node(NODE_ARRAY_ACCESS, line, col);
-    if (node) {
-        node->u.array.array = array;
-        node->u.array.index = index;
-    }
-    return node;
-}
-
-// 递归释放AST节点
-static void free_ast_node(ASTNode *node) {
-    if (!node) return;
-    
-    switch (node->type) {
-        case NODE_IDENTIFIER:
-            free(node->id.name);
-            break;
-            
-        case NODE_FUNCTION_DECL:
-            free(node->decl.name);
-            free_ast_node(node->decl.type);
-            if (node->u.compound.stmts) {
-                for (int i = 0; i < node->u.compound.num_stmts; i++) {
-                    free_ast_node(node->u.compound.stmts[i]);
-                }
-                free(node->u.compound.stmts);
-            }
-            break;
-            
-        case NODE_VAR_DECL:
-            free(node->decl.name);
-            free_ast_node(node->decl.type);
-            free_ast_node(node->decl.init);
-            break;
-            
-        case NODE_BINARY_OP:
-            free_ast_node(node->u.binary_op.lhs);
-            free_ast_node(node->u.binary_op.rhs);
-            break;
-            
-        case NODE_IF_STMT:
-            free_ast_node(node->u.if_stmt.cond);
-            free_ast_node(node->u.if_stmt.then_block);
-            free_ast_node(node->u.if_stmt.else_block);
-            break;
-            
-        case NODE_WHILE_STMT:
-            free_ast_node(node->u.while_loop.cond);
-            free_ast_node(node->u.while_loop.body);
-            break;
-            
-        case NODE_FUNCTION_CALL:
-            free(node->id.name);
-            if (node->u.call.args) {
-                for (int i = 0; i < node->u.call.num_args; i++) {
-                    free_ast_node(node->u.call.args[i]);
-                }
-                free(node->u.call.args);
-            }
-            break;
-            
-        case NODE_ARRAY_ACCESS:
-            free_ast_node(node->u.array.array);
-            free_ast_node(node->u.array.index);
-            break;
-            
-        case NODE_RETURN_STMT:
-            free_ast_node(node->u.ctrl.cond);
-            break;
-            
-        case NODE_COMPOUND_STMT:
-            if (node->u.compound.stmts) {
-                for (int i = 0; i < node->u.compound.num_stmts; i++) {
-                    free_ast_node(node->u.compound.stmts[i]);
-                }
-                free(node->u.compound.stmts);
-            }
-            break;
-            
-        default:
-            // 基本类型节点没有额外分配的内存需要释放
-            break;
-    }
-    
-    free(node);
-}
-
-// 生成AST文件
-int generate_ast(const char *source, const char *output_file) {
-    printf("生成AST文件: %s\n", output_file);
-    
-    // 创建更复杂的示例AST
-    ASTNode *translation_unit = create_ast_node(NODE_TRANSLATION_UNIT, 1, 1);
-    
-    // 创建类型节点
-    ASTNode *int_type = create_ast_node(NODE_PRIMITIVE_TYPE, 1, 1);
-    int_type->type_info.basic_type = BT_INT;
-    
-    // 创建函数参数: int a, int b
-    ASTNode *param_a = create_var_decl("a", int_type, NULL, 1, 10);
-    ASTNode *param_b = create_var_decl("b", int_type, NULL, 1, 16);
-    
-    // 创建函数体: { return a + b; }
-    ASTNode *return_expr = create_binary_op(
-        OP_ADD,
-        create_identifier_node("a", 1, 25),
-        create_identifier_node("b", 1, 29),
-        1, 25
-    );
-    ASTNode *return_stmt = create_return_stmt(return_expr, 1, 18);
-    
-    ASTNode *function_body = create_ast_node(NODE_COMPOUND_STMT, 1, 16);
-    function_body->u.compound.stmts = malloc(sizeof(ASTNode*) * 1);
-    function_body->u.compound.stmts[0] = return_stmt;
-    function_body->u.compound.num_stmts = 1;
-    
-    // 创建函数声明: int add(int a, int b) { ... }
-    ASTNode *func_decl = create_function_decl("add", int_type, NULL, function_body, 1, 1);
-    
-    // 将函数添加到翻译单元
-    translation_unit->u.compound.stmts = malloc(sizeof(ASTNode*) * 1);
-    translation_unit->u.compound.stmts[0] = func_decl;
-    translation_unit->u.compound.num_stmts = 1;
-    
-    // 序列化AST到文件
-    int result = serialize_ast_to_astc(translation_unit, output_file);
-    
-    // 清理AST
-    free_ast_node(translation_unit);
-    
-    return result == 0 ? 0 : 1;
-}
-
-// 从文件反序列化AST
-ASTNode *deserialize_ast_from_astc(const char *filename) {
-    FILE *file = fopen(filename, "rb");
-    if (!file) {
-        perror("无法打开文件");
-        return NULL;
-    }
-    
-    // 读取文件头
-    ASTCHeader header;
-    if (fread(&header, sizeof(header), 1, file) != 1) {
-        fclose(file);
-        fprintf(stderr, "读取文件头失败\n");
-        return NULL;
-    }
-    
-    // 验证魔数
-    if (strncmp(header.magic, "ASTC", 4) != 0) {
-        fclose(file);
-        fprintf(stderr, "无效的ASTC文件格式\n");
-        return NULL;
-    }
-    
-    // 检查版本
-    if (header.version != ASTC_VERSION) {
-        fclose(file);
-        fprintf(stderr, "不支持的ASTC版本: %u\n", header.version);
-        return NULL;
-    }
-    
-    // 读取字符串表
-    if (fseek(file, header.string_table_offset, SEEK_SET) != 0) {
-        fclose(file);
-        fprintf(stderr, "定位字符串表失败\n");
-        return NULL;
-    }
-    
-    // 读取字符串表项数
-    uint32_t num_strings;
-    if (fread(&num_strings, sizeof(uint32_t), 1, file) != 1) {
-        fclose(file);
-        fprintf(stderr, "读取字符串表大小失败\n");
-        return NULL;
-    }
-    
-    // 分配字符串表
-    char **string_table = (char **)calloc(num_strings, sizeof(char *));
-    if (!string_table) {
-        fclose(file);
-        fprintf(stderr, "分配字符串表内存失败\n");
-        return NULL;
-    }
-    
-    // 读取每个字符串
-    for (uint32_t i = 0; i < num_strings; i++) {
-        uint32_t str_len;
-        if (fread(&str_len, sizeof(uint32_t), 1, file) != 1) {
-            // 清理已分配的字符串
-            for (uint32_t j = 0; j < i; j++) {
-                free(string_table[j]);
-            }
-            free(string_table);
-            fclose(file);
-            fprintf(stderr, "读取字符串长度失败\n");
-            return NULL;
-        }
-        
-        string_table[i] = (char *)malloc(str_len + 1);
-        if (!string_table[i]) {
-            // 清理已分配的字符串
-            for (uint32_t j = 0; j < i; j++) {
-                free(string_table[j]);
-            }
-            free(string_table);
-            fclose(file);
-            fprintf(stderr, "分配字符串内存失败\n");
-            return NULL;
-        }
-        
-        if (fread(string_table[i], 1, str_len, file) != str_len) {
-            // 清理已分配的字符串
-            for (uint32_t j = 0; j < i; j++) {
-                free(string_table[j]);
-            }
-            free(string_table);
-            fclose(file);
-            fprintf(stderr, "读取字符串内容失败\n");
-            return NULL;
-        }
-        string_table[i][str_len] = '\0';
-    }
-    
-    // 读取节点偏移量
-    uint64_t *node_offsets = (uint64_t *)malloc(num_strings * sizeof(uint64_t));
-    if (!node_offsets) {
-        // 清理已分配的字符串
-        for (uint32_t j = 0; j < num_strings; j++) {
-            free(string_table[j]);
-        }
-        free(string_table);
-        fclose(file);
-        fprintf(stderr, "分配节点偏移量内存失败\n");
-        return NULL;
-    }
-    
-    if (fread(node_offsets, sizeof(uint64_t), num_strings, file) != num_strings) {
-        // 清理已分配的字符串和节点偏移量
-        for (uint32_t j = 0; j < num_strings; j++) {
-            free(string_table[j]);
-        }
-        free(string_table);
-        free(node_offsets);
-        fclose(file);
-        fprintf(stderr, "读取节点偏移量失败\n");
-        return NULL;
-    }
-    
-    // 读取节点数据
-    ASTNode *root = (ASTNode *)malloc(sizeof(ASTNode));
-    if (!root) {
-        // 清理已分配的字符串、节点偏移量和节点数据
-        for (uint32_t j = 0; j < num_strings; j++) {
-            free(string_table[j]);
-        }
-        free(string_table);
-        free(node_offsets);
-        fclose(file);
-        fprintf(stderr, "分配根节点内存失败\n");
-        return NULL;
-    }
-    
-    root->type = NODE_TRANSLATION_UNIT;
-    root->line = 1;
-    root->column = 1;
-    root->type_info.basic_type = BT_VOID;
-    root->type_info.qualifiers = 0;
-    root->type_info.size = 0;
-    root->type_info.align = 0;
-    root->u.compound.stmts = NULL;
-    root->u.compound.num_stmts = 0;
-    root->left = root->right = root->next = NULL;
-    
-    // 解析节点数据
-    for (uint32_t i = 0; i < num_strings; i++) {
-        ASTNode *node = root;
-        uint64_t offset = node_offsets[i];
-        
-        // 读取节点类型
-        fseek(file, offset, SEEK_SET);
-        fread(&node->type, sizeof(node->type), 1, file);
-        
-        // 读取行号和列号
-        fread(&node->line, sizeof(node->line), 1, file);
-        fread(&node->column, sizeof(node->column), 1, file);
-        
-        // 读取类型信息
-        fread(&node->type_info.basic_type, sizeof(node->type_info.basic_type), 1, file);
-        fread(&node->type_info.qualifiers, sizeof(node->type_info.qualifiers), 1, file);
-        fread(&node->type_info.bit_width, sizeof(node->type_info.bit_width), 1, file);
-        
-        // 读取值
-        switch (node->type) {
-            case NODE_IDENTIFIER:
-                // 读取标识符名称
-                node->id.name = (char *)malloc(strlen(string_table[i]) + 1);
-                if (!node->id.name) {
-                    // 清理已分配的字符串和节点数据
-                    for (uint32_t j = 0; j < num_strings; j++) {
-                        free(string_table[j]);
-                    }
-                    free(string_table);
-                    free(node_offsets);
-                    free(root);
-                    fclose(file);
-                    fprintf(stderr, "分配标识符名称内存失败\n");
-                    return NULL;
-                }
-                strcpy(node->id.name, string_table[i]);
-                node->id.symbol = NULL;
-                break;
-            
-            case NODE_INTEGER_LITERAL:
-                fread(&node->u.int_val, sizeof(node->u.int_val), 1, file);
-                break;
-            
-            case NODE_FLOAT_LITERAL:
-                fread(&node->u.float_val, sizeof(node->u.float_val), 1, file);
-                break;
-            
-            case NODE_STRING_LITERAL:
-                node->u.str_val.str = strdup(string_table[i]);
-                node->u.str_val.len = strlen(string_table[i]);
-                node->u.str_val.is_wide = 0;
-                break;
-            
-            case NODE_BINARY_OP:
-            case NODE_UNARY_OP:
-            case NODE_FUNCTION_CALL:
-            case NODE_IF_STMT:
-            case NODE_WHILE_STMT:
-            case NODE_FOR_STMT:
-            case NODE_RETURN_STMT:
-            case NODE_COMPOUND_STMT:
-            case NODE_ARRAY_ACCESS:
-            case NODE_MEMBER_ACCESS:
-                // 递归解析子节点
-                node->u.compound.stmts = (ASTNode **)malloc(sizeof(ASTNode*) * 16);
-                if (!node->u.compound.stmts) {
-                    // 清理已分配的字符串、节点偏移量和节点数据
-                    for (uint32_t j = 0; j < num_strings; j++) {
-                        free(string_table[j]);
-                    }
-                    free(string_table);
-                    free(node_offsets);
-                    free(root);
-                    fclose(file);
-                    fprintf(stderr, "分配子节点内存失败\n");
-                    return NULL;
-                }
-                node->u.compound.num_stmts = 0;
-                while (node->u.compound.num_stmts < 16 && fread(&node->u.compound.stmts[node->u.compound.num_stmts], sizeof(ASTNode*), 1, file) == 1) {
-                    node->u.compound.num_stmts++;
-                }
-                break;
-            
-            default:
-                // 未知节点类型，跳过
-                fseek(file, sizeof(node->type) + 2 * sizeof(int) + strlen(string_table[i]) + 1, SEEK_CUR);
-                break;
-        }
-        
-        // 读取链表指针
-        fread(&node->left, sizeof(node->left), 1, file);
-        fread(&node->right, sizeof(node->right), 1, file);
-        fread(&node->next, sizeof(node->next), 1, file);
-    }
-    
-    // 清理
-    free(node_offsets);
-    for (uint32_t j = 0; j < num_strings; j++) {
-        free(string_table[j]);
-    }
-    free(string_table);
-    fclose(file);
-    
-    return root;
-}
-
-// 解析宏参数
 static char** parse_macro_arguments(const char **p, int *num_args, int is_variadic) {
     if (**p != '(') {
         return NULL;
