@@ -223,11 +223,15 @@ generate_report() {
     echo "" >> "$report_file"
     
     echo "可用的 TCC 版本:" | tee -a "$report_file"
-    find "$OUTPUT_DIR/bin" -type f -executable | sort | while read -r file; do
-        local size=$(ls -lh "$file" | awk '{print $5}')
-        local name=$(basename "$file")
-        local type=$(file "$file" | cut -d':' -f2-)
-        echo "  $name (大小: $size): $type" | tee -a "$report_file"
+    
+    # 使用兼容 macOS 的方式查找可执行文件
+    find "$OUTPUT_DIR/bin" -type f | while read -r file; do
+        if [ -x "$file" ]; then
+            local size=$(ls -lh "$file" | awk '{print $5}')
+            local name=$(basename "$file")
+            local type=$(file "$file" | cut -d':' -f2-)
+            echo "  $name (大小: $size): $type" | tee -a "$report_file"
+        fi
     done
     
     echo "" | tee -a "$report_file"
