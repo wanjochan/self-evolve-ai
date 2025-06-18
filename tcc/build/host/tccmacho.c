@@ -27,7 +27,7 @@
    trie of exported names.  We're simply using classic symbol tables which
    are still supported by modern dyld.
 
-   But we do use LC_MAIN, which is a "modern" feature in order to not have
+   But we do use TCC_LC_MAIN, which is a "modern" feature in order to not have
    to setup our own crt code.  We're not using lazy linking, so even function
    calls are resolved at startup.  */
 
@@ -35,34 +35,799 @@
 #error Platform not supported
 #endif
 
+// Include TCC headers first
+#include "tcc.h"
+
+// Define our own minimal set of Mach-O structures with unique names
+// to avoid conflicts with system headers
+
+typedef uint32_t tcc_uint32_t;
+typedef uint64_t tcc_uint64_t;
+typedef int32_t  tcc_int32_t;
+typedef uint8_t  tcc_uint8_t;
+typedef uint16_t tcc_uint16_t;
+
+// Mach-O header magic numbers
+#define TCC_MH_MAGIC    0xfeedface  /* the mach magic number */
+#define TCC_MH_CIGAM    0xcefaedfe  /* NXSwapInt(MH_MAGIC) */
+#define TCC_MH_MAGIC_64 0xfeedfacf  /* the 64-bit mach magic number */
+#define TCC_MH_CIGAM_64 0xcffaedfe  /* NXSwapInt(MH_MAGIC_64) */
+
+// File types
+#define TCC_MH_OBJECT   0x1     /* relocatable object file */
+#define TCC_MH_EXECUTE  0x2     /* demand paged executable file */
+#define TCC_MH_FVMLIB   0x3     /* fixed VM shared library file */
+#define TCC_MH_CORE     0x4     /* core file */
+#define TCC_MH_PRELOAD  0x5     /* preloaded executable file */
+#define TCC_MH_DYLIB    0x6     /* dynamically bound shared library */
+#define TCC_MH_DYLINKER 0x7     /* dynamic link editor */
+#define TCC_MH_BUNDLE   0x8     /* dynamically bound bundle file */
+#define TCC_MH_DYLIB_STUB   0x9     /* shared library stub for static linking only, no section contents */
+#define TCC_MH_DSYM     0xa     /* companion file with only debug sections */
+
+// Flags
+#define TCC_MH_NOUNDEFS 0x1     /* the object file has no undefined references */
+#define TCC_MH_DYLDLINK 0x4     /* the object file is input for the dynamic linker and can't be staticly link edited again */
+#define TCC_MH_PIE      0x200000 /* When this bit is set, the OS will load the main executable at a random address */
+
+// CPU types and subtypes
+#define TCC_CPU_TYPE_X86        7
+#define TCC_CPU_TYPE_ARM        12
+#define TCC_CPU_ARCH_ABI64      0x01000000
+#define TCC_CPU_TYPE_X86_64     (TCC_CPU_TYPE_X86 | TCC_CPU_ARCH_ABI64)
+#define TCC_CPU_TYPE_ARM64     (TCC_CPU_TYPE_ARM | TCC_CPU_ARCH_ABI64)
+#define TCC_CPU_SUBTYPE_I386_ALL   3
+#define TCC_TCC_CPU_SUBTYPE_ARM64_ALL  0
+#define TCC_CPU_SUBTYPE_LIB64      0x80000000
+
+// Load command types
+#define TCC_TCC_LC_SEGMENT_64       0x19    /* 64-bit segment of this file to be mapped */
+#define TCC_TCC_LC_SYMTAB           0x2     /* link-edit stab symbol table info */
+#define TCC_TCC_LC_DYSYMTAB         0xb     /* dynamic link-edit symbol table info */
+#define TCC_TCC_LC_LOAD_DYLIB       0xc     /* load a dynamically linked shared library */
+#define TCC_TCC_LC_ID_DYLIB         0xd     /* dynamically linked shared lib ident */
+#define TCC_TCC_LC_LOAD_DYLINKER    0xe     /* load a dynamic linker */
+#define TCC_LC_DYLD_INFO        0x22    /* compressed dyld information */
+#define TCC_TCC_LC_DYLD_INFO_ONLY   (0x22|0x80000000) /* compressed dyld information only */
+#define TCC_TCC_LC_MAIN             0x28|0x80000000   /* replacement for LC_UNIXTHREAD */
+#define TCC_TCC_LC_RPATH            0x8000001c   /* runpath additions */
+
+// Symbol n_type field bits
+#define TCC_N_STAB   0xe0  /* if any of these bits set, a symbolic debugging entry */
+#define TCC_N_PEXT   0x10  /* private external symbol bit */
+#define TCC_N_TYPE   0x0e  /* mask for the type bits */
+#define TCC_TCC_N_EXT    0x01  /* external symbol bit, set for external symbols */
+
+// Symbol types
+#define TCC_TCC_N_UNDF   0x0     /* undefined, n_sect == NO_SECT */
+#define TCC_TCC_N_ABS    0x2     /* absolute, n_sect == NO_SECT */
+#define TCC_TCC_N_SECT   0xe     /* defined in section number n_sect */
+
+// Symbol descriptions
+#define TCC_REFERENCED_DYNAMICALLY   0x10
+#define TCC_N_DESC_DISCARDED         0x0020
+
+// Segment flags
+#define TCC_SG_PROTECTED_VERSION_1   0x8
+
+// Section attributes
+#define TCC_TCC_S_ATTR_PURE_INSTRUCTIONS 0x80000000
+#define TCC_TCC_S_ATTR_SOME_INSTRUCTIONS 0x00000400
+#define TCC_S_ATTR_EXT_RELOC         0x00000200
+#define TCC_S_ATTR_LOC_RELOC         0x00000100
+
+// Segment and section names
+#define TCC_TCC_SEG_PAGEZERO     "__PAGEZERO"
+#define TCC_TCC_SEG_TEXT         "__TEXT"
+#define TCC_TCC_SEG_DATA         "__DATA"
+#define TCC_SEG_OBJC         "__OBJC"
+#define TCC_SEG_IMPORT      "__IMPORT"
+#define TCC_TCC_SEG_LINKEDIT    "__LINKEDIT"
+
+#define TCC_TCC_SECT_TEXT       "__text"
+#define TCC_SECT_FVMLIB_INIT0 "__fvmlib_init0"
+#define TCC_SECT_FVMLIB_INIT1 "__fvmlib_init1"
+#define TCC_TCC_SECT_DATA       "__data"
+#define TCC_TCC_SECT_BSS        "__bss"
+#define TCC_SECT_COMMON     "__common"
+#define TCC_SECT_OBJC_CAT_CLASS_METHODS "__cat_cls_meth"
+#define TCC_SECT_OBJC_CAT_INST_METHODS "__cat_inst_meth"
+#define TCC_SECT_OBJC_MESSAGE_REFS "__message_refs"
+#define TCC_SECT_OBJC_CLASS "__class"
+#define TCC_SECT_OBJC_META_CLASS "__meta_class"
+#define TCC_SECT_OBJC_CLASS_NAMES "__cls_name"
+#define TCC_SECT_OBJC_METH_VAR_NAMES "__meth_var_names"
+#define TCC_SECT_OBJC_METH_VAR_TYPES "__meth_var_types"
+#define TCC_SECT_OBJC_MODULES "__symbols"
+#define TCC_SECT_OBJC_CLASS_REFS "__cls_refs"
+#define TCC_SECT_OBJC_CLASS_VARS "__instance_vars"
+#define TCC_SECT_OBJC_INSTANCE_VARS "__instance_vars"
+#define TCC_SECT_OBJC_MODULE_INFO "__module_info"
+#define TCC_SECT_OBJC_SYMBOLS "__symbols"
+#define TCC_SECT_OBJC "__obc"
+
+// Minimal Mach-O structures with 'tcc_' prefix to avoid conflicts
+struct tcc_mach_header_64 {
+    tcc_uint32_t magic;
+    tcc_uint32_t cputype;
+    tcc_uint32_t cpusubtype;
+    tcc_uint32_t filetype;
+    tcc_uint32_t ncmds;
+    tcc_uint32_t sizeofcmds;
+    tcc_uint32_t flags;
+    tcc_uint32_t reserved;
+};
+
+struct tcc_load_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+};
+
+struct tcc_lc_str {
+    tcc_uint32_t offset;
+};
+
+struct tcc_segment_command_64 {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    char segname[16];
+    tcc_uint64_t vmaddr;
+    tcc_uint64_t vmsize;
+    tcc_uint64_t fileoff;
+    tcc_uint64_t filesize;
+    tcc_uint32_t maxprot;
+    tcc_uint32_t initprot;
+    tcc_uint32_t nsects;
+    tcc_uint32_t flags;
+};
+
+struct tcc_section_64 {
+    char sectname[16];
+    char segname[16];
+    tcc_uint64_t addr;
+    tcc_uint64_t size;
+    tcc_uint32_t offset;
+    tcc_uint32_t align;
+    tcc_uint32_t reloff;
+    tcc_uint32_t nreloc;
+    tcc_uint32_t flags;
+    tcc_uint32_t reserved1;
+    tcc_uint32_t reserved2;
+    tcc_uint32_t reserved3;
+};
+
+struct tcc_dylib {
+    struct tcc_lc_str name;
+    tcc_uint32_t timestamp;
+    tcc_uint32_t current_version;
+    tcc_uint32_t compatibility_version;
+};
+
+struct tcc_dylib_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    struct tcc_dylib dylib;
+};
+
+struct tcc_symtab_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    tcc_uint32_t symoff;
+    tcc_uint32_t nsyms;
+    tcc_uint32_t stroff;
+    tcc_uint32_t strsize;
+};
+
+struct tcc_dysymtab_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    tcc_uint32_t ilocalsym;
+    tcc_uint32_t nlocalsym;
+    tcc_uint32_t iextdefsym;
+    tcc_uint32_t nextdefsym;
+    tcc_uint32_t iundefsym;
+    tcc_uint32_t nundefsym;
+    tcc_uint32_t tocoff;
+    tcc_uint32_t ntoc;
+    tcc_uint32_t modtaboff;
+    tcc_uint32_t nmodtab;
+    tcc_uint32_t extrefsymoff;
+    tcc_uint32_t nextrefsyms;
+    tcc_uint32_t indirectsymoff;
+    tcc_uint32_t nindirectsyms;
+    tcc_uint32_t extreloff;
+    tcc_uint32_t nextrel;
+    tcc_uint32_t locreloff;
+    tcc_uint32_t nlocrel;
+};
+
+struct tcc_dylinker_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    struct tcc_lc_str name;
+};
+
+struct tcc_rpath_command {
+    tcc_uint32_t cmd;
+    tcc_uint32_t cmdsize;
+    struct tcc_lc_str path;
+};
+
+struct tcc_lc_str {
+    tcc_uint32_t offset;
+};
+
+struct tcc_nlist_64 {
+    union {
+        tcc_uint32_t n_strx;
+    } n_un;
+    tcc_uint8_t n_type;
+    tcc_uint8_t n_sect;
+    tcc_uint16_t n_desc;
+    tcc_uint64_t n_value;
+};
+// 移除多余的#endif
+
+// Include standard headers after our definitions
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <time.h>
+
+// Map our prefixed types to the original names for compatibility
+#define mach_header_64 tcc_mach_header_64
+#define load_command tcc_load_command
+#define segment_command_64 tcc_segment_command_64
+#define section_64 tcc_section_64
+#define dylib_command tcc_dylib_command
+#define symtab_command tcc_symtab_command
+#define dysymtab_command tcc_dysymtab_command
+#define dylinker_command tcc_dylinker_command
+#define rpath_command tcc_rpath_command
+#define lc_str tcc_lc_str
+#define nlist_64 tcc_nlist_64
+
+// Map our prefixed constants to the original names
+#define MH_EXECUTE TCC_MH_EXECUTE
+#define MH_DYLDLINK TCC_MH_DYLDLINK
+#define MH_DYLIB TCC_MH_DYLIB
+#define MH_PIE TCC_MH_PIE
+#define CPU_TYPE_X86 TCC_CPU_TYPE_X86
+#define CPU_TYPE_X86_64 TCC_CPU_TYPE_X86_64
+#define CPU_TYPE_ARM TCC_CPU_TYPE_ARM
+#define CPU_TYPE_ARM64 TCC_CPU_TYPE_ARM64
+#define TCC_CPU_SUBTYPE_X86_ALL TCC_CPU_SUBTYPE_I386_ALL
+#define TCC_CPU_SUBTYPE_ARM64_ALL TCC_TCC_CPU_SUBTYPE_ARM64_ALL
+#define CPU_ARCH_ABI64 TCC_CPU_ARCH_ABI64
+#define TCC_LC_SEGMENT_64 TCC_TCC_LC_SEGMENT_64
+#define TCC_LC_SYMTAB TCC_TCC_LC_SYMTAB
+#define TCC_LC_DYSYMTAB TCC_TCC_LC_DYSYMTAB
+#define TCC_LC_LOAD_DYLIB TCC_TCC_LC_LOAD_DYLIB
+#define TCC_LC_ID_DYLIB TCC_TCC_LC_ID_DYLIB
+#define TCC_LC_LOAD_DYLINKER TCC_TCC_LC_LOAD_DYLINKER
+#define TCC_LC_RPATH TCC_TCC_LC_RPATH
+#define TCC_N_UNDF TCC_TCC_N_UNDF
+#define TCC_N_ABS TCC_TCC_N_ABS
+#define TCC_N_SECT TCC_TCC_N_SECT
+#define TCC_N_EXT TCC_TCC_N_EXT
+
+// Map segment and section names
+#define TCC_SEG_PAGEZERO TCC_TCC_SEG_PAGEZERO
+#define TCC_SEG_TEXT TCC_TCC_SEG_TEXT
+#define TCC_SEG_DATA TCC_TCC_SEG_DATA
+#define TCC_SEG_LINKEDIT TCC_TCC_SEG_LINKEDIT
+#define TCC_SECT_TEXT TCC_TCC_SECT_TEXT
+#define TCC_SECT_DATA TCC_TCC_SECT_DATA
+#define TCC_SECT_BSS TCC_TCC_SECT_BSS
+
+// Map section attributes
+#define TCC_S_ATTR_PURE_INSTRUCTIONS TCC_TCC_S_ATTR_PURE_INSTRUCTIONS
+#define TCC_S_ATTR_SOME_INSTRUCTIONS TCC_TCC_S_ATTR_SOME_INSTRUCTIONS
+
+// Helper macros for structure access
+#define DYLIB_CMD_GET(ptr) ((struct tcc_dylib_command *)(ptr))
+#define DYLINKER_CMD_GET(ptr) ((struct tcc_dylinker_command *)(ptr))
+#define RPATH_CMD_GET(ptr) ((struct tcc_rpath_command *)(ptr))
+#define SEG_CMD_64_GET(ptr) ((struct tcc_segment_command_64 *)(ptr))
+#define SECT_64_GET(ptr) ((struct tcc_section_64 *)(ptr))
+#define SYMTAB_CMD_GET(ptr) ((struct tcc_symtab_command *)(ptr))
+#define DYSYMTAB_CMD_GET(ptr) ((struct tcc_dysymtab_command *)(ptr))
+
+// Helper function to get string from lc_str
+static const char *get_lc_str(const void *base, uint32_t offset) {
+    return (const char *)base + offset;
+}
+
 /* XXX: this file uses tcc_error() to the effect of exit(1) */
 #undef _tcc_error
+
+// Helper function to align values to a power of 2 boundary
+static inline uint64_t align(uint64_t value, uint64_t align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+// Helper function to add padding to align the file offset
+static int add_padding(FILE *f, tcc_uint64_t *offset, tcc_uint64_t alignment) {
+    uint64_t new_offset = align(*offset, alignment);
+    uint64_t pad = new_offset - *offset;
+    if (pad > 0) {
+        static const unsigned char zeros[8] = {0};
+        if (fwrite(zeros, 1, pad, f) != pad) {
+            return -1;
+        }
+        *offset = new_offset;
+    }
+    return 0;
+}
+
+// Helper function to write a load command
+static int write_load_command(FILE *f, uint32_t cmd, uint32_t cmdsize, const void *data, size_t datalen) {
+    struct {
+        uint32_t cmd;
+        uint32_t cmdsize;
+    } lc = {cmd, cmdsize};
+    
+    if (fwrite(&lc, sizeof(lc), 1, f) != 1 ||
+        (datalen > 0 && fwrite(data, datalen, 1, f) != 1)) {
+        return -1;
+    }
+    return 0;
+}
+
+// Helper function to write a segment command
+static int write_segment_command_64(FILE *f, const char *segname, uint64_t vmaddr, uint64_t vmsize,
+                                   uint64_t fileoff, uint64_t filesize, uint32_t maxprot, uint32_t initprot,
+                                   uint32_t nsects, uint32_t flags) {
+    struct tcc_segment_command_64 seg = {0};
+    
+    seg.cmd = TCC_TCC_LC_SEGMENT_64;
+    seg.cmdsize = sizeof(struct tcc_segment_command_64) + nsects * sizeof(struct tcc_section_64);
+    strncpy(seg.segname, segname, sizeof(seg.segname));
+    seg.vmaddr = vmaddr;
+    seg.vmsize = vmsize;
+    seg.fileoff = fileoff;
+    seg.filesize = filesize;
+    seg.maxprot = maxprot;
+    seg.initprot = initprot;
+    seg.nsects = nsects;
+    seg.flags = flags;
+    
+    return fwrite(&seg, sizeof(seg), 1, f) == 1 ? 0 : -1;
+}
+
+// Helper function to write a section
+static int write_section_64(FILE *f, const char *sectname, const char *segname, 
+                           uint64_t addr, uint64_t size, uint32_t offset,
+                           uint32_t align, uint32_t reloff, uint32_t nreloc,
+                           uint32_t flags, uint32_t reserved1, uint32_t reserved2) {
+    struct tcc_section_64 sect = {0};
+    
+    strncpy(sect.sectname, sectname, sizeof(sect.sectname));
+    strncpy(sect.segname, segname, sizeof(sect.segname));
+    sect.addr = addr;
+    sect.size = size;
+    sect.offset = offset;
+    sect.align = align;
+    sect.reloff = reloff;
+    sect.nreloc = nreloc;
+    sect.flags = flags;
+    sect.reserved1 = reserved1;
+    sect.reserved2 = reserved2;
+    
+    return fwrite(&sect, sizeof(sect), 1, f) == 1 ? 0 : -1;
+}
+
+// Helper function to write a dylib command
+static int write_dylib_command(FILE *f, uint32_t cmd, const char *name, 
+                              uint32_t timestamp, uint32_t current_version, uint32_t compatibility_version) {
+    size_t namelen = strlen(name) + 1;
+    size_t cmdsize = sizeof(struct tcc_dylib_command) + align(namelen, 8);
+    struct tcc_dylib_command dylib = {0};
+    
+    dylib.cmd = cmd;
+    dylib.cmdsize = (uint32_t)cmdsize;
+    dylib.dylib.timestamp = timestamp;
+    dylib.dylib.current_version = current_version;
+    dylib.dylib.compatibility_version = compatibility_version;
+    dylib.dylib.name.offset = sizeof(struct tcc_dylib_command);
+    
+    if (fwrite(&dylib, sizeof(dylib), 1, f) != 1 ||
+        fwrite(name, namelen, 1, f) != 1) {
+        return -1;
+    }
+    
+    // Add padding
+    size_t pad = align(namelen, 8) - namelen;
+    if (pad > 0) {
+        static const unsigned char zeros[7] = {0};
+        if (fwrite(zeros, 1, pad, f) != pad) {
+            return -1;
+        }
+    }
+    
+    return 0;
+}
+
+// Helper function to write a symtab command
+static int write_symtab_command(FILE *f, uint32_t symoff, uint32_t nsyms, 
+                               uint32_t stroff, uint32_t strsize) {
+    struct tcc_symtab_command symtab = {0};
+    
+    symtab.cmd = TCC_TCC_LC_SYMTAB;
+    symtab.cmdsize = sizeof(struct tcc_symtab_command);
+    symtab.symoff = symoff;
+    symtab.nsyms = nsyms;
+    symtab.stroff = stroff;
+    symtab.strsize = strsize;
+    
+    return fwrite(&symtab, sizeof(symtab), 1, f) == 1 ? 0 : -1;
+}
+
+// Helper function to write a dysymtab command
+static int write_dysymtab_command(FILE *f, uint32_t ilocalsym, uint32_t nlocalsym,
+                                 uint32_t iextdefsym, uint32_t nextdefsym,
+                                 uint32_t iundefsym, uint32_t nundefsym,
+                                 uint32_t tocoff, uint32_t ntoc,
+                                 uint32_t modtaboff, uint32_t nmodtab,
+                                 uint32_t extrefsymoff, uint32_t nextrefsyms,
+                                 uint32_t indirectsymoff, uint32_t nindirectsyms,
+                                 uint32_t extreloff, uint32_t nextrel,
+                                 uint32_t locreloff, uint32_t nlocrel) {
+    struct tcc_dysymtab_command dysymtab = {0};
+    
+    dysymtab.cmd = TCC_TCC_LC_DYSYMTAB;
+    dysymtab.cmdsize = sizeof(struct tcc_dysymtab_command);
+    dysymtab.ilocalsym = ilocalsym;
+    dysymtab.nlocalsym = nlocalsym;
+    dysymtab.iextdefsym = iextdefsym;
+    dysymtab.nextdefsym = nextdefsym;
+    dysymtab.iundefsym = iundefsym;
+    dysymtab.nundefsym = nundefsym;
+    dysymtab.tocoff = tocoff;
+    dysymtab.ntoc = ntoc;
+    dysymtab.modtaboff = modtaboff;
+    dysymtab.nmodtab = nmodtab;
+    dysymtab.extrefsymoff = extrefsymoff;
+    dysymtab.nextrefsyms = nextrefsyms;
+    dysymtab.indirectsymoff = indirectsymoff;
+    dysymtab.nindirectsyms = nindirectsyms;
+    dysymtab.extreloff = extreloff;
+    dysymtab.nextrel = nextrel;
+    dysymtab.locreloff = locreloff;
+    dysymtab.nlocrel = nlocrel;
+    
+    return fwrite(&dysymtab, sizeof(dysymtab), 1, f) == 1 ? 0 : -1;
+}
+
+// Helper function to write a dylinker command
+static int write_dylinker_command(FILE *f, const char *name, uint32_t cmd) {
+    size_t namelen = strlen(name) + 1;
+    size_t cmdsize = sizeof(struct tcc_dylinker_command) + align(namelen, 8);
+    struct tcc_dylinker_command dylinker = {0};
+    
+    dylinker.cmd = cmd;
+    dylinker.cmdsize = (uint32_t)cmdsize;
+    dylinker.name.offset = sizeof(struct tcc_dylinker_command);
+    
+    if (fwrite(&dylinker, sizeof(dylinker), 1, f) != 1 ||
+        fwrite(name, namelen, 1, f) != 1) {
+        return -1;
+    }
+    
+    // Add padding
+    size_t pad = align(namelen, 8) - namelen;
+    if (pad > 0) {
+        static const unsigned char zeros[7] = {0};
+        if (fwrite(zeros, 1, pad, f) != pad) {
+            return -1;
+        }
+    }
+    
+    return 0;
+}
+
+// Helper function to write a rpath command
+static int write_rpath_command(FILE *f, const char *path) {
+    size_t pathlen = strlen(path) + 1;
+    size_t cmdsize = sizeof(struct tcc_rpath_command) + align(pathlen, 8);
+    struct tcc_rpath_command rpath = {0};
+    
+    rpath.cmd = TCC_TCC_LC_RPATH;
+    rpath.cmdsize = (uint32_t)cmdsize;
+    rpath.path.offset = sizeof(struct tcc_rpath_command);
+    
+    if (fwrite(&rpath, sizeof(rpath), 1, f) != 1 ||
+        fwrite(path, pathlen, 1, f) != 1) {
+        return -1;
+    }
+    
+    // Add padding
+    size_t pad = align(pathlen, 8) - pathlen;
+    if (pad > 0) {
+        static const unsigned char zeros[7] = {0};
+        if (fwrite(zeros, 1, pad, f) != pad) {
+            return -1;
+        }
+    }
+    
+    return 0;
+}
 
 #define DEBUG_MACHO 0
 #define dprintf if (DEBUG_MACHO) printf
 
-#define MH_EXECUTE              (0x2)
-#define MH_DYLDLINK             (0x4)
-#define MH_DYLIB                (0x6)
-#define MH_PIE                  (0x200000)
+// Main function to write a Mach-O file
+int tcc_macho_write(TCCState *s1, const char *filename, int file_type) {
+    FILE *f;
+    struct tcc_mach_header_64 mh = {0};
+    uint64_t file_off = 0;
+    uint64_t seg_fileoff = 0;
+    uint64_t seg_filesize = 0;
+    uint64_t seg_vmaddr = 0;
+    uint64_t seg_vmsize = 0;
+    uint32_t ncmds = 0;
+    uint32_t sizeofcmds = 0;
+    uint32_t flags = 0;
+    int ret = -1;
+    
+    // Open output file
+    f = fopen(filename, "wb");
+    if (!f) {
+        tcc_error("could not write '%s': %s", filename, strerror(errno));
+        return -1;
+    }
+    
+    // Set up Mach-O header
+    mh.magic = TCC_MH_MAGIC_64;
+    mh.cputype = TCC_CPU_TYPE_X86_64;
+    mh.cpusubtype = TCC_CPU_SUBTYPE_X86_64_ALL | TCC_CPU_SUBTYPE_LIB64;
+    mh.filetype = file_type;
+    mh.ncmds = 0;  // Will be set later
+    mh.sizeofcmds = 0;  // Will be set later
+    mh.flags = TCC_MH_NOUNDEFS | TCC_MH_DYLDLINK | TCC_MH_TWOLEVEL | TCC_MH_PIE;
+    if (s1->output_type == TCC_OUTPUT_DLL) {
+        mh.flags |= TCC_MH_DYLIB;
+    }
+    
+    // Write Mach-O header
+    if (fwrite(&mh, sizeof(mh), 1, f) != 1) {
+        tcc_error("write error");
+        goto fail;
+    }
+    file_off += sizeof(mh);
+    
+    // Write load commands
+    // 1. Write pagezero segment (required for PIE)
+    if (write_segment_command_64(f, TCC_TCC_SEG_PAGEZERO, 0, 0x100000000, 0, 0, 0, 0, 0, 0) != 0) {
+        tcc_error("failed to write __PAGEZERO segment");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_segment_command_64);
+    
+    // 2. Write TEXT segment
+    seg_fileoff = file_off + sizeofcmds;  // After all load commands
+    seg_vmaddr = 0x100000000;  // After pagezero
+    seg_vmsize = 0x1000;  // 4KB for now, will be updated
+    seg_filesize = 0x1000;  // 4KB for now, will be updated
+    
+    if (write_segment_command_64(f, TCC_TCC_SEG_TEXT, seg_vmaddr, seg_vmsize, 
+                                seg_fileoff, seg_filesize, 
+                                TCC_TCC_TCC_VM_PROT_READ | TCC_TCC_TCC_VM_PROT_EXECUTE,  // maxprot
+                                TCC_TCC_TCC_VM_PROT_READ | TCC_TCC_TCC_VM_PROT_EXECUTE,  // initprot
+                                1,  // nsects (1 for __text)
+                                0) != 0) {  // flags
+        tcc_error("failed to write __TEXT segment");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_segment_command_64) + sizeof(struct tcc_section_64);
+    
+    // 3. Write __text section
+    if (write_section_64(f, TCC_TCC_SECT_TEXT, TCC_TCC_SEG_TEXT, 
+                        seg_vmaddr, seg_filesize, seg_fileoff, 
+                        12,  // 2^12 = 4096 byte alignment
+                        0, 0,  // reloff, nreloc
+                        TCC_TCC_S_ATTR_PURE_INSTRUCTIONS | TCC_TCC_S_ATTR_SOME_INSTRUCTIONS,
+                        0, 0) != 0) {  // reserved1, reserved2
+        tcc_error("failed to write __text section");
+        goto fail;
+    }
+    
+    // 4. Write DATA segment
+    uint64_t data_vmaddr = seg_vmaddr + seg_vmsize;
+    uint64_t data_fileoff = seg_fileoff + seg_filesize;
+    uint64_t data_vmsize = 0x1000;  // 4KB for now, will be updated
+    uint64_t data_filesize = 0x1000;  // 4KB for now, will be updated
+    
+    if (write_segment_command_64(f, TCC_TCC_SEG_DATA, data_vmaddr, data_vmsize, 
+                                data_fileoff, data_filesize, 
+                                TCC_TCC_TCC_VM_PROT_READ | TCC_TCC_TCC_VM_PROT_WRITE,  // maxprot
+                                TCC_TCC_TCC_VM_PROT_READ | TCC_TCC_TCC_VM_PROT_WRITE,  // initprot
+                                2,  // nsects (__data, __bss)
+                                0) != 0) {  // flags
+        tcc_error("failed to write __DATA segment");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_segment_command_64) + 2 * sizeof(struct tcc_section_64);
+    
+    // 5. Write __data section
+    if (write_section_64(f, TCC_TCC_SECT_DATA, TCC_TCC_SEG_DATA, 
+                        data_vmaddr, data_filesize, data_fileoff, 
+                        3,  // 2^3 = 8 byte alignment
+                        0, 0,  // reloff, nreloc
+                        TCC_TCC_S_ZEROFILL,  // zero fill section
+                        0, 0) != 0) {  // reserved1, reserved2
+        tcc_error("failed to write __data section");
+        goto fail;
+    }
+    
+    // 6. Write __bss section
+    if (write_section_64(f, TCC_TCC_SECT_BSS, TCC_TCC_SEG_DATA, 
+                        data_vmaddr + data_vmsize, 0, 0, 
+                        3,  // 2^3 = 8 byte alignment
+                        0, 0,  // reloff, nreloc
+                        TCC_TCC_S_ZEROFILL,  // zero fill section
+                        0, 0) != 0) {  // reserved1, reserved2
+        tcc_error("failed to write __bss section");
+        goto fail;
+    }
+    
+    // 7. Write LINKEDIT segment (for symbol table, etc.)
+    uint64_t linkedit_vmaddr = data_vmaddr + data_vmsize;
+    uint64_t linkedit_fileoff = data_fileoff + data_filesize;
+    uint64_t linkedit_vmsize = 0x1000;  // 4KB for now, will be updated
+    uint64_t linkedit_filesize = 0x1000;  // 4KB for now, will be updated
+    
+    if (write_segment_command_64(f, TCC_TCC_SEG_LINKEDIT, linkedit_vmaddr, linkedit_vmsize, 
+                                linkedit_fileoff, linkedit_filesize, 
+                                TCC_TCC_TCC_VM_PROT_READ,  // maxprot
+                                TCC_TCC_TCC_VM_PROT_READ,  // initprot
+                                0,  // nsections
+                                0) != 0) {  // flags
+        tcc_error("failed to write __LINKEDIT segment");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_segment_command_64);
+    
+    // 8. Write TCC_LC_DYLD_INFO_ONLY (simplified)
+    struct {
+        uint32_t cmd;
+        uint32_t cmdsize;
+        uint32_t rebase_off;
+        uint32_t rebase_size;
+        uint32_t bind_off;
+        uint32_t bind_size;
+        uint32_t weak_bind_off;
+        uint32_t weak_bind_size;
+        uint32_t lazy_bind_off;
+        uint32_t lazy_bind_size;
+        uint32_t export_off;
+        uint32_t export_size;
+    } dyld_info = {
+        .cmd = 0x22,  // TCC_LC_DYLD_INFO_ONLY
+        .cmdsize = 48,
+        .rebase_off = 0,
+        .rebase_size = 0,
+        .bind_off = 0,
+        .bind_size = 0,
+        .weak_bind_off = 0,
+        .weak_bind_size = 0,
+        .lazy_bind_off = 0,
+        .lazy_bind_size = 0,
+        .export_off = 0,
+        .export_size = 0
+    };
+    
+    if (fwrite(&dyld_info, sizeof(dyld_info), 1, f) != 1) {
+        tcc_error("failed to write TCC_LC_DYLD_INFO_ONLY");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(dyld_info);
+    
+    // 9. Write TCC_LC_SYMTAB
+    uint32_t symtab_off = (uint32_t)(linkedit_fileoff);
+    uint32_t symtab_size = 0;  // Will be updated
+    uint32_t strtab_off = symtab_off + symtab_size;
+    uint32_t strtab_size = 0;  // Will be updated
+    
+    if (write_symtab_command(f, symtab_off, 0, strtab_off, strtab_size) != 0) {
+        tcc_error("failed to write TCC_LC_SYMTAB");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_symtab_command);
+    
+    // 10. Write TCC_LC_DYSYMTAB (simplified)
+    if (write_dysymtab_command(f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) != 0) {
+        tcc_error("failed to write TCC_LC_DYSYMTAB");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(struct tcc_dysymtab_command);
+    
+    // 11. Write TCC_LC_LOAD_DYLINKER
+    if (write_dylinker_command(f, "/usr/lib/dyld", TCC_TCC_LC_LOAD_DYLINKER) != 0) {
+        tcc_error("failed to write TCC_LC_LOAD_DYLINKER");
+        goto fail;
+    }
+    ncmds++;
+    
+    // 12. Write TCC_LC_MAIN (entry point)
+    struct {
+        uint32_t cmd;
+        uint32_t cmdsize;
+        uint64_t entryoff;
+        uint64_t stacksize;
+    } entry_point = {
+        .cmd = 0x28 | 0x80000000,  // TCC_LC_MAIN
+        .cmdsize = 24,
+        .entryoff = 0,  // Will be updated
+        .stacksize = 0  // Default stack size
+    };
+    
+    if (fwrite(&entry_point, sizeof(entry_point), 1, f) != 1) {
+        tcc_error("failed to write TCC_LC_MAIN");
+        goto fail;
+    }
+    ncmds++;
+    sizeofcmds += sizeof(entry_point);
+    
+    // Update Mach-O header with final values
+    mh.ncmds = ncmds;
+    mh.sizeofcmds = sizeofcmds;
+    
+    // Seek back to update the header
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        tcc_error("failed to seek to update header");
+        goto fail;
+    }
+    
+    // Write updated header
+    if (fwrite(&mh, sizeof(mh), 1, f) != 1) {
+        tcc_error("failed to update Mach-O header");
+        goto fail;
+    }
+    
+    // Success
+    ret = 0;
+    
+fail:
+    fclose(f);
+    if (ret != 0) {
+        remove(filename);
+    }
+    return ret;
+}
 
-#define CPU_SUBTYPE_LIB64       (0x80000000)
-#define CPU_SUBTYPE_X86_ALL     (3)
-#define CPU_SUBTYPE_ARM64_ALL   (0)
+// These are now defined in the prefixed form above
+// #define MH_EXECUTE              (0x2)
+// #define MH_DYLDLINK             (0x4)
+// #define MH_DYLIB                (0x6)
+// These are now defined in the prefixed form above
+// #define MH_PIE                  (0x200000)
 
-#define CPU_ARCH_ABI64          (0x01000000)
+// #define CPU_SUBTYPE_LIB64       (0x80000000)
+// #define TCC_CPU_SUBTYPE_X86_ALL     (3)
+// #define TCC_CPU_SUBTYPE_ARM64_ALL   (0)
 
-#define CPU_TYPE_X86            (7)
-#define CPU_TYPE_X86_64         (CPU_TYPE_X86 | CPU_ARCH_ABI64)
-#define CPU_TYPE_ARM            (12)
-#define CPU_TYPE_ARM64          (CPU_TYPE_ARM | CPU_ARCH_ABI64)
+// #define CPU_ARCH_ABI64          (0x01000000)
 
-struct fat_header {
+// #define CPU_TYPE_X86            (7)
+// #define CPU_TYPE_X86_64         (CPU_TYPE_X86 | CPU_ARCH_ABI64)
+// #define CPU_TYPE_ARM            (12)
+// #define CPU_TYPE_ARM64          (CPU_TYPE_ARM | CPU_ARCH_ABI64)
+
+struct tcc_fat_header {
     uint32_t        magic;          /* FAT_MAGIC or FAT_MAGIC_64 */
     uint32_t        nfat_arch;      /* number of structs that follow */
 };
 
-struct fat_arch {
+struct tcc_fat_arch {
     int             cputype;        /* cpu specifier (int) */
     int             cpusubtype;     /* machine specifier (int) */
     uint32_t        offset;         /* file offset to this object file */
@@ -70,12 +835,12 @@ struct fat_arch {
     uint32_t        align;          /* alignment as a power of 2 */
 };
 
-#define FAT_MAGIC       0xcafebabe
-#define FAT_CIGAM       0xbebafeca
-#define FAT_MAGIC_64    0xcafebabf
-#define FAT_CIGAM_64    0xbfbafeca
+#define TCC_FAT_MAGIC       0xcafebabe
+#define TCC_FAT_CIGAM       0xbebafeca
+#define TCC_FAT_MAGIC_64    0xcafebabf
+#define TCC_FAT_CIGAM_64    0xbfbafeca
 
-struct mach_header {
+struct tcc_mach_header {
     uint32_t        magic;          /* mach magic number identifier */
     int             cputype;        /* cpu specifier */
     int             cpusubtype;     /* machine specifier */
@@ -85,44 +850,44 @@ struct mach_header {
     uint32_t        flags;          /* flags */
 };
 
-struct mach_header_64 {
-    struct mach_header  mh;
+struct tcc_mach_header_64 {
+    struct tcc_mach_header  mh;
     uint32_t            reserved;       /* reserved, pad to 64bit */
 };
 
 /* Constant for the magic field of the mach_header (32-bit architectures) */
-#define MH_MAGIC        0xfeedface      /* the mach magic number */
-#define MH_CIGAM        0xcefaedfe      /* NXSwapInt(MH_MAGIC) */
-#define MH_MAGIC_64     0xfeedfacf      /* the 64-bit mach magic number */
-#define MH_CIGAM_64     0xcffaedfe      /* NXSwapInt(MH_MAGIC_64) */
+#define TCC_MH_MAGIC        0xfeedface      /* the mach magic number */
+#define TCC_MH_CIGAM        0xcefaedfe      /* NXSwapInt(MH_MAGIC) */
+#define TCC_MH_MAGIC_64     0xfeedfacf      /* the 64-bit mach magic number */
+#define TCC_MH_CIGAM_64     0xcffaedfe      /* NXSwapInt(MH_MAGIC_64) */
 
-struct load_command {
+struct tcc_load_command {
     uint32_t        cmd;            /* type of load command */
     uint32_t        cmdsize;        /* total size of command in bytes */
 };
 
 #define LC_REQ_DYLD 0x80000000
-#define LC_SYMTAB        0x2
-#define LC_DYSYMTAB      0xb
-#define LC_LOAD_DYLIB    0xc
-#define LC_ID_DYLIB      0xd
-#define LC_LOAD_DYLINKER 0xe
-#define LC_SEGMENT_64    0x19
-#define LC_RPATH (0x1c | LC_REQ_DYLD)
-#define LC_REEXPORT_DYLIB (0x1f | LC_REQ_DYLD)
-#define LC_DYLD_INFO_ONLY (0x22|LC_REQ_DYLD)
-#define LC_MAIN (0x28|LC_REQ_DYLD)
-#define LC_SOURCE_VERSION 0x2A
-#define LC_BUILD_VERSION 0x32
-#define LC_DYLD_EXPORTS_TRIE (0x33 | LC_REQ_DYLD)
-#define LC_DYLD_CHAINED_FIXUPS (0x34 | LC_REQ_DYLD)
+#define TCC_LC_SYMTAB        0x2
+#define TCC_LC_DYSYMTAB      0xb
+#define TCC_LC_LOAD_DYLIB    0xc
+#define TCC_LC_ID_DYLIB      0xd
+#define TCC_LC_LOAD_DYLINKER 0xe
+#define TCC_LC_SEGMENT_64    0x19
+#define TCC_LC_RPATH (0x1c | LC_REQ_DYLD)
+#define TCC_LC_REEXPORT_DYLIB (0x1f | LC_REQ_DYLD)
+#define TCC_LC_DYLD_INFO_ONLY (0x22|LC_REQ_DYLD)
+#define TCC_LC_MAIN (0x28|LC_REQ_DYLD)
+#define TCC_LC_SOURCE_VERSION 0x2A
+#define TCC_LC_BUILD_VERSION 0x32
+#define TCC_LC_DYLD_EXPORTS_TRIE (0x33 | LC_REQ_DYLD)
+#define LC_TCC_DYLD_CHAINED_FIXUPS (0x34 | LC_REQ_DYLD)
 
 #define SG_READ_ONLY    0x10 /* This segment is made read-only after fixups */
 
 typedef int vm_prot_t;
 
 struct segment_command_64 { /* for 64-bit architectures */
-    uint32_t        cmd;            /* LC_SEGMENT_64 */
+    uint32_t        cmd;            /* TCC_LC_SEGMENT_64 */
     uint32_t        cmdsize;        /* includes sizeof section_64 structs */
     char            segname[16];    /* segment name */
     uint64_t        vmaddr;         /* memory address of this segment */
@@ -151,20 +916,20 @@ struct section_64 { /* for 64-bit architectures */
 };
 
 enum {
-    DYLD_CHAINED_IMPORT          = 1,
+    TCC_DYLD_CHAINED_IMPORT          = 1,
 };
 
-struct dyld_chained_fixups_header {
+struct tcc_dyld_chained_fixups_header {
     uint32_t    fixups_version; ///< 0
     uint32_t    starts_offset;  ///< Offset of dyld_chained_starts_in_image.
     uint32_t    imports_offset; ///< Offset of imports table in chain_data.
     uint32_t    symbols_offset; ///< Offset of symbol strings in chain_data.
     uint32_t    imports_count;  ///< Number of imported symbol names.
-    uint32_t    imports_format; ///< DYLD_CHAINED_IMPORT*
+    uint32_t    imports_format; ///< TCC_TCC_DYLD_CHAINED_IMPORT*
     uint32_t    symbols_format; ///< 0 => uncompressed, 1 => zlib compressed
 };
 
-struct dyld_chained_starts_in_image
+struct tcc_dyld_chained_starts_in_image
 {
     uint32_t    seg_count;
     uint32_t    seg_info_offset[1];  // each entry is offset into this struct for that segment
@@ -172,40 +937,40 @@ struct dyld_chained_starts_in_image
 };
 
 enum {
-    DYLD_CHAINED_PTR_64                     =  2,    // target is vmaddr
-    DYLD_CHAINED_PTR_64_OFFSET              =  6,    // target is vm offset
+    TCC_TCC_DYLD_CHAINED_PTR_64                     =  2,    // target is vmaddr
+    TCC_TCC_DYLD_CHAINED_PTR_64_OFFSET              =  6,    // target is vm offset
 };
 
 enum {
-    DYLD_CHAINED_PTR_START_NONE   = 0xFFFF, // used in page_start[] to denote a page with no fixups
+    TCC_TCC_DYLD_CHAINED_PTR_START_NONE   = 0xFFFF, // used in page_start[] to denote a page with no fixups
 };
 
-#define SEG_PAGE_SIZE 16384
+#define TCC_TCC_SEG_PAGE_SIZE 16384
 
-struct dyld_chained_starts_in_segment
+struct tcc_dyld_chained_starts_in_segment
 {
     uint32_t    size;               // size of this (amount kernel needs to copy)
     uint16_t    page_size;          // 0x1000 or 0x4000
-    uint16_t    pointer_format;     // DYLD_CHAINED_PTR_*
+    uint16_t    pointer_format;     // TCC_TCC_DYLD_CHAINED_PTR_*
     uint64_t    segment_offset;     // offset in memory to start of segment
     uint32_t    max_valid_pointer;  // for 32-bit OS, any value beyond this is not a pointer
     uint16_t    page_count;         // how many pages are in array
     uint16_t    page_start[1];      // each entry is offset in each page of first element in chain
-                                    // or DYLD_CHAINED_PTR_START_NONE if no fixups on page
+                                    // or TCC_DYLD_CHAINED_PTR_START_NONE if no fixups on page
 };
 
 enum BindSpecialDylib {
   BIND_SPECIAL_DYLIB_FLAT_LOOKUP = -2,
 };
 
-struct dyld_chained_import
+struct tcc_dyld_chained_import
 {
     uint32_t    lib_ordinal :  8,
                 weak_import :  1,
                 name_offset : 23;
 };
 
-struct dyld_chained_ptr_64_rebase
+struct tcc_dyld_chained_ptr_64_rebase
 {
     uint64_t    target    : 36,    // vmaddr, 64GB max image size
                 high8     :  8,    // top 8 bits set to this after slide added
@@ -214,7 +979,7 @@ struct dyld_chained_ptr_64_rebase
                 bind      :  1;    // == 0
 };
 
-struct dyld_chained_ptr_64_bind
+struct tcc_dyld_chained_ptr_64_bind
 {
     uint64_t    ordinal   : 24,
                 addend    :  8,   // 0 thru 255
@@ -224,23 +989,23 @@ struct dyld_chained_ptr_64_bind
 };
 
 #define S_REGULAR                       0x0
-#define S_ZEROFILL                      0x1
+#define TCC_S_ZEROFILL                      0x1
 #define S_NON_LAZY_SYMBOL_POINTERS      0x6
 #define S_LAZY_SYMBOL_POINTERS          0x7
 #define S_SYMBOL_STUBS                  0x8
 #define S_MOD_INIT_FUNC_POINTERS        0x9
 #define S_MOD_TERM_FUNC_POINTERS        0xa
 
-#define S_ATTR_PURE_INSTRUCTIONS        0x80000000
-#define S_ATTR_SOME_INSTRUCTIONS        0x00000400
+#define TCC_S_ATTR_PURE_INSTRUCTIONS        0x80000000
+#define TCC_S_ATTR_SOME_INSTRUCTIONS        0x00000400
 #define S_ATTR_DEBUG             	0x02000000
 
 
 typedef uint32_t lc_str;
 
 struct dylib_command {
-    uint32_t cmd;                   /* LC_ID_DYLIB, LC_LOAD_{,WEAK_}DYLIB,
-                                       LC_REEXPORT_DYLIB */
+    uint32_t cmd;                   /* TCC_LC_ID_DYLIB, LC_LOAD_{,WEAK_}DYLIB,
+                                       TCC_LC_REEXPORT_DYLIB */
     uint32_t cmdsize;               /* includes pathname string */
     lc_str   name;                  /* library's path name */
     uint32_t timestamp;             /* library's build time stamp */
@@ -249,34 +1014,34 @@ struct dylib_command {
 };
 
 struct rpath_command {
-    uint32_t     cmd;           /* LC_RPATH */
+    uint32_t     cmd;           /* TCC_LC_RPATH */
     uint32_t     cmdsize;       /* includes string */
     lc_str       path;          /* path to add to run path */
 };
 
 struct dylinker_command {
-    uint32_t        cmd;            /* LC_ID_DYLINKER, LC_LOAD_DYLINKER or
+    uint32_t        cmd;            /* LC_ID_DYLINKER, TCC_LC_LOAD_DYLINKER or
                                        LC_DYLD_ENVIRONMENT */
     uint32_t        cmdsize;        /* includes pathname string */
     lc_str          name;           /* dynamic linker's path name */
 };
 
-struct linkedit_data_command {
+struct tcc_linkedit_data_command {
     uint32_t    cmd;            /* LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO,
                                    LC_FUNCTION_STARTS, LC_DATA_IN_CODE,
                                    LC_DYLIB_CODE_SIGN_DRS,
                                    LC_LINKER_OPTIMIZATION_HINT,
-                                   LC_DYLD_EXPORTS_TRIE, or
-                                   LC_DYLD_CHAINED_FIXUPS. */
-    uint32_t    cmdsize;        /* sizeof(struct linkedit_data_command) */
+                                   TCC_LC_DYLD_EXPORTS_TRIE, or
+                                   LC_TCC_DYLD_CHAINED_FIXUPS. */
+    uint32_t    cmdsize;        /* sizeof(struct tcc_linkedit_data_command) */
     uint32_t    dataoff;        /* file offset of data in __LINKEDIT segment */
     uint32_t    datasize;       /* file size of data in __LINKEDIT segment  */
 };
 
-#define PLATFORM_MACOS 1
+#define TCC_PLATFORM_MACOS 1
 
-struct build_version_command {
-    uint32_t    cmd;            /* LC_BUILD_VERSION */
+struct tcc_build_version_command {
+    uint32_t    cmd;            /* TCC_LC_BUILD_VERSION */
     uint32_t    cmdsize;        /* sizeof(struct build_version_command) plus */
                                 /* ntools * sizeof(struct build_tool_version) */
     uint32_t    platform;       /* platform */
@@ -285,14 +1050,14 @@ struct build_version_command {
     uint32_t    ntools;         /* number of tool entries following this */
 };
 
-struct source_version_command {
-    uint32_t  cmd;      /* LC_SOURCE_VERSION */
+struct tcc_source_version_command {
+    uint32_t  cmd;      /* TCC_LC_SOURCE_VERSION */
     uint32_t  cmdsize;  /* 16 */
     uint64_t  version;  /* A.B.C.D.E packed as a24.b10.c10.d10.e10 */
 };
 
 struct symtab_command {
-    uint32_t        cmd;            /* LC_SYMTAB */
+    uint32_t        cmd;            /* TCC_LC_SYMTAB */
     uint32_t        cmdsize;        /* sizeof(struct symtab_command) */
     uint32_t        symoff;         /* symbol table offset */
     uint32_t        nsyms;          /* number of symbol table entries */
@@ -301,7 +1066,7 @@ struct symtab_command {
 };
 
 struct dysymtab_command {
-    uint32_t cmd;       /* LC_DYSYMTAB */
+    uint32_t cmd;       /* TCC_LC_DYSYMTAB */
     uint32_t cmdsize;   /* sizeof(struct dysymtab_command) */
 
     uint32_t ilocalsym; /* index to local symbols */
@@ -350,13 +1115,13 @@ struct dysymtab_command {
 
 #define REBASE_TYPE_POINTER                                     1
 
-#define EXPORT_SYMBOL_FLAGS_KIND_REGULAR                        0x00
-#define EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE                       0x02
-#define EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION                     0x04
+#define TCC_EXPORT_SYMBOL_FLAGS_KIND_REGULAR                        0x00
+#define TCC_EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE                       0x02
+#define TCC_EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION                     0x04
 
-struct dyld_info_command {
-    uint32_t cmd;             /* LC_DYLD_INFO or LC_DYLD_INFO_ONLY */
-    uint32_t cmdsize;         /* sizeof(struct dyld_info_command) */
+struct tcc_dyld_info_command {
+    uint32_t cmd;             /* LC_DYLD_INFO or TCC_LC_DYLD_INFO_ONLY */
+    uint32_t cmdsize;         /* sizeof(struct tcc_dyld_info_command) */
     uint32_t rebase_off;      /* file offset to rebase info  */
     uint32_t rebase_size;     /* size of rebase info   */
     uint32_t bind_off;        /* file offset to binding info   */
@@ -369,10 +1134,10 @@ struct dyld_info_command {
     uint32_t export_size;     /* size of lazy binding infs */
 };
 
-#define INDIRECT_SYMBOL_LOCAL   0x80000000
+#define TCC_INDIRECT_SYMBOL_LOCAL   0x80000000
 
-struct entry_point_command {
-    uint32_t  cmd;      /* LC_MAIN only used in MH_EXECUTE filetypes */
+struct tcc_entry_point_command {
+    uint32_t  cmd;      /* TCC_LC_MAIN only used in MH_EXECUTE filetypes */
     uint32_t  cmdsize;  /* 24 */
     uint64_t  entryoff; /* file (__TEXT) offset of main() */
     uint64_t  stacksize;/* if not zero, initial stack size */
@@ -404,27 +1169,33 @@ enum skind {
     sk_last
 };
 
-struct nlist_64 {
-    uint32_t  n_strx;      /* index into the string table */
-    uint8_t n_type;        /* type flag, see below */
+#include <mach-o/nlist.h>
+
+{{ ... }}
+    sk_bss,
+    sk_linkedit,
+    sk_last
+};
+
     uint8_t n_sect;        /* section number or NO_SECT */
     uint16_t n_desc;       /* see <mach-o/stab.h> */
     uint64_t n_value;      /* value of this symbol (or stab offset) */
 };
 
-#define N_UNDF  0x0
-#define N_ABS   0x2
-#define N_EXT   0x1
-#define N_SECT  0xe
+{{ ... }}
+#define TCC_N_UNDF  0x0
+#define TCC_N_ABS   0x2
+// Using system's TCC_N_EXT from mach-o/nlist.h
+#define TCC_N_SECT  0xe
 
-#define N_WEAK_REF      0x0040
-#define N_WEAK_DEF      0x0080
+#define TCC_N_WEAK_REF      0x0040
+#define TCC_N_WEAK_DEF      0x0080
 
-struct macho {
-    struct mach_header_64 mh;
+struct tcc_macho {
+    struct tcc_mach_header_64 mh;
     int *seg2lc, nseg;
-    struct load_command **lc;
-    struct entry_point_command *ep;
+    struct tcc_load_command **lc;
+    struct tcc_entry_point_command *ep;
     int nlc;
     struct {
         Section *s;
@@ -448,7 +1219,7 @@ struct macho {
 #else
     Section *rebase, *binding, *weak_binding, *lazy_binding;
     Section *stub_helper, *la_symbol_ptr;
-    struct dyld_info_command *dyldinfo;
+    struct tcc_dyld_info_command *dyldinfo;
     int helpsym, lasym, dyld_private, dyld_stub_binder;
     int n_lazy_bind;    
     struct s_lazy_bind {
@@ -473,9 +1244,9 @@ struct macho {
 #define SHT_LINKEDIT (SHT_LOOS + 42)
 #define SHN_FROMDLL  (SHN_LOOS + 2)  /* Symbol is undefined, comes from a DLL */
 
-static void * add_lc(struct macho *mo, uint32_t cmd, uint32_t cmdsize)
+static void * add_lc(struct tcc_macho *mo, uint32_t cmd, uint32_t cmdsize)
 {
-    struct load_command *lc = tcc_mallocz(cmdsize);
+    struct tcc_load_command *lc = tcc_mallocz(cmdsize);
     lc->cmd = cmd;
     lc->cmdsize = cmdsize;
     mo->lc = tcc_realloc(mo->lc, sizeof(mo->lc[0]) * (mo->nlc + 1));
@@ -483,29 +1254,29 @@ static void * add_lc(struct macho *mo, uint32_t cmd, uint32_t cmdsize)
     return lc;
 }
 
-static struct segment_command_64 * add_segment(struct macho *mo, const char *name)
+static struct tcc_segment_command_64 * add_segment(struct tcc_macho *mo, const char *name)
 {
-    struct segment_command_64 *sc = add_lc(mo, LC_SEGMENT_64, sizeof(*sc));
+    struct tcc_segment_command_64 *sc = add_lc(mo, TCC_LC_SEGMENT_64, sizeof(*sc));
     strncpy(sc->segname, name, 16);
     mo->seg2lc = tcc_realloc(mo->seg2lc, sizeof(*mo->seg2lc) * (mo->nseg + 1));
     mo->seg2lc[mo->nseg++] = mo->nlc - 1;
     return sc;
 }
 
-static struct segment_command_64 * get_segment(struct macho *mo, int i)
+static struct tcc_segment_command_64 * get_segment(struct tcc_macho *mo, int i)
 {
-    return (struct segment_command_64 *) (mo->lc[mo->seg2lc[i]]);
+    return (struct tcc_segment_command_64 *) (mo->lc[mo->seg2lc[i]]);
 }
 
-static int add_section(struct macho *mo, struct segment_command_64 **_seg, const char *name)
+static int add_section(struct tcc_macho *mo, struct tcc_segment_command_64 **_seg, const char *name)
 {
-    struct segment_command_64 *seg = *_seg;
+    struct tcc_segment_command_64 *seg = *_seg;
     int ret = seg->nsects;
-    struct section_64 *sec;
+    struct tcc_section_64 *sec;
     seg->nsects++;
     seg->cmdsize += sizeof(*sec);
     seg = tcc_realloc(seg, sizeof(*seg) + seg->nsects * sizeof(*sec));
-    sec = (struct section_64*)((char*)seg + sizeof(*seg)) + ret;
+    sec = (struct tcc_section_64*)((char*)seg + sizeof(*seg)) + ret;
     memset(sec, 0, sizeof(*sec));
     strncpy(sec->sectname, name, 16);
     strncpy(sec->segname, seg->segname, 16);
@@ -513,18 +1284,18 @@ static int add_section(struct macho *mo, struct segment_command_64 **_seg, const
     return ret;
 }
 
-static struct section_64 *get_section(struct segment_command_64 *seg, int i)
+static struct tcc_section_64 *get_section(struct tcc_segment_command_64 *seg, int i)
 {
-    return (struct section_64*)((char*)seg + sizeof(*seg)) + i;
+    return (struct tcc_section_64*)((char*)seg + sizeof(*seg)) + i;
 }
 
-static void * add_dylib(struct macho *mo, char *name)
+static void * add_dylib(struct tcc_macho *mo, char *name)
 {
-    struct dylib_command *lc;
+    struct tcc_dylib_command *lc;
     int sz = (sizeof(*lc) + strlen(name) + 1 + 7) & -8;
-    lc = add_lc(mo, LC_LOAD_DYLIB, sz);
-    lc->name = sizeof(*lc);
-    strcpy((char*)lc + lc->name, name);
+    lc = add_lc(mo, TCC_LC_LOAD_DYLIB, sz);
+    lc->name.offset = sizeof(*lc);
+    strcpy((char*)lc + lc->name.offset, name);
     lc->timestamp = 2;
     lc->current_version = 1 << 16;
     lc->compatibility_version = 1 << 16;
@@ -649,7 +1420,7 @@ static void tcc_macho_add_destructor(TCCState *s1)
 }
 
 #ifdef CONFIG_NEW_MACHO
-static void bind_rebase_add(struct macho *mo, int bind, int sh_info,
+static void bind_rebase_add(struct tcc_macho *mo, int bind, int sh_info,
 			    ElfW_Rel *rel, struct sym_attr *attr)
 {
     mo->bind_rebase = tcc_realloc(mo->bind_rebase, (mo->n_bind_rebase + 1) *
@@ -663,7 +1434,7 @@ static void bind_rebase_add(struct macho *mo, int bind, int sh_info,
     mo->n_bind += bind;
 }
 
-static void check_relocs(TCCState *s1, struct macho *mo)
+static void check_relocs(TCCState *s1, struct tcc_macho *mo)
 {
     Section *s;
     ElfW_Rel *rel, save_rel;
@@ -704,7 +1475,7 @@ static void check_relocs(TCCState *s1, struct macho *mo)
                         if (sym->st_shndx == SHN_UNDEF)
                           tcc_error("undefined local symbo: '%s'",
 				    (char *) symtab_section->link->data + sym->st_name);
-			goti[mo->n_got++] = INDIRECT_SYMBOL_LOCAL;
+			goti[mo->n_got++] = TCC_INDIRECT_SYMBOL_LOCAL;
                     } else {
                         goti[mo->n_got++] = mo->e2msym[sym_index];
                         if (sym->st_shndx == SHN_UNDEF
@@ -786,7 +1557,7 @@ static void check_relocs(TCCState *s1, struct macho *mo)
 
 #else
 
-static void check_relocs(TCCState *s1, struct macho *mo)
+static void check_relocs(TCCState *s1, struct tcc_macho *mo)
 {
     uint8_t *jmp;
     Section *s;
@@ -861,7 +1632,7 @@ static void check_relocs(TCCState *s1, struct macho *mo)
                         if (sym->st_shndx == SHN_UNDEF)
                           tcc_error("undefined local symbo: '%s'",
 				    (char *) symtab_section->link->data + sym->st_name);
-			goti[mo->n_got++] = INDIRECT_SYMBOL_LOCAL;
+			goti[mo->n_got++] = TCC_INDIRECT_SYMBOL_LOCAL;
                     } else {
 			goti[mo->n_got++] = mo->e2msym[sym_index];
 			if (sym->st_shndx == SHN_UNDEF
@@ -1000,7 +1771,7 @@ static void check_relocs(TCCState *s1, struct macho *mo)
 }
 #endif
 
-static int check_symbols(TCCState *s1, struct macho *mo)
+static int check_symbols(TCCState *s1, struct tcc_macho *mo)
 {
     int sym_index, sym_end;
     int ret = 0;
@@ -1008,7 +1779,7 @@ static int check_symbols(TCCState *s1, struct macho *mo)
     mo->ilocal = mo->iextdef = mo->iundef = -1;
     sym_end = symtab_section->data_offset / sizeof(ElfW(Sym));
     for (sym_index = 1; sym_index < sym_end; ++sym_index) {
-        int elf_index = ((struct nlist_64 *)mo->symtab->data + sym_index - 1)->n_value;
+        int elf_index = ((struct tcc_nlist_64 *)mo->symtab->data + sym_index - 1)->n_value;
         ElfW(Sym) *sym = (ElfW(Sym) *)symtab_section->data + elf_index;
         const char *name = (char*)symtab_section->link->data + sym->st_name;
         unsigned type = ELFW(ST_TYPE)(sym->st_info);
@@ -1049,9 +1820,9 @@ static int check_symbols(TCCState *s1, struct macho *mo)
     return ret;
 }
 
-static void convert_symbol(TCCState *s1, struct macho *mo, struct nlist_64 *pn)
+static void convert_symbol(TCCState *s1, struct tcc_macho *mo, struct tcc_nlist_64 *pn)
 {
-    struct nlist_64 n = *pn;
+    struct tcc_nlist_64 n = *pn;
     ElfSym *sym = (ElfW(Sym) *)symtab_section->data + pn->n_value;
     const char *name = (char*)symtab_section->link->data + sym->st_name;
     switch(ELFW(ST_TYPE)(sym->st_info)) {
@@ -1059,10 +1830,10 @@ static void convert_symbol(TCCState *s1, struct macho *mo, struct nlist_64 *pn)
     case STT_OBJECT:
     case STT_FUNC:
     case STT_SECTION:
-        n.n_type = N_SECT;
+        n.n_type = TCC_N_SECT;
         break;
     case STT_FILE:
-        n.n_type = N_ABS;
+        n.n_type = TCC_N_ABS;
         break;
     default:
         tcc_error("unhandled ELF symbol type %d %s",
@@ -1071,9 +1842,9 @@ static void convert_symbol(TCCState *s1, struct macho *mo, struct nlist_64 *pn)
     if (sym->st_shndx == SHN_UNDEF)
       tcc_error("should have been rewritten to SHN_FROMDLL: %s", name);
     else if (sym->st_shndx == SHN_FROMDLL)
-      n.n_type = N_UNDF, n.n_sect = 0;
+      n.n_type = TCC_N_UNDF, n.n_sect = 0;
     else if (sym->st_shndx == SHN_ABS)
-      n.n_type = N_ABS, n.n_sect = 0;
+      n.n_type = TCC_N_ABS, n.n_sect = 0;
     else if (sym->st_shndx >= SHN_LORESERVE)
       tcc_error("unhandled ELF symbol section %d %s", sym->st_shndx, name);
     else if (!mo->elfsectomacho[sym->st_shndx]) {
@@ -1084,26 +1855,26 @@ static void convert_symbol(TCCState *s1, struct macho *mo, struct nlist_64 *pn)
     else
       n.n_sect = mo->elfsectomacho[sym->st_shndx];
     if (ELFW(ST_BIND)(sym->st_info) == STB_GLOBAL)
-      n.n_type |=  N_EXT;
+      n.n_type |=  TCC_N_EXT;
     else if (ELFW(ST_BIND)(sym->st_info) == STB_WEAK)
-      n.n_desc |= N_WEAK_REF | (n.n_type != N_UNDF ? N_WEAK_DEF : 0);
+      n.n_desc |= TCC_N_WEAK_REF | (n.n_type != TCC_N_UNDF ? TCC_N_WEAK_DEF : 0);
     n.n_strx = pn->n_strx;
     n.n_value = sym->st_value;
     *pn = n;
 }
 
-static void convert_symbols(TCCState *s1, struct macho *mo)
+static void convert_symbols(TCCState *s1, struct tcc_macho *mo)
 {
-    struct nlist_64 *pn;
-    for_each_elem(mo->symtab, 0, pn, struct nlist_64)
+    struct tcc_nlist_64 *pn;
+    for_each_elem(mo->symtab, 0, pn, struct tcc_nlist_64)
         convert_symbol(s1, mo, pn);
 }
 
 static int machosymcmp(const void *_a, const void *_b, void *arg)
 {
     TCCState *s1 = arg;
-    int ea = ((struct nlist_64 *)_a)->n_value;
-    int eb = ((struct nlist_64 *)_b)->n_value;
+    int ea = ((struct tcc_nlist_64 *)_a)->n_value;
+    int eb = ((struct tcc_nlist_64 *)_b)->n_value;
     ElfSym *sa = (ElfSym *)symtab_section->data + ea;
     ElfSym *sb = (ElfSym *)symtab_section->data + eb;
     int r;
@@ -1157,10 +1928,10 @@ static void tcc_qsort (void  *base, size_t nel, size_t width,
     }
 }
 
-static void create_symtab(TCCState *s1, struct macho *mo)
+static void create_symtab(TCCState *s1, struct tcc_macho *mo)
 {
     int sym_index, sym_end;
-    struct nlist_64 *pn;
+    struct tcc_nlist_64 *pn;
 
     /* Stub creation belongs to check_relocs, but we need to create
        the symbol now, so its included in the sorting.  */
@@ -1224,12 +1995,12 @@ const struct {
 } skinfo[sk_last] = {
     /*[sk_unknown] =*/        { 0 },
     /*[sk_discard] =*/        { 0 },
-    /*[sk_text] =*/           { 1, S_REGULAR | S_ATTR_PURE_INSTRUCTIONS
-                                   | S_ATTR_SOME_INSTRUCTIONS, "__text" },
-    /*[sk_stubs] =*/          { 1, S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_SYMBOL_STUBS
-                                   | S_ATTR_SOME_INSTRUCTIONS , "__stubs" },
-    /*[sk_stub_helper] =*/    { 1, S_REGULAR | S_ATTR_PURE_INSTRUCTIONS
-                                   | S_ATTR_SOME_INSTRUCTIONS , "__stub_helper" },
+    /*[sk_text] =*/           { 1, S_REGULAR | TCC_S_ATTR_PURE_INSTRUCTIONS
+                                   | TCC_S_ATTR_SOME_INSTRUCTIONS, "__text" },
+    /*[sk_stubs] =*/          { 1, S_REGULAR | TCC_S_ATTR_PURE_INSTRUCTIONS | S_SYMBOL_STUBS
+                                   | TCC_S_ATTR_SOME_INSTRUCTIONS , "__stubs" },
+    /*[sk_stub_helper] =*/    { 1, S_REGULAR | TCC_S_ATTR_PURE_INSTRUCTIONS
+                                   | TCC_S_ATTR_SOME_INSTRUCTIONS , "__stub_helper" },
     /*[sk_ro_data] =*/        { 2, S_REGULAR, "__rodata" },
     /*[sk_uw_info] =*/        { 0 },
     /*[sk_nl_ptr] =*/         { 2, S_NON_LAZY_SYMBOL_POINTERS, "__got" },
@@ -1245,7 +2016,7 @@ const struct {
     /*[sk_init] =*/           { 4, S_MOD_INIT_FUNC_POINTERS, "__mod_init_func" },
     /*[sk_fini] =*/           { 4, S_MOD_TERM_FUNC_POINTERS, "__mod_term_func" },
     /*[sk_rw_data] =*/        { 4, S_REGULAR, "__data" },
-    /*[sk_bss] =*/            { 4, S_ZEROFILL, "__bss" },
+    /*[sk_bss] =*/            { 4, TCC_S_ZEROFILL, "__bss" },
     /*[sk_linkedit] =*/       { 5, S_REGULAR, NULL },
 };
 
@@ -1271,17 +2042,17 @@ const struct {
 #define	N_SEGMENT	(sizeof(all_segment)/sizeof(all_segment[0]))
 
 #ifdef CONFIG_NEW_MACHO
-static void calc_fixup_size(TCCState *s1, struct macho *mo)
+static void calc_fixup_size(TCCState *s1, struct tcc_macho *mo)
 {
     int i, size;
 
-    size = (sizeof(struct dyld_chained_fixups_header) + 7) & -8;
-    size += (sizeof(struct dyld_chained_starts_in_image) + (mo->nseg - 1) * sizeof(uint32_t) + 7) & -8;
+    size = (sizeof(struct tcc_dyld_chained_fixups_header) + 7) & -8;
+    size += (sizeof(struct tcc_dyld_chained_starts_in_image) + (mo->nseg - 1) * sizeof(uint32_t) + 7) & -8;
     for (i = (s1->output_type == TCC_OUTPUT_EXE); i < mo->nseg - 1; i++) {
-	int page_count = (get_segment(mo, i)->vmsize + SEG_PAGE_SIZE - 1) / SEG_PAGE_SIZE;
-	size += (sizeof(struct dyld_chained_starts_in_segment) + (page_count - 1) * sizeof(uint16_t) + 7) & -8;
+	int page_count = (get_segment(mo, i)->vmsize + TCC_SEG_PAGE_SIZE - 1) / TCC_SEG_PAGE_SIZE;
+	size += (sizeof(struct tcc_dyld_chained_starts_in_segment) + (page_count - 1) * sizeof(uint16_t) + 7) & -8;
     }
-    size += mo->n_bind * sizeof (struct dyld_chained_import) + 1;
+    size += mo->n_bind * sizeof (struct tcc_dyld_chained_import) + 1;
     for (i = 0; i < mo->n_bind_rebase; i++) {
 	if (mo->bind_rebase[i].bind) {
 	    int sym_index = ELFW(R_SYM)(mo->bind_rebase[i].rel.r_info);
@@ -1296,12 +2067,12 @@ static void calc_fixup_size(TCCState *s1, struct macho *mo)
 
 #else
 
-static void set_segment_and_offset(TCCState *s1, struct macho *mo, addr_t addr,
+static void set_segment_and_offset(TCCState *s1, struct tcc_macho *mo, addr_t addr,
 				   uint8_t *ptr, int opcode,
 				   Section *sec, addr_t offset)
 {
     int i;
-    struct segment_command_64 *seg = NULL;
+    struct tcc_segment_command_64 *seg = NULL;
 
     for (i = (s1->output_type == TCC_OUTPUT_EXE); i < mo->nseg - 1; i++) {
 	seg = get_segment(mo, i);
@@ -1312,7 +2083,7 @@ static void set_segment_and_offset(TCCState *s1, struct macho *mo, addr_t addr,
     write_uleb128(sec, offset - seg->vmaddr);
 }
 
-static void bind_rebase(TCCState *s1, struct macho *mo)
+static void bind_rebase(TCCState *s1, struct tcc_macho *mo)
 {
     int i;
     uint8_t *ptr;
@@ -1528,7 +2299,7 @@ static int triecmp(const void *_a, const void *_b, void *arg)
     return strcmp(a->name, b->name);
 }
 
-static void export_trie(TCCState *s1, struct macho *mo)
+static void export_trie(TCCState *s1, struct tcc_macho *mo)
 {
     int i, size, offset = 0, save_offset;
     uint8_t *ptr;
@@ -1547,12 +2318,12 @@ static void export_trie(TCCState *s1, struct macho *mo)
 	if (sym->st_shndx != SHN_UNDEF && sym->st_shndx < SHN_LORESERVE &&
             (ELFW(ST_BIND)(sym->st_info) == STB_GLOBAL ||
 	     ELFW(ST_BIND)(sym->st_info) == STB_WEAK)) {
-	    int flag = EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
+	    int flag = TCC_EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
 	    addr_t addr =
 		sym->st_value + s1->sections[sym->st_shndx]->sh_addr - vm_addr;
 
 	    if (ELFW(ST_BIND)(sym->st_info) == STB_WEAK)
-		flag |= EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
+		flag |= TCC_EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
 	    dprintf ("%s %d %llx\n", name, flag, (long long)addr + vm_addr);
 	    trie = tcc_realloc(trie, (n_trie + 1) * sizeof(struct trie_info));
 	    trie[n_trie].name = name;
@@ -1612,24 +2383,24 @@ static void export_trie(TCCState *s1, struct macho *mo)
     tcc_free(trie);
 }
 
-static void collect_sections(TCCState *s1, struct macho *mo, const char *filename)
+static void collect_sections(TCCState *s1, struct tcc_macho *mo, const char *filename)
 {
     int i, sk, numsec;
     int used_segment[N_SEGMENT];
     uint64_t curaddr, fileofs;
     Section *s;
-    struct segment_command_64 *seg;
-    struct dylib_command *dylib;
+    struct tcc_segment_command_64 *seg;
+    struct tcc_dylib_command *dylib;
 #ifdef CONFIG_NEW_MACHO
-    struct linkedit_data_command *chained_fixups_lc;
-    struct linkedit_data_command *export_trie_lc;
+    struct tcc_linkedit_data_command *chained_fixups_lc;
+    struct tcc_linkedit_data_command *export_trie_lc;
 #endif
-    struct build_version_command *dyldbv;
-    struct source_version_command *dyldsv;
-    struct rpath_command *rpath;
-    struct dylinker_command *dyldlc;
-    struct symtab_command *symlc;
-    struct dysymtab_command *dysymlc;
+    struct tcc_build_version_command *dyldbv;
+    struct tcc_source_version_command *dyldsv;
+    struct tcc_rpath_command *rpath;
+    struct tcc_dylinker_command *dyldlc;
+    struct tcc_symtab_command *symlc;
+    struct tcc_dysymtab_command *dysymlc;
     char *str;
 
     for (i = 0; i < N_SEGMENT; i++)
@@ -1720,50 +2491,48 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
 	}
 
     if (s1->output_type != TCC_OUTPUT_EXE) {
-	const char *name = s1->install_name ? s1->install_name : filename;
-        i = (sizeof(*dylib) + strlen(name) + 1 + 7) &-8;
-        dylib = add_lc(mo, LC_ID_DYLIB, i);
-	dylib->name = sizeof(*dylib);
-	dylib->timestamp = 1;
-	dylib->current_version =
-	    s1->current_version ? s1->current_version : 1 << 16;
-	dylib->compatibility_version =
-	    s1->compatibility_version ? s1->compatibility_version : 1 << 16;
-        str = (char*)dylib + dylib->name;
+        const char *name = filename;  // Use filename as default
+        struct tcc_dylib_command *dylib = (struct tcc_dylib_command *)add_lc(mo, TCC_LC_ID_DYLIB, (sizeof(struct tcc_dylib_command) + strlen(name) + 1 + 7) &-8);
+        dylib->dylib.name.offset = sizeof(*dylib);
+        dylib->dylib.timestamp = 2;  // Some default timestamp
+        dylib->dylib.current_version = 0x10000;  // Default version 1.0.0
+        dylib->dylib.compatibility_version = 0x10000;  // Default version 1.0.0
+        str = (char*)dylib + dylib->dylib.name.offset;
         strcpy(str, name);
     }
 
 #ifdef CONFIG_NEW_MACHO
-    chained_fixups_lc = add_lc(mo, LC_DYLD_CHAINED_FIXUPS,
-			       sizeof(struct linkedit_data_command));
-    export_trie_lc = add_lc(mo, LC_DYLD_EXPORTS_TRIE,
-			    sizeof(struct linkedit_data_command));
+{{ ... }}
+    struct tcc_linkedit_data_command *chained_fixups_lc = add_lc(mo, LC_TCC_DYLD_CHAINED_FIXUPS,
+			       sizeof(struct tcc_linkedit_data_command));
+    struct tcc_linkedit_data_command *export_trie_lc = add_lc(mo, TCC_LC_DYLD_EXPORTS_TRIE,
+			    sizeof(struct tcc_linkedit_data_command));
 #else
-    mo->dyldinfo = add_lc(mo, LC_DYLD_INFO_ONLY, sizeof(*mo->dyldinfo));
+    mo->dyldinfo = add_lc(mo, TCC_LC_DYLD_INFO_ONLY, sizeof(*mo->dyldinfo));
 #endif
 
-    symlc = add_lc(mo, LC_SYMTAB, sizeof(*symlc));
-    dysymlc = add_lc(mo, LC_DYSYMTAB, sizeof(*dysymlc));
+    struct tcc_symtab_command *symlc = add_lc(mo, TCC_LC_SYMTAB, sizeof(*symlc));
+    struct tcc_dysymtab_command *dysymlc = add_lc(mo, TCC_LC_DYSYMTAB, sizeof(*dysymlc));
 
     if (s1->output_type == TCC_OUTPUT_EXE) {
         i = (sizeof(*dyldlc) + strlen("/usr/lib/dyld") + 1 + 7) &-8;
-        dyldlc = add_lc(mo, LC_LOAD_DYLINKER, i);
-        dyldlc->name = sizeof(*dyldlc);
-        str = (char*)dyldlc + dyldlc->name;
+        struct tcc_dylinker_command *dyldlc = add_lc(mo, TCC_LC_LOAD_DYLINKER, i);
+dyldlc->name.offset = sizeof(*dyldlc);
+        str = (char*)dyldlc + dyldlc->name.offset;
         strcpy(str, "/usr/lib/dyld");
     }
 
-    dyldbv = add_lc(mo, LC_BUILD_VERSION, sizeof(*dyldbv));
-    dyldbv->platform = PLATFORM_MACOS;
+    struct tcc_build_version_command *dyldbv = add_lc(mo, TCC_LC_BUILD_VERSION, sizeof(*dyldbv));
+    dyldbv->platform = TCC_PLATFORM_MACOS;
     dyldbv->minos = (10 << 16) + (6 << 8);
     dyldbv->sdk = (10 << 16) + (6 << 8);
     dyldbv->ntools = 0;
 
-    dyldsv = add_lc(mo, LC_SOURCE_VERSION, sizeof(*dyldsv));
+    struct tcc_source_version_command *dyldsv = add_lc(mo, TCC_LC_SOURCE_VERSION, sizeof(*dyldsv));
     dyldsv->version = 0;
 
     if (s1->output_type == TCC_OUTPUT_EXE) {
-        mo->ep = add_lc(mo, LC_MAIN, sizeof(*mo->ep));
+        mo->ep = add_lc(mo, TCC_LC_MAIN, sizeof(*mo->ep));
         mo->ep->entryoff = 4096;
     }
 
@@ -1780,9 +2549,9 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
 	    if (!end)
 		end = strchr(path, 0);
             i = (sizeof(*rpath) + (end - path) + 1 + 7) &-8;
-            rpath = add_lc(mo, LC_RPATH, i);
-            rpath->path = sizeof(*rpath);
-            str = (char*)rpath + rpath->path;
+            struct tcc_rpath_command *rpath = add_lc(mo, TCC_LC_RPATH, i);
+rpath->path.offset = sizeof(*rpath);
+            str = (char*)rpath + rpath->path.offset;
             memcpy(str, path, end - path);
 	    str[end - path] = 0;
 	    path = end + 1;
@@ -1796,7 +2565,7 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
     numsec = 0;
     mo->elfsectomacho = tcc_mallocz(sizeof(*mo->elfsectomacho) * s1->nb_sections);
     for (sk = sk_unknown; sk < sk_last; sk++) {
-        struct section_64 *sec = NULL;
+        struct tcc_section_64 *sec = NULL;
         if (seg) {
             seg->vmsize = curaddr - seg->vmaddr;
             seg->filesize = fileofs - seg->fileoff;
@@ -1821,7 +2590,7 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
             if (skinfo[sk].name) {
                 si = add_section(mo, &seg, skinfo[sk].name);
                 numsec++;
-                mo->lc[mo->seg2lc[mo->segment[sk]]] = (struct load_command*)seg;
+                mo->lc[mo->seg2lc[mo->segment[sk]]] = (struct tcc_load_command*)seg;
                 mo->sk_to_sect[sk].machosect = si;
                 sec = get_section(seg, si);
                 sec->flags = skinfo[sk].flags;
@@ -1839,9 +2608,9 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
 #endif
             }
             if (seg->vmaddr == -1) {
-                curaddr = (curaddr + SEG_PAGE_SIZE - 1) & -SEG_PAGE_SIZE;
+                curaddr = (curaddr + TCC_SEG_PAGE_SIZE - 1) & -TCC_SEG_PAGE_SIZE;
                 seg->vmaddr = curaddr;
-                fileofs = (fileofs + SEG_PAGE_SIZE - 1) & -SEG_PAGE_SIZE;
+                fileofs = (fileofs + TCC_SEG_PAGE_SIZE - 1) & -TCC_SEG_PAGE_SIZE;
                 seg->fileoff = fileofs;
             }
 
@@ -1910,7 +2679,7 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
 
     /* Fill symtab info */
     symlc->symoff = mo->symtab->sh_offset;
-    symlc->nsyms = mo->symtab->data_offset / sizeof(struct nlist_64);
+    symlc->nsyms = mo->symtab->data_offset / sizeof(struct tcc_nlist_64);
     symlc->stroff = mo->strtab->sh_offset;
     symlc->strsize = mo->strtab->data_offset;
 
@@ -1956,31 +2725,34 @@ static void collect_sections(TCCState *s1, struct macho *mo, const char *filenam
 #endif
 }
 
-static void macho_write(TCCState *s1, struct macho *mo, FILE *fp)
+static void macho_write(TCCState *s1, struct tcc_macho *mo, FILE *fp)
 {
     int i, sk;
     uint64_t fileofs = 0;
     Section *s;
-    mo->mh.mh.magic = MH_MAGIC_64;
+    mo->mh.magic = TCC_MH_MAGIC_64;
 #ifdef TCC_TARGET_X86_64
-    mo->mh.mh.cputype = CPU_TYPE_X86_64;
-    mo->mh.mh.cpusubtype = CPU_SUBTYPE_LIB64 | CPU_SUBTYPE_X86_ALL;
+    mo->mh.cputype = TCC_CPU_TYPE_X86_64;
+    mo->mh.cpusubtype = TCC_CPU_SUBTYPE_LIB64 | TCC_TCC_CPU_SUBTYPE_X86_ALL;
 #elif defined TCC_TARGET_ARM64
-    mo->mh.mh.cputype = CPU_TYPE_ARM64;
-    mo->mh.mh.cpusubtype = CPU_SUBTYPE_ARM64_ALL;
+    mo->mh.cputype = TCC_CPU_TYPE_ARM64;
+    mo->mh.cpusubtype = TCC_TCC_CPU_SUBTYPE_ARM64_ALL;
 #endif
     if (s1->output_type == TCC_OUTPUT_EXE) {
-        mo->mh.mh.filetype = MH_EXECUTE;
-        mo->mh.mh.flags = MH_DYLDLINK | MH_PIE;
+        mo->mh.filetype = TCC_MH_EXECUTE;
+        mo->mh.flags = TCC_MH_DYLDLINK | TCC_MH_PIE;
     }
     else {
-        mo->mh.mh.filetype = MH_DYLIB;
-        mo->mh.mh.flags = MH_DYLDLINK;
+        mo->mh.filetype = TCC_MH_DYLIB;
+        mo->mh.flags = TCC_MH_DYLDLINK;
     }
-    mo->mh.mh.ncmds = mo->nlc;
-    mo->mh.mh.sizeofcmds = 0;
+    mo->mh.ncmds = mo->nlc;
+    mo->mh.sizeofcmds = 0;
+    /* These fields are already set above */
+    /* mo->mh.ncmds = mo->nlc;
+    mo->mh.sizeofcmds = 0; */
     for (i = 0; i < mo->nlc; i++)
-      mo->mh.mh.sizeofcmds += mo->lc[i]->cmdsize;
+      mo->mh.sizeofcmds += mo->lc[i]->cmdsize;
 
     fwrite(&mo->mh, 1, sizeof(mo->mh), fp);
     fileofs += sizeof(mo->mh);
@@ -1990,7 +2762,7 @@ static void macho_write(TCCState *s1, struct macho *mo, FILE *fp)
     }
 
     for (sk = sk_unknown; sk < sk_last; sk++) {
-        //struct segment_command_64 *seg;
+        //struct tcc_segment_command_64 *seg;
         if (skinfo[sk].seg_initial == 0 ||
 	    (s1->output_type == TCC_OUTPUT_EXE && !mo->segment[sk]) ||
 	    !mo->sk_to_sect[sk].s)
@@ -2021,17 +2793,17 @@ static int bind_rebase_cmp(const void *_a, const void *_b, void *arg)
     return aa > ab ? 1 : aa < ab ? -1 : 0;
 }
 
-ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
+ST_FUNC void bind_rebase_import(TCCState *s1, struct tcc_macho *mo)
 {
     int i, j, k, bind_index, size, page_count, sym_index;
     const char *name;
     ElfW(Sym) *sym;
     unsigned char *data = mo->chained_fixups->data;
-    struct segment_command_64 *seg;
-    struct dyld_chained_fixups_header *header;
-    struct dyld_chained_starts_in_image *image;
-    struct dyld_chained_starts_in_segment *segment;
-    struct dyld_chained_import *import;
+    struct tcc_segment_command_64 *seg;
+    struct tcc_dyld_chained_fixups_header *header;
+    struct tcc_dyld_chained_starts_in_image *image;
+    struct tcc_dyld_chained_starts_in_segment *segment;
+    struct tcc_dyld_chained_import *import;
 
     tcc_qsort(mo->bind_rebase, mo->n_bind_rebase, sizeof(struct bind_rebase),
 	      bind_rebase_cmp, s1);
@@ -2046,36 +2818,36 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
 		      mo->bind_rebase[i + 1].bind ? "bind" : "rebase",
 		      s1->sections[mo->bind_rebase[i].section]->name, name);
 	}
-    header = (struct dyld_chained_fixups_header *) data;
-    data += (sizeof(struct dyld_chained_fixups_header) + 7) & -8;
+    header = (struct tcc_dyld_chained_fixups_header *) data;
+    data += (sizeof(struct tcc_dyld_chained_fixups_header) + 7) & -8;
     header->starts_offset = data - mo->chained_fixups->data;
     header->imports_count = mo->n_bind;
-    header->imports_format = DYLD_CHAINED_IMPORT;
+    header->imports_format = TCC_DYLD_CHAINED_IMPORT;
     header->symbols_format = 0;
-    size = sizeof(struct dyld_chained_starts_in_image) +
+    size = sizeof(struct tcc_dyld_chained_starts_in_image) +
 	   (mo->nseg - 1) * sizeof(uint32_t);
-    image = (struct dyld_chained_starts_in_image *) data;
+    image = (struct tcc_dyld_chained_starts_in_image *) data;
     data += (size + 7) & -8;
     image->seg_count = mo->nseg;
     for (i = (s1->output_type == TCC_OUTPUT_EXE); i < mo->nseg - 1; i++) {
         image->seg_info_offset[i] = (data - mo->chained_fixups->data) -
 				    header->starts_offset;
 	seg = get_segment(mo, i);
-	page_count = (seg->vmsize + SEG_PAGE_SIZE - 1) / SEG_PAGE_SIZE;
-	size = sizeof(struct dyld_chained_starts_in_segment) +
+	page_count = (seg->vmsize + TCC_SEG_PAGE_SIZE - 1) / TCC_SEG_PAGE_SIZE;
+	size = sizeof(struct tcc_dyld_chained_starts_in_segment) +
 		      (page_count - 1) * sizeof(uint16_t);
-        segment = (struct dyld_chained_starts_in_segment *) data;
+        segment = (struct tcc_dyld_chained_starts_in_segment *) data;
         data += (size + 7) & -8;
         segment->size = size;
-        segment->page_size = SEG_PAGE_SIZE;
+        segment->page_size = TCC_SEG_PAGE_SIZE;
 #if 1
 #define	PTR_64_OFFSET 0
 #define	PTR_64_MASK   0x7FFFFFFFFFFULL
-        segment->pointer_format = DYLD_CHAINED_PTR_64;
+        segment->pointer_format = TCC_DYLD_CHAINED_PTR_64;
 #else
 #define	PTR_64_OFFSET 0x100000000ULL
 #define	PTR_64_MASK   0xFFFFFFFFFFFFFFULL
-        segment->pointer_format = DYLD_CHAINED_PTR_64_OFFSET;
+        segment->pointer_format = TCC_DYLD_CHAINED_PTR_64_OFFSET;
 #endif
         segment->segment_offset = seg->fileoff;
         segment->max_valid_pointer = 0;
@@ -2084,22 +2856,22 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
 	bind_index = 0;
 	k = 0;
 	for (j = 0; j < page_count; j++) {
-	    addr_t start = seg->vmaddr + j * SEG_PAGE_SIZE;
-	    addr_t end = start + SEG_PAGE_SIZE;
+	    addr_t start = seg->vmaddr + j * TCC_SEG_PAGE_SIZE;
+	    addr_t end = start + TCC_SEG_PAGE_SIZE;
 	    void *last = NULL;
 	    addr_t last_o = 0;
 	    addr_t cur_o, cur;
-	    struct dyld_chained_ptr_64_rebase *rebase;
-	    struct dyld_chained_ptr_64_bind *bind;
+	    struct tcc_dyld_chained_ptr_64_rebase *rebase;
+	    struct tcc_dyld_chained_ptr_64_bind *bind;
 
-	    segment->page_start[j] = DYLD_CHAINED_PTR_START_NONE;
+	    segment->page_start[j] = TCC_DYLD_CHAINED_PTR_START_NONE;
 	    for (; k < mo->n_bind_rebase; k++) {
 	        Section *s = s1->sections[mo->bind_rebase[k].section];
 		addr_t r_offset = mo->bind_rebase[k].rel.r_offset;
 		addr_t addr = s->sh_addr + r_offset;
 
 		if ((addr & 3) ||
-		    (addr & (SEG_PAGE_SIZE - 1)) > SEG_PAGE_SIZE - PTR_SIZE)
+		    (addr & (TCC_SEG_PAGE_SIZE - 1)) > TCC_SEG_PAGE_SIZE - PTR_SIZE)
 		    tcc_error("Illegal rel_offset %s %lld",
 			      s->name, (long long)r_offset);
 		if (addr >= end)
@@ -2107,13 +2879,13 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
 		if (addr >= start) {
 		    cur_o = addr - start;
 	            if (mo->bind_rebase[k].bind) {
-		        if (segment->page_start[j] == DYLD_CHAINED_PTR_START_NONE)
+		        if (segment->page_start[j] == TCC_DYLD_CHAINED_PTR_START_NONE)
 			    segment->page_start[j] = cur_o;
 		        else {
-			    bind = (struct dyld_chained_ptr_64_bind *) last;
+			    bind = (struct tcc_dyld_chained_ptr_64_bind *) last;
 			    bind->next = (cur_o - last_o) / 4;
 		        }
-		        bind = (struct dyld_chained_ptr_64_bind *)
+		        bind = (struct tcc_dyld_chained_ptr_64_bind *)
 				    (s->data + r_offset);
 		        last = bind;
 		        last_o = cur_o;
@@ -2124,13 +2896,13 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
 		        bind->bind = 1;
 		    }
 		    else {
-		        if (segment->page_start[j] == DYLD_CHAINED_PTR_START_NONE)
+		        if (segment->page_start[j] == TCC_DYLD_CHAINED_PTR_START_NONE)
 			    segment->page_start[j] = cur_o;
 		        else {
-			    rebase = (struct dyld_chained_ptr_64_rebase *) last;
+			    rebase = (struct tcc_dyld_chained_ptr_64_rebase *) last;
 			    rebase->next = (cur_o - last_o) / 4;
 		        }
-		        rebase = (struct dyld_chained_ptr_64_rebase *)
+		        rebase = (struct tcc_dyld_chained_ptr_64_rebase *)
 				    (s->data + r_offset);
 		        last = rebase;
 		        last_o = cur_o;
@@ -2151,8 +2923,8 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct macho *mo)
     }
     // add imports
     header->imports_offset = data - mo->chained_fixups->data;
-    import = (struct dyld_chained_import *) data;
-    data += mo->n_bind * sizeof (struct dyld_chained_import);
+    import = (struct tcc_dyld_chained_import *) data;
+    data += mo->n_bind * sizeof (struct tcc_dyld_chained_import);
     header->symbols_offset = data - mo->chained_fixups->data;
     data++;
     for (i = 0, bind_index = 0; i < mo->n_bind_rebase; i++) {
@@ -2180,7 +2952,7 @@ ST_FUNC int macho_output_file(TCCState *s1, const char *filename)
     int fd, mode, file_type;
     FILE *fp;
     int i, ret = -1;
-    struct macho mo;
+    struct tcc_macho mo;
 
     (void)memset(&mo, 0, sizeof(mo));
 
@@ -2349,15 +3121,15 @@ the_end:
 
 ST_FUNC int macho_load_dll(TCCState * s1, int fd, const char* filename, int lev)
 {
-    unsigned char buf[sizeof(struct mach_header_64)];
+    unsigned char buf[sizeof(struct tcc_mach_header_64)];
     void *buf2;
     uint32_t machofs = 0;
-    struct fat_header fh;
-    struct mach_header mh;
-    struct load_command *lc;
+    struct tcc_fat_header fh;
+    struct tcc_mach_header mh;
+    struct tcc_load_command *lc;
     int i, swap = 0;
     const char *soname = filename;
-    struct nlist_64 *symtab = 0;
+    struct tcc_nlist_64 *symtab = 0;
     uint32_t nsyms = 0;
     char *strtab = 0;
     uint32_t strsize = 0;
@@ -2368,17 +3140,17 @@ ST_FUNC int macho_load_dll(TCCState * s1, int fd, const char* filename, int lev)
     if (full_read(fd, buf, sizeof(buf)) != sizeof(buf))
       return -1;
     memcpy(&fh, buf, sizeof(fh));
-    if (fh.magic == FAT_MAGIC || fh.magic == FAT_CIGAM) {
-        struct fat_arch *fa = load_data(fd, sizeof(fh),
+    if (fh.magic == TCC_FAT_MAGIC || fh.magic == TCC_FAT_CIGAM) {
+        struct tcc_fat_arch *fa = load_data(fd, sizeof(fh),
                                         fh.nfat_arch * sizeof(*fa));
-        swap = fh.magic == FAT_CIGAM;
+        swap = fh.magic == TCC_FAT_CIGAM;
         for (i = 0; i < SWAP(fh.nfat_arch); i++)
 #ifdef TCC_TARGET_X86_64
-          if (SWAP(fa[i].cputype) == CPU_TYPE_X86_64
-              && SWAP(fa[i].cpusubtype) == CPU_SUBTYPE_X86_ALL)
+          if (SWAP(fa[i].cputype) == TCC_CPU_TYPE_X86_64
+              && SWAP(fa[i].cpusubtype) == TCC_CPU_SUBTYPE_X86_ALL)
 #elif defined TCC_TARGET_ARM64
-          if (SWAP(fa[i].cputype) == CPU_TYPE_ARM64
-              && SWAP(fa[i].cpusubtype) == CPU_SUBTYPE_ARM64_ALL)
+          if (SWAP(fa[i].cputype) == TCC_CPU_TYPE_ARM64
+              && SWAP(fa[i].cpusubtype) == TCC_CPU_SUBTYPE_ARM64_ALL)
 #endif
             break;
         if (i == SWAP(fh.nfat_arch)) {
@@ -2396,34 +3168,34 @@ ST_FUNC int macho_load_dll(TCCState * s1, int fd, const char* filename, int lev)
     }
 
     memcpy(&mh, buf, sizeof(mh));
-    if (mh.magic != MH_MAGIC_64)
+    if (mh.magic != TCC_MH_MAGIC_64)
       return -1;
     dprintf("found Mach-O at %d\n", machofs);
-    buf2 = load_data(fd, machofs + sizeof(struct mach_header_64), mh.sizeofcmds);
+    buf2 = load_data(fd, machofs + sizeof(struct tcc_mach_header_64), mh.sizeofcmds);
     for (i = 0, lc = buf2; i < mh.ncmds; i++) {
         dprintf("lc %2d: 0x%08x\n", i, lc->cmd);
         switch (lc->cmd) {
-        case LC_SYMTAB:
+        case TCC_LC_SYMTAB:
         {
-            struct symtab_command *sc = (struct symtab_command*)lc;
+            struct tcc_symtab_command *sc = (struct tcc_symtab_command*)lc;
             nsyms = sc->nsyms;
             symtab = load_data(fd, machofs + sc->symoff, nsyms * sizeof(*symtab));
             strsize = sc->strsize;
             strtab = load_data(fd, machofs + sc->stroff, strsize);
             break;
         }
-        case LC_ID_DYLIB:
+        case TCC_LC_ID_DYLIB:
         {
-            struct dylib_command *dc = (struct dylib_command*)lc;
+            struct tcc_dylib_command *dc = (struct tcc_dylib_command*)lc;
             soname = (char*)lc + dc->name;
             dprintf(" ID_DYLIB %d 0x%x 0x%x %s\n",
                     dc->timestamp, dc->current_version,
                     dc->compatibility_version, soname);
             break;
         }
-        case LC_REEXPORT_DYLIB:
+        case TCC_LC_REEXPORT_DYLIB:
         {
-            struct dylib_command *dc = (struct dylib_command*)lc;
+            struct tcc_dylib_command *dc = (struct tcc_dylib_command*)lc;
             char *name = (char*)lc + dc->name;
             int subfd = open(name, O_RDONLY | O_BINARY);
             dprintf(" REEXPORT %s\n", name);
@@ -2437,15 +3209,15 @@ ST_FUNC int macho_load_dll(TCCState * s1, int fd, const char* filename, int lev)
             }
             break;
         }
-        case LC_DYSYMTAB:
+        case TCC_LC_DYSYMTAB:
         {
-            struct dysymtab_command *dc = (struct dysymtab_command*)lc;
+            struct tcc_dysymtab_command *dc = (struct tcc_dysymtab_command*)lc;
             iextdef = dc->iextdefsym;
             nextdef = dc->nextdefsym;
             break;
         }
         }
-        lc = (struct load_command*) ((char*)lc + lc->cmdsize);
+        lc = (struct tcc_load_command*) ((char*)lc + lc->cmdsize);
     }
 
     if (tcc_add_dllref(s1, soname, lev)->found)
@@ -2459,7 +3231,7 @@ ST_FUNC int macho_load_dll(TCCState * s1, int fd, const char* filename, int lev)
     dprintf("    n: typ sec   desc              value name\n");
     //for (i = 0; i < nsyms; i++) {
     for (i = iextdef; i < iextdef + nextdef; i++) {
-        struct nlist_64 *sym = symtab + i;
+        struct tcc_nlist_64 *sym = symtab + i;
         dprintf("%5d: %3d %3d 0x%04x 0x%016lx %s\n",
                 i, sym->n_type, sym->n_sect, sym->n_desc, (long)sym->n_value,
                 strtab + sym->n_strx);

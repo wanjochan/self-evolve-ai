@@ -933,7 +933,14 @@ struct TCCState {
     #define last_hi s1->last_hi
 #endif
 
-#ifdef TCC_TARGET_PE
+#ifdef TCC_TARGET_MACHO
+    /* Mach-O specific fields */
+    char *install_name;
+    uint32_t compatibility_version;
+    uint32_t current_version;
+    char *rpath;  /* Additional rpath entries */
+    int nb_rpath; /* Number of rpath entries */
+#elif defined(TCC_TARGET_PE)
     /* PE info */
     int pe_subsystem;
     unsigned pe_characteristics;

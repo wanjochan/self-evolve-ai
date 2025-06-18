@@ -50,6 +50,7 @@
 /******************************************************/
 #define USING_GLOBALS
 #include "tcc.h"
+#include "arm64-defs.h"
 #include <assert.h>
 
 ST_DATA const char * const target_machine_defs =
@@ -60,6 +61,8 @@ ST_DATA const char * const target_machine_defs =
     "__AARCH64EL__\0"
     ;
 
+#undef NB_REGS
+#define NB_REGS 28 // x0-x18, x30, v0-v7
 ST_DATA const int reg_classes[NB_REGS] = {
   RC_INT | RC_R(0),
   RC_INT | RC_R(1),
