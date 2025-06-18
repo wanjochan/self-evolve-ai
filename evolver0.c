@@ -1066,199 +1066,383 @@ static void test_wasm_generation(void) {
     printf("\n=== WASM生成测试完成 ===\n");
 }
 
-// AST节点类型
+// WASM 基本类型 (参考: https://webassembly.github.io/spec/core/binary/types.html)
 typedef enum {
-    // 声明
-    NODE_TRANSLATION_UNIT,
-    NODE_FUNCTION_DECL,
-    NODE_VAR_DECL,
-    NODE_STRUCT_DECL,
-    NODE_UNION_DECL,
-    NODE_ENUM_DECL,
-    NODE_TYPEDEF_DECL,
-    
-    // 类型
-    NODE_PRIMITIVE_TYPE,
-    NODE_POINTER_TYPE,
-    NODE_ARRAY_TYPE,
-    NODE_STRUCT_TYPE,
-    NODE_UNION_TYPE,
-    NODE_ENUM_TYPE,
-    NODE_FUNCTION_TYPE,
-    
-    // 语句和表达式
-    NODE_COMPOUND_STMT,
-    NODE_IF_STMT,
-    NODE_SWITCH_STMT,
-    NODE_WHILE_STMT,
-    NODE_DO_WHILE_STMT,
-    NODE_FOR_STMT,
-    NODE_RETURN_STMT,
-    NODE_BREAK_STMT,
-    NODE_CONTINUE_STMT,
-    NODE_GOTO_STMT,
-    NODE_LABEL_STMT,
-    NODE_EXPR_STMT,
-    
-    // 字面量和标识符
-    NODE_INTEGER_LITERAL,
-    NODE_FLOAT_LITERAL,
-    NODE_CHAR_LITERAL,
-    NODE_STRING_LITERAL,
-    NODE_IDENTIFIER,
-    
-    // 操作符
-    NODE_UNARY_OP,
-    NODE_BINARY_OP,
-    NODE_TERNARY_OP,
-    NODE_CALL_EXPR,
-    NODE_ARRAY_SUBSCRIPT,
-    NODE_MEMBER_ACCESS,
-    NODE_PTR_MEMBER_ACCESS,
-    NODE_CAST_EXPR,
-    NODE_SIZE_OF_EXPR
-} NodeType;
+    WASM_I32 = 0x7F,
+    WASM_I64 = 0x7E,
+    WASM_F32 = 0x7D,
+    WASM_F64 = 0x7C,
+    WASM_V128 = 0x7B,
+    WASM_FUNCREF = 0x70,
+    WASM_EXTERNREF = 0x6F,
+    WASM_ANYREF = 0x6E
+} WasmValType;
 
-// 基本类型
+/*
+ * WASM AST 节点类型
+ * 命名规范：
+ * - WASM_*: 标准 WebAssembly 节点
+ * - WASX_*: 扩展节点 (C 语言特性)
+ */
 typedef enum {
-    BT_VOID,
-    BT_CHAR, BT_SIGNED_CHAR, BT_UNSIGNED_CHAR,
-    BT_SHORT, BT_UNSIGNED_SHORT,
-    BT_INT, BT_UNSIGNED_INT,
-    BT_LONG, BT_UNSIGNED_LONG,
-    BT_LONG_LONG, BT_UNSIGNED_LONG_LONG,
-    BT_FLOAT, BT_DOUBLE, BT_LONG_DOUBLE,
-    BT_BOOL,
-    BT_STRUCT, BT_UNION, BT_ENUM,
-    BT_POINTER, BT_ARRAY, BT_FUNCTION,
-    BT_TYPEDEF_NAME
-} BasicType;
+    // ===== 标准 WebAssembly 节点 =====
+    // 模块结构 (参考: https://webassembly.github.io/spec/core/binary/modules.html)
+    WASM_MODULE = 0x00,              // 模块
+    WASM_FUNC_TYPE = 0x60,            // 函数类型
+    WASM_IMPORT = 0x02,               // 导入
+    WASM_FUNC = 0x00,                 // 函数
+    WASM_TABLE = 0x01,                // 表
+    WASM_MEMORY = 0x02,               // 内存
+    WASM_GLOBAL = 0x03,               // 全局变量
+    WASM_EXPORT = 0x07,               // 导出
+    WASM_START = 0x08,                // 开始函数
+    WASM_ELEM = 0x09,                 // 元素段
+    WASM_DATA = 0x0B,                 // 数据段
+    
+    // 控制流 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions)
+    WASM_UNREACHABLE = 0x00,         // 不可达
+    WASM_NOP = 0x01,                  // 空操作
+    WASM_BLOCK = 0x02,                // 块
+    WASM_LOOP = 0x03,                 // 循环
+    WASM_IF = 0x04,                   // 条件
+    WASM_ELSE = 0x05,                 // 否则
+    WASM_END = 0x0B,                  // 结束
+    WASM_BR = 0x0C,                   // 分支
+    WASM_BR_IF = 0x0D,                // 条件分支
+    WASM_BR_TABLE = 0x0E,             // 分支表
+    WASM_RETURN = 0x0F,               // 返回
+    WASM_CALL = 0x10,                 // 调用
+    WASM_CALL_INDIRECT = 0x11,         // 间接调用
+    
+    // 内存操作 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions)
+    WASM_DROP = 0x1A,                 // 丢弃栈顶值
+    WASM_SELECT = 0x1B,                // 选择
+    
+    // 变量指令 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions)
+    WASM_LOCAL_GET = 0x20,            // 获取局部变量
+    WASM_LOCAL_SET = 0x21,             // 设置局部变量
+    WASM_LOCAL_TEE = 0x22,             // 设置并保留局部变量
+    WASM_GLOBAL_GET = 0x23,            // 获取全局变量
+    WASM_GLOBAL_SET = 0x24,            // 设置全局变量
+    
+    // 内存指令 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions)
+    WASM_I32_LOAD = 0x28,              // i32 加载
+    WASM_I64_LOAD = 0x29,              // i64 加载
+    WASM_F32_LOAD = 0x2A,              // f32 加载
+    WASM_F64_LOAD = 0x2B,              // f64 加载
+    WASM_I32_LOAD8_S = 0x2C,           // i32 加载8位有符号
+    WASM_I32_LOAD8_U = 0x2D,           // i32 加载8位无符号
+    WASM_I32_LOAD16_S = 0x2E,          // i32 加载16位有符号
+    WASM_I32_LOAD16_U = 0x2F,          // i32 加载16位无符号
+    WASM_I64_LOAD8_S = 0x30,           // i64 加载8位有符号
+    WASM_I64_LOAD8_U = 0x31,           // i64 加载8位无符号
+    WASM_I64_LOAD16_S = 0x32,          // i64 加载16位有符号
+    WASM_I64_LOAD16_U = 0x33,          // i64 加载16位无符号
+    WASM_I64_LOAD32_S = 0x34,          // i64 加载32位有符号
+    WASM_I64_LOAD32_U = 0x35,          // i64 加载32位无符号
+    WASM_I32_STORE = 0x36,             // i32 存储
+    WASM_I64_STORE = 0x37,             // i64 存储
+    WASM_F32_STORE = 0x38,             // f32 存储
+    WASM_F64_STORE = 0x39,             // f64 存储
+    WASM_I32_STORE8 = 0x3A,            // i32 存储8位
+    WASM_I32_STORE16 = 0x3B,           // i32 存储16位
+    WASM_I64_STORE8 = 0x3C,            // i64 存储8位
+    WASM_I64_STORE16 = 0x3D,           // i64 存储16位
+    WASM_I64_STORE32 = 0x3E,           // i64 存储32位
+    WASM_MEMORY_SIZE = 0x3F,           // 内存大小
+    WASM_MEMORY_GROW = 0x40,           // 内存增长
+    
+    // 常量 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#constant-instructions)
+    WASM_I32_CONST = 0x41,            // i32 常量
+    WASM_I64_CONST = 0x42,            // i64 常量
+    WASM_F32_CONST = 0x43,            // f32 常量
+    WASM_F64_CONST = 0x44,            // f64 常量
+    
+    // 数值运算 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions)
+    
+    // i32 运算
+    WASM_I32_EQZ = 0x45,         // i32 等于零
+    WASM_I32_EQ = 0x46,          // i32 等于
+    WASM_I32_NE = 0x47,          // i32 不等于
+    WASM_I32_LT_S = 0x48,        // i32 有符号小于
+    WASM_I32_LT_U = 0x49,        // i32 无符号小于
+    WASM_I32_GT_S = 0x4A,        // i32 有符号大于
+    WASM_I32_GT_U = 0x4B,        // i32 无符号大于
+    WASM_I32_LE_S = 0x4C,        // i32 有符号小于等于
+    WASM_I32_LE_U = 0x4D,        // i32 无符号小于等于
+    WASM_I32_GE_S = 0x4E,        // i32 有符号大于等于
+    WASM_I32_GE_U = 0x4F,        // i32 无符号大于等于
+    
+    // i64 运算
+    WASM_I64_EQZ = 0x50,         // i64 等于零
+    WASM_I64_EQ = 0x51,          // i64 等于
+    WASM_I64_NE = 0x52,          // i64 不等于
+    WASM_I64_LT_S = 0x53,        // i64 有符号小于
+    WASM_I64_LT_U = 0x54,        // i64 无符号小于
+    WASM_I64_GT_S = 0x55,        // i64 有符号大于
+    WASM_I64_GT_U = 0x56,        // i64 无符号大于
+    WASM_I64_LE_S = 0x57,        // i64 有符号小于等于
+    WASM_I64_LE_U = 0x58,        // i64 无符号小于等于
+    WASM_I64_GE_S = 0x59,        // i64 有符号大于等于
+    WASM_I64_GE_U = 0x5A,        // i64 无符号大于等于
+    
+    // f32 运算
+    WASM_F32_EQ = 0x5B,          // f32 等于
+    WASM_F32_NE = 0x5C,          // f32 不等于
+    WASM_F32_LT = 0x5D,          // f32 小于
+    WASM_F32_GT = 0x5E,          // f32 大于
+    WASM_F32_LE = 0x5F,          // f32 小于等于
+    WASM_F32_GE = 0x60,          // f32 大于等于
+    
+    // f64 运算
+    WASM_F64_EQ = 0x61,          // f64 等于
+    WASM_F64_NE = 0x62,          // f64 不等于
+    WASM_F64_LT = 0x63,          // f64 小于
+    WASM_F64_GT = 0x64,          // f64 大于
+    WASM_F64_LE = 0x65,          // f64 小于等于
+    WASM_F64_GE = 0x66,          // f64 大于等于
+    
+    // 数值运算
+    WASM_I32_CLZ = 0x67,         // i32 前导零计数
+    WASM_I32_CTZ = 0x68,         // i32 尾随零计数
+    WASM_I32_POPCNT = 0x69,      // i32 置1位计数
+    WASM_I32_ADD = 0x6A,         // i32 加法
+    WASM_I32_SUB = 0x6B,         // i32 减法
+    WASM_I32_MUL = 0x6C,         // i32 乘法
+    WASM_I32_DIV_S = 0x6D,       // i32 有符号除法
+    WASM_I32_DIV_U = 0x6E,       // i32 无符号除法
+    WASM_I32_REM_S = 0x6F,       // i32 有符号取余
+    WASM_I32_REM_U = 0x70,       // i32 无符号取余
+    WASM_I32_AND = 0x71,         // i32 按位与
+    WASM_I32_OR = 0x72,          // i32 按位或
+    WASM_I32_XOR = 0x73,         // i32 按位异或
+    WASM_I32_SHL = 0x74,         // i32 左移
+    WASM_I32_SHR_S = 0x75,       // i32 算术右移
+    WASM_I32_SHR_U = 0x76,       // i32 逻辑右移
+    WASM_I32_ROTL = 0x77,        // i32 循环左移
+    WASM_I32_ROTR = 0x78,        // i32 循环右移
+    
+    // 类型转换 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#binary-cvtop)
+    WASM_I32_WRAP_I64 = 0xA7,    // i64 截断为 i32
+    WASM_I32_TRUNC_F32_S = 0xA8,  // f32 截断为有符号 i32
+    WASM_I32_TRUNC_F32_U = 0xA9,  // f32 截断为无符号 i32
+    WASM_I32_TRUNC_F64_S = 0xAA,  // f64 截断为有符号 i32
+    WASM_I32_TRUNC_F64_U = 0xAB,  // f64 截断为无符号 i32
+    
+    // 其他指令
+    WASM_REF_NULL = 0xD0,         // 空引用
+    WASM_REF_IS_NULL = 0xD1,      // 检查引用是否为空
+    WASM_REF_FUNC = 0xD2,         // 函数引用
+    
+    // 内存指令 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions)
+    WASM_MEMORY_INIT = 0xFC08,    // 内存初始化
+    WASM_DATA_DROP = 0xFC09,      // 丢弃数据段
+    WASM_MEMORY_COPY = 0xFC0A,    // 内存复制
+    WASM_MEMORY_FILL = 0xFC0B,    // 内存填充
+    WASM_TABLE_INIT = 0xFC0C,     // 表初始化
+    WASM_ELEM_DROP = 0xFC0D,      // 丢弃元素段
+    WASM_TABLE_COPY = 0xFC0E,     // 表复制
+    WASM_TABLE_GROW = 0xFC0F,     // 表增长
+    WASM_TABLE_SIZE = 0xFC10,     // 表大小
+    WASM_TABLE_FILL = 0xFC11      // 表填充
+    
+    // ===== 扩展节点 (WASM-C) =====
+    // 声明和定义
+    WASX_TRANSLATION_UNIT,  // 翻译单元
+    WASX_FUNCTION_DEF,      // 函数定义
+    WASX_FUNCTION_DECL,     // 函数声明
+    WASX_VAR_DECL,         // 变量声明
+    WASX_PARAM_DECL,       // 参数声明
+    
+    // 复合类型
+    WASX_STRUCT_DECL,      // 结构体声明
+    WASX_UNION_DECL,       // 联合体声明
+    WASX_ENUM_DECL,        // 枚举声明
+    WASX_TYPEDEF_DECL,     // 类型定义
+    
+    // 类型节点
+    WASX_PRIMITIVE_TYPE,   // 基本类型
+    WASX_POINTER_TYPE,     // 指针类型
+    WASX_ARRAY_TYPE,       // 数组类型
+    WASX_FUNCTION_TYPE,    // 函数类型
+    
+    // 控制流
+    WASX_IF_STMT,          // if 语句
+    WASX_SWITCH_STMT,      // switch 语句
+    WASX_CASE_STMT,        // case 语句
+    WASX_DEFAULT_STMT,     // default 语句
+    WASX_WHILE_STMT,       // while 循环
+    WASX_DO_STMT,          // do-while 循环
+    WASX_FOR_STMT,         // for 循环
+    WASX_GOTO_STMT,        // goto 语句
+    WASX_LABEL_STMT,       // 标签语句
+    WASX_CONTINUE_STMT,    // continue 语句
+    WASX_BREAK_STMT,       // break 语句
+    WASX_RETURN_STMT,      // return 语句
+    
+    // 表达式
+    WASX_IDENTIFIER,       // 标识符
+    WASX_CONSTANT,         // 常量
+    WASX_STRING_LITERAL,   // 字符串字面量
+    WASX_UNARY_OP,         // 一元操作
+    WASX_BINARY_OP,        // 二元操作
+    WASX_TERNARY_OP,       // 三元操作
+    WASX_CALL_EXPR,        // 函数调用
+    WASX_ARRAY_SUBSCRIPT,  // 数组下标
+    WASX_MEMBER_ACCESS,    // 成员访问
+    WASX_PTR_MEMBER_ACCESS,// 指针成员访问
+    WASX_CAST_EXPR,        // 类型转换
+    
+    // 复合表达式
+    WASX_INIT_LIST,        // 初始化列表
+    WASX_DESIGNATION,      // 指示符 (C99)
+    WASX_COMPOUND_LITERAL, // 复合字面量
+    WASX_STMT_EXPR,        // 语句表达式 (GNU扩展)
+    
+    // 特殊表达式
+    WASX_ALIGNOF_EXPR,     // _Alignof 表达式
+    WASX_OFFSETOF_EXPR,    // offsetof 表达式
+    WASX_VA_ARG_EXPR,      // va_arg 表达式
+    WASX_GENERIC_SELECTION,// _Generic 选择表达式
+    
+    // 内建函数
+    WASX_BUILTIN_VA_START, // __builtin_va_start
+    WASX_BUILTIN_VA_END,   // __builtin_va_end
+    WASX_BUILTIN_VA_COPY,  // __builtin_va_copy
+    WASX_BUILTIN_OFFSETOF, // __builtin_offsetof
+    
+    // 内联汇编
+    WASX_ASM_STMT,         // 内联汇编语句
+    
+    // 预处理和元信息
+    WASX_PREPROCESSING_DIR,// 预处理指令
+    WASX_MACRO_DEFINITION, // 宏定义
+    WASX_MACRO_EXPANSION,  // 宏展开
+    WASX_COMMENT,          // 注释
+    WASX_PRAGMA,           // #pragma指令
+    
+    // 错误处理
+    WASX_ERROR,            // 错误节点
+    
+    // ===== C 语言类型 =====
+    // 基本类型
+    WASX_TYPE_INVALID,            // 无效类型
+    WASX_TYPE_VOID,               // void
+    
+    // 字符类型
+    WASX_TYPE_CHAR,               // char (实现定义的有符号性)
+    WASX_TYPE_SIGNED_CHAR,        // signed char
+    WASX_TYPE_UNSIGNED_CHAR,      // unsigned char
+    WASX_TYPE_CHAR16,             // char16_t (C11)
+    WASX_TYPE_CHAR32,             // char32_t (C11)
+    WASX_TYPE_WCHAR,              // wchar_t
+    
+    // 整数类型
+    WASX_TYPE_SHORT,              // short (int)
+    WASX_TYPE_UNSIGNED_SHORT,     // unsigned short (int)
+    WASX_TYPE_INT,                // int
+    WASX_TYPE_UNSIGNED_INT,       // unsigned int
+    WASX_TYPE_LONG,               // long (int)
+    WASX_TYPE_UNSIGNED_LONG,      // unsigned long (int)
+    WASX_TYPE_LONG_LONG,          // long long (int) (C99)
+    WASX_TYPE_UNSIGNED_LONG_LONG, // unsigned long long (int) (C99)
+    
+    // 浮点类型
+    WASX_TYPE_FLOAT,              // float
+    WASX_TYPE_DOUBLE,             // double
+    WASX_TYPE_LONG_DOUBLE,        // long double
+    WASX_TYPE_FLOAT128,           // _Float128 (C23)
+    
+    // 布尔和空指针
+    WASX_TYPE_BOOL,               // _Bool (C99)
+    WASX_TYPE_NULLPTR,            // nullptr_t (C23)
+    
+    // 复合类型
+    WASX_TYPE_STRUCT,             // 结构体
+    WASX_TYPE_UNION,              // 联合体
+    WASX_TYPE_ENUM,               // 枚举
+    
+    // 派生类型
+    WASX_TYPE_POINTER,            // 指针
+    WASX_TYPE_ARRAY,              // 数组
+    WASX_TYPE_FUNCTION,           // 函数
+    WASX_TYPE_TYPEDEF_NAME,       // 类型定义名
+    WASX_TYPE_VOIDPTR             // void*
+} WasmNodeType;
 
-// 类型限定符
-typedef enum {
-    Q_NONE = 0,
-    Q_CONST = 1 << 0,
-    Q_VOLATILE = 1 << 1,
-    Q_RESTRICT = 1 << 2,
-    Q_ATOMIC = 1 << 3,
-    Q_NORETURN = 1 << 4,
-    Q_INLINE = 1 << 5,
-    Q_REGISTER = 1 << 6,
-    Q_THREAD_LOCAL = 1 << 7,
-    Q_EXTERN = 1 << 8,
-    Q_STATIC = 1 << 9,
-    Q_AUTO = 1 << 10,
-    Q_TYPEDEF = 1 << 11
-} TypeQualifier;
-
-// AST节点结构
-typedef struct ASTNode {
-    NodeType type;
+// WASM AST 节点
+struct WasmNode {
+    WasmNodeType type;
     int line;
     int column;
     const char *filename;
     
     // 类型信息
     struct {
-        BasicType basic_type;
+        WasmValType val_type;
         unsigned qualifiers;
-        int bit_width;  // 位域宽度
-        bool is_signed;
-        struct ASTNode *base_type;  // 对于指针、数组、函数等
-        struct ASTNode *return_type; // 对于函数
+        struct WasmNode *base_type;
+        struct WasmNode *return_type;
+        struct WasmNode **params;
+        int num_params;
     } type_info;
     
     // 值联合
     union {
-        // 字面量
-        long long int_val;
-        double float_val;
-        char *str_val;
-        wchar_t *wstr_val;
-        char char_val;
+        // 常量值
+        int32_t i32;
+        int64_t i64;
+        float f32;
+        double f64;
         
         // 标识符
         struct {
             char *name;
-            struct ASTNode *symbol;  // 符号表引用
+            struct WasmNode *symbol;
         } id;
         
-        // 一元运算
+        // 表达式
         struct {
-            int op;
-            struct ASTNode *operand;
-        } unary;
-        
-        // 二元运算
-        struct {
-            int op;
-            struct ASTNode *left;
-            struct ASTNode *right;
-        } binary;
-        
-        // 三元运算
-        struct {
-            struct ASTNode *cond;
-            struct ASTNode *then_expr;
-            struct ASTNode *else_expr;
-        } ternary;
-        
-        // 函数调用
-        struct {
-            struct ASTNode *func;
-            struct ASTNode **args;
+            struct WasmNode *lhs;
+            struct WasmNode *rhs;
+            struct WasmNode *cond;
+            struct WasmNode **args;
             int num_args;
-        } call;
+        } expr;
         
         // 声明
         struct {
             char *name;
-            struct ASTNode *type;
-            struct ASTNode *initializer;
-            struct ASTNode *bit_width;  // 位域
-            struct ASTNode *next;       // 下一个声明
+            struct WasmNode *type;
+            struct WasmNode *init;
+            struct WasmNode *next;
         } decl;
         
-        // 结构体/联合体/枚举
+        // 复合类型
         struct {
-            char *tag_name;
-            struct ASTNode *fields;  // 字段声明列表
-            bool is_definition;
+            char *tag;
+            struct WasmNode *fields;
+            int is_union;
         } record;
         
-        // 枚举常量
+        // 函数
         struct {
             char *name;
-            struct ASTNode *value;  // 可选的初始化值
-        } enum_constant;
+            struct WasmNode *params;
+            struct WasmNode *body;
+            struct WasmNode *locals;
+            int num_locals;
+            int is_exported;
+        } func;
         
-        // 语句块
+        // 模块
         struct {
-            struct ASTNode **stmts;
-            int num_stmts;
-        } compound;
-        
-        // 控制流
-        struct {
-            struct ASTNode *cond;
-            struct ASTNode *then_stmt;
-            struct ASTNode *else_stmt;
-            struct ASTNode *init;
-            struct ASTNode *incr;
-            struct ASTNode *body;
-            char *label;
-        } ctrl;
+            struct WasmNode **items;
+            int num_items;
+        } module;
     } u;
     
-    // 属性
-    struct ASTNode **attributes;
-    int num_attributes;
-    
-    // 注释
-    char **comments;
-    int num_comments;
-    
-    // 源代码位置信息
+    // 源位置信息
     struct {
         const char *source_file;
         int start_line;
@@ -1266,6 +1450,497 @@ typedef struct ASTNode {
         int end_line;
         int end_col;
     } src_loc;
+};
+
+typedef struct WasmNode WasmNode;
+
+    // 原子类型 (C11)
+    WASX_TYPE_ATOMIC_BOOL,
+    WASX_TYPE_ATOMIC_CHAR, WASX_TYPE_ATOMIC_SCHAR, WASX_TYPE_ATOMIC_UCHAR,
+    WASX_TYPE_ATOMIC_SHORT, WASX_TYPE_ATOMIC_USHORT,
+    WASX_TYPE_ATOMIC_INT, WASX_TYPE_ATOMIC_UINT,
+    WASX_TYPE_ATOMIC_LONG, WASX_TYPE_ATOMIC_ULONG,
+    WASX_TYPE_ATOMIC_LLONG, WASX_TYPE_ATOMIC_ULLONG,
+    WASX_TYPE_ATOMIC_CHAR16_T, WASX_TYPE_ATOMIC_CHAR32_T,
+    WASX_TYPE_ATOMIC_WCHAR_T, WASX_TYPE_ATOMIC_INT_LEAST8_T,
+    WASX_TYPE_ATOMIC_UINT_LEAST8_T, WASX_TYPE_ATOMIC_INT_LEAST16_T,
+    WASX_TYPE_ATOMIC_UINT_LEAST16_T, WASX_TYPE_ATOMIC_INT_LEAST32_T,
+    WASX_TYPE_ATOMIC_UINT_LEAST32_T, WASX_TYPE_ATOMIC_INT_LEAST64_T,
+    WASX_TYPE_ATOMIC_UINT_LEAST64_T, WASX_TYPE_ATOMIC_INT_FAST8_T,
+    WASX_TYPE_ATOMIC_UINT_FAST8_T, WASX_TYPE_ATOMIC_INT_FAST16_T,
+    WASX_TYPE_ATOMIC_UINT_FAST16_T, WASX_TYPE_ATOMIC_INT_FAST32_T,
+    WASX_TYPE_ATOMIC_UINT_FAST32_T, WASX_TYPE_ATOMIC_INT_FAST64_T,
+    WASX_TYPE_ATOMIC_UINT_FAST64_T, WASX_TYPE_ATOMIC_INTPTR_T,
+    WASX_TYPE_ATOMIC_UINTPTR_T, WASX_TYPE_ATOMIC_SIZE_T,
+    WASX_TYPE_ATOMIC_PTRDIFF_T, WASX_TYPE_ATOMIC_INTMAX_T,
+    WASX_TYPE_ATOMIC_UINTMAX_T
+} BasicType;
+
+// 类型限定符和说明符
+typedef enum {
+    // 类型限定符 (C89)
+    Q_CONST = 1 << 0,      // const
+    Q_VOLATILE = 1 << 1,   // volatile
+    
+    // C99
+    Q_RESTRICT = 1 << 2,   // restrict
+    
+    // C11
+    Q_ATOMIC = 1 << 3,     // _Atomic
+    Q_NORETURN = 1 << 4,   // _Noreturn
+    Q_THREAD_LOCAL = 1 << 5, // _Thread_local
+    
+    // 函数说明符
+    Q_INLINE = 1 << 6,     // inline (C99)
+    Q_NORETURN_FN = 1 << 7, // _Noreturn (C11)
+    
+    // 存储类说明符
+    Q_TYPEDEF = 1 << 8,    // typedef
+    Q_EXTERN = 1 << 9,     // extern
+    Q_STATIC = 1 << 10,    // static
+    Q_AUTO = 1 << 11,      // auto
+    Q_REGISTER = 1 << 12,  // register
+    
+    // 扩展限定符
+    Q_ALIGNAS = 1 << 16,   // _Alignas (C11)
+    Q_ALIGNOF = 1 << 17,   // _Alignof (C11)
+    Q_GENERIC = 1 << 18,   // _Generic (C11)
+    Q_STATIC_ASSERT = 1 << 19, // _Static_assert (C11)
+    Q_THREAD = 1 << 20,    // _Thread_local (C11)
+    
+    // 属性 (GNU, C2x)
+    Q_ATTRIBUTE = 1 << 24,  // __attribute__
+    Q_DECLSPEC = 1 << 25,  // __declspec
+    
+    // 扩展类型限定符
+    Q_COMPLEX = 1 << 28,   // _Complex (C99)
+    Q_IMAGINARY = 1 << 29, // _Imaginary (C99)
+    
+    // 特殊标记
+    Q_SIGNED = 1 << 30,    // signed
+    Q_UNSIGNED = 1 << 31   // unsigned
+} TypeQualifier;
+
+// 表达式类型
+typedef enum {
+    EXPR_INVALID,
+    
+    // 基本表达式
+    EXPR_IDENTIFIER,        // 标识符
+    EXPR_CONSTANT,          // 常量
+    EXPR_STRING_LITERAL,    // 字符串字面量
+    EXPR_COMPOUND_LITERAL,  // 复合字面量 (C99)
+    
+    // 后缀表达式
+    EXPR_FUNC_CALL,         // 函数调用
+    EXPR_ARRAY_SUBSCRIPT,   // 数组下标
+    EXPR_MEMBER_ACCESS,     // 成员访问 .
+    EXPR_PTR_MEMBER_ACCESS, // 指针成员访问 ->
+    EXPR_POST_INC,          // 后置++
+    EXPR_POST_DEC,          // 后置--
+    
+    // 一元表达式
+    EXPR_PRE_INC,           // 前置++
+    EXPR_PRE_DEC,           // 前置--
+    EXPR_ADDR,              // 取地址 &
+    EXPR_DEREF,             // 解引用 *
+    EXPR_PLUS,              // 正号 +
+    EXPR_MINUS,             // 负号 -
+    EXPR_BIT_NOT,           // 按位取反 ~
+    EXPR_LOGICAL_NOT,       // 逻辑非 !
+    EXPR_SIZEOF,            // sizeof
+    EXPR_ALIGNOF,           // _Alignof (C11)
+    EXPR_GENERIC,           // _Generic (C11)
+    
+    // 二元表达式
+    EXPR_MUL,               // 乘 *
+    EXPR_DIV,               // 除 /
+    EXPR_MOD,               // 取模 %
+    EXPR_ADD,               // 加 +
+    EXPR_SUB,               // 减 -
+    EXPR_LEFT_SHIFT,        // 左移 <<
+    EXPR_RIGHT_SHIFT,       // 右移 >>
+    EXPR_LESS,              // 小于 <
+    EXPR_LESS_EQUAL,        // 小于等于 <=
+    EXPR_GREATER,           // 大于 >
+    EXPR_GREATER_EQUAL,     // 大于等于 >=
+    EXPR_EQUAL,             // 等于 ==
+    EXPR_NOT_EQUAL,         // 不等于 !=
+    EXPR_BIT_AND,           // 按位与 &
+    EXPR_BIT_XOR,           // 按位异或 ^
+    EXPR_BIT_OR,            // 按位或 |
+    EXPR_LOGICAL_AND,       // 逻辑与 &&
+    EXPR_LOGICAL_OR,        // 逻辑或 ||
+    
+    // 条件表达式
+    EXPR_CONDITIONAL,       // 条件 ? :
+    
+    // 赋值表达式
+    EXPR_ASSIGN,            // =
+    EXPR_ADD_ASSIGN,        // +=
+    EXPR_SUB_ASSIGN,        // -=
+    EXPR_MUL_ASSIGN,        // *=
+    EXPR_DIV_ASSIGN,        // /=
+    EXPR_MOD_ASSIGN,        // %=
+    EXPR_LEFT_SHIFT_ASSIGN, // <<=
+    EXPR_RIGHT_SHIFT_ASSIGN,// >>=
+    EXPR_BIT_AND_ASSIGN,    // &=
+    EXPR_BIT_XOR_ASSIGN,    // ^=
+    EXPR_BIT_OR_ASSIGN,     // |=
+    
+    // 逗号表达式
+    EXPR_COMMA,             // ,
+    
+    // 类型转换
+    EXPR_CAST,              // (type)expr
+    
+    // 变长参数
+    EXPR_VA_ARG,            // va_arg
+    
+    // 扩展表达式 (GNU, Clang)
+    EXPR_STATEMENT_EXPR,    // ({...})
+    EXPR_RANGE,             // x..y (GCC)
+    EXPR_BUILTIN_CHOOSE_EXPR, // __builtin_choose_expr
+    EXPR_BUILTIN_TYPES_COMPATIBLE_P, // __builtin_types_compatible_p
+    EXPR_BUILTIN_OFFSETOF,   // offsetof
+    EXPR_BUILTIN_VA_ARG,     // __builtin_va_arg
+    EXPR_BUILTIN_VA_COPY,    // __builtin_va_copy
+    EXPR_BUILTIN_VA_END,     // __builtin_va_end
+    EXPR_BUILTIN_VA_START,   // __builtin_va_start
+    
+    // 属性
+    EXPR_ATTRIBUTE,         // __attribute__
+    
+    // 内联汇编
+    EXPR_ASM,               // __asm__
+    
+    // 错误恢复
+    EXPR_ERROR              // 错误表达式
+} ExprType;
+
+// 声明类型
+typedef enum {
+    DECL_NONE,
+    DECL_VAR,               // 变量声明
+    DECL_FUNCTION,          // 函数声明
+    DECL_FUNCTION_DEF,      // 函数定义
+    DECL_STRUCT,            // 结构体定义
+    DECL_UNION,             // 联合体定义
+    DECL_ENUM,              // 枚举定义
+    DECL_ENUM_CONSTANT,     // 枚举常量
+    DECL_TYPEDEF,           // 类型定义
+    DECL_LABEL,             // 标签
+    DECL_FIELD,             // 结构体/联合体字段
+    DECL_PARAM,             // 函数参数
+    DECL_RECORD,            // 记录(结构体/联合体)
+    DECL_INITIALIZER,       // 初始化器
+    DECL_ATTRIBUTE,         // 属性
+    DECL_ASM_LABEL,         // 汇编标签
+    DECL_IMPLICIT,          // 隐式声明
+    DECL_PACKED,            // 打包属性
+    DECL_ALIGNED,           // 对齐属性
+    DECL_TRANSPARENT_UNION, // 透明联合体
+    DECL_VECTOR,            // 向量类型(GCC)
+    DECL_EXT_VECTOR,        // 扩展向量类型(Clang)
+    DECL_COMPLEX,           // 复数类型
+    DECL_IMAGINARY,         // 虚数类型
+    DECL_ATOMIC,            // 原子类型(C11)
+    DECL_THREAD_LOCAL,      // 线程局部存储(C11)
+    DECL_AUTO_TYPE,         // auto 类型(C23)
+    DECL_NULLPTR,           // nullptr_t(C23)
+    DECL_GENERIC_SELECTION, // _Generic 选择(C11)
+    DECL_OVERLOAD,          // 重载声明(C++)
+    DECL_TEMPLATE,          // 模板(C++)
+    DECL_FRIEND,            // 友元(C++)
+    DECL_USING,             // using 声明(C++)
+    DECL_CONCEPT,           // 概念(C++20)
+    DECL_REQUIRES,          // requires 子句(C++20)
+    DECL_CONSTRAINT,        // 约束(C++20)
+    DECL_ERROR              // 错误声明
+} DeclType;
+
+// 语句类型
+typedef enum {
+    STMT_NONE,
+    STMT_DECL,              // 声明语句
+    STMT_NULL,              // 空语句
+    STMT_COMPOUND,          // 复合语句
+    STMT_CASE,              // case 语句
+    STMT_DEFAULT,           // default 语句
+    STMT_LABEL,             // 标签语句
+    STMT_ATTRIBUTED,        // 带属性的语句
+    STMT_IF,                // if 语句
+    STMT_SWITCH,            // switch 语句
+    STMT_WHILE,             // while 循环
+    STMT_DO,                // do-while 循环
+    STMT_FOR,               // for 循环
+    STMT_GOTO,              // goto 语句
+    STMT_INDIRECT_GOTO,     // 间接 goto 语句
+    STMT_CONTINUE,          // continue 语句
+    STMT_BREAK,             // break 语句
+    STMT_RETURN,            // return 语句
+    STMT_ASM,               // 内联汇编
+    STMT_GCC_ASM,           // GCC 内联汇编
+    STMT_MS_ASM,            // MSVC 内联汇编
+    STMT_SEH_LEAVE,         // SEH __leave
+    STMT_SEH_TRY,           // SEH __try
+    STMT_SEH_EXCEPT,        // SEH __except
+    STMT_SEH_FINALLY,       // SEH __finally
+    STMT_MS_DECLSPEC,       // MS __declspec
+    STMT_CXX_CATCH,         // C++ catch
+    STMT_CXX_TRY,           // C++ try
+    STMT_CXX_FOR_RANGE,     // C++11 范围 for
+    STMT_MS_TRY,            // MS __try
+    STMT_MS_EXCEPT,         // MS __except
+    STMT_MS_FINALLY,        // MS __finally
+    STMT_MS_LEAVE,          // MS __leave
+    STMT_PRAGMA,            // #pragma 指令
+    STMT_ERROR              // 错误语句
+} StmtType;
+
+// 类型节点
+typedef struct Type {
+    BasicType kind;          // 基本类型
+    unsigned int qualifiers;  // 类型限定符
+    unsigned int align;       // 对齐要求(字节)
+    unsigned int size;        // 大小(字节)
+    
+    // 复合类型信息
+    union {
+        // 指针/数组/函数
+        struct {
+            struct Type *pointee;  // 指向的类型
+            int is_restrict;        // 是否有限定符restrict
+            int is_atomic;          // 是否为_Atomic
+        } ptr;
+        
+        // 数组
+        struct {
+            struct Type *element;   // 元素类型
+            int size;               // 数组大小(-1表示不完整类型)
+            int is_static;          // 是否为static数组
+            int is_vla;              // 是否为变长数组
+            int is_star;             // 是否为* (函数参数中的[])
+        } array;
+        
+        // 函数
+        struct {
+            struct Type *return_type;  // 返回类型
+            struct ASTNode **params;    // 参数列表
+            int num_params;             // 参数数量
+            int is_variadic;            // 是否可变参数
+            int has_prototype;          // 是否有原型
+        } func;
+        
+        // 结构体/联合体
+        struct {
+            char *tag;              // 标签名
+            struct ASTNode *fields;   // 字段列表
+            int is_union;             // 1表示联合体，0表示结构体
+            int is_complete;          // 是否完整定义
+            int is_anonymous;         // 是否为匿名结构体/联合体
+            int has_flexible_array;   // 是否有灵活数组成员
+        } record;
+        
+        // 枚举
+        struct {
+            char *name;             // 枚举名
+            struct ASTNode *enumerators; // 枚举常量列表
+            int is_complete;          // 是否完整定义
+        } enum_type;
+        
+        // 原子类型
+        struct {
+            struct Type *value_type; // 原子值类型
+            int is_atomic;            // 是否为_Atomic
+        } atomic;
+        
+        // 向量类型
+        struct {
+            struct Type *element;    // 元素类型
+            int num_elements;         // 元素数量
+        } vector;
+        
+        // 扩展向量类型(Clang)
+        struct {
+            struct Type *element;    // 元素类型
+            int num_elements;         // 元素数量
+            int is_sve;               // 是否为SVE向量
+        } ext_vector;
+    } data;
+    
+    // 属性
+    struct ASTNode *attrs;     // 属性列表
+    
+    // 源位置信息
+    const char *filename;      // 文件名
+    int line;                  // 行号
+    int column;                // 列号
+} Type;
+
+// AST节点结构
+typedef struct ASTNode {
+    NodeType node_type;       // 节点类型
+    int line;                  // 行号
+    int column;                // 列号
+    const char *filename;      // 文件名
+    
+    // 源范围信息(用于错误报告)
+    struct {
+        int start_line;
+        int start_column;
+        int end_line;
+        int end_column;
+    } src_range;
+    
+    // 类型信息(类型检查后填充)
+    Type *type;               // 表达式的类型
+    
+    // 值(用于常量表达式求值)
+    union {
+        int64_t int_val;       // 整数值
+        uint64_t uint_val;      // 无符号整数值
+        double float_val;       // 浮点数值
+        long double long_double_val; // 长双精度值
+        _Complex double complex_val; // 复数值
+        void *ptr_val;          // 指针值
+        struct {
+            const char *str;     // 字符串内容
+            size_t len;           // 字符串长度(不包括空字符)
+            int is_wide;          // 是否为宽字符串
+        } str_val;               // 字符串值
+    } value;
+    
+    // 节点特定数据
+    union {
+        // 表达式
+        struct {
+            ExprType expr_type;    // 表达式类型
+            struct ASTNode *lhs;    // 左操作数
+            struct ASTNode *rhs;    // 右操作数
+            struct ASTNode *cond;   // 条件表达式(三元操作符)
+            struct ASTNode **args;  // 参数列表(函数调用等)
+            int num_args;           // 参数数量
+            struct ASTNode *cast_type; // 类型转换的目标类型
+            struct ASTNode *init;    // 初始化表达式
+            struct ASTNode *designator; // 指示符(C99)
+            struct ASTNode *attrs;   // 属性列表
+        } expr;
+        
+        // 声明
+        struct {
+            DeclType decl_type;     // 声明类型
+            char *name;              // 名称
+            struct ASTNode *type;    // 类型
+            struct ASTNode *init;    // 初始化器
+            struct ASTNode *bit_width; // 位域宽度
+            struct ASTNode *attrs;    // 属性列表
+            struct ASTNode *body;     // 函数体/复合语句
+            struct ASTNode *semantic; // 语义信息(例如:异常规范)
+            int storage_class;       // 存储类说明符
+            int is_inline;            // 是否为内联函数
+            int is_noreturn;          // 是否为_Noreturn函数
+            int is_register;          // 是否为register变量
+            int is_thread_local;      // 是否为线程局部存储
+            int is_constexpr;         // 是否为constexpr(C++11)
+            int is_consteval;         // 是否为consteval(C++20)
+            int is_constinit;        // 是否为constinit(C++20)
+        } decl;
+        
+        // 语句
+        struct {
+            StmtType stmt_type;     // 语句类型
+            struct ASTNode *init;    // 初始化语句(for)
+            struct ASTNode *cond;    // 条件表达式
+            struct ASTNode *inc;     // 增量表达式(for)
+            struct ASTNode *then;    // then语句(if/try)
+            struct ASTNode *else_;   // else语句(if)/catch语句(try)
+            struct ASTNode *body;    // 循环体/switch体
+            struct ASTNode *cases;   // case语句列表(switch)
+            struct ASTNode *labels;  // 标签列表
+            struct ASTNode *attrs;   // 属性列表
+            char *label;             // 标签名(goto/case/default)
+            int has_else;            // 是否有else部分
+            int is_noreturn;          // 是否不返回
+        } stmt;
+        
+        // 类型
+        struct {
+            Type *type;              // 类型信息
+            struct ASTNode *name;     // 类型名
+            struct ASTNode *attrs;    // 属性列表
+        } type_node;
+        
+        // 属性
+        struct {
+            char *name;              // 属性名
+            struct ASTNode **args;    // 参数列表
+            int num_args;             // 参数数量
+            struct ASTNode *next;     // 下一个属性
+        } attr;
+        
+        // 预处理器
+        struct {
+            int directive;           // 预处理指令类型
+            char *name;               // 宏名/头文件名
+            struct ASTNode *replacement; // 替换列表/标记
+            struct ASTNode *params;   // 参数列表(函数宏)
+            int num_params;           // 参数数量
+            int is_function_like;     // 是否为函数式宏
+            int is_variadic;          // 是否可变参数
+        } pp;
+        
+        // 注释
+        struct {
+            char *text;              // 注释文本
+            int is_block;             // 是否为块注释
+        } comment;
+    } data;
+    
+    // 调试信息
+    struct {
+        const char *mangled_name;  // 修饰名
+        unsigned int dreg;          // 调试寄存器
+        unsigned int offset;        // 偏移量
+        unsigned int size;          // 大小
+        unsigned int align;         // 对齐
+        unsigned int flags;         // 标志位
+    } debug;
+    
+    // 遍历和转换
+    struct ASTNode *parent;         // 父节点
+    struct ASTNode **children;      // 子节点数组
+    unsigned num_children;          // 子节点数量
+    unsigned children_capacity;     // 子节点容量
+    
+    // 语义分析信息
+    struct {
+        int is_constant;           // 是否为常量表达式
+        int is_lvalue;              // 是否为左值
+        int is_pure;                // 是否为纯表达式
+        int has_side_effects;       // 是否有副作用
+        int is_null_pointer;        // 是否为null指针常量
+        int is_bitfield;            // 是否为位域
+        int is_implicit;            // 是否为隐式节点
+        int is_odr_used;            // 是否被odr使用
+        int is_referenced;          // 是否被引用
+        int is_used;                // 是否被使用
+        int is_referenced_in_unevaluated_context; // 是否在未求值上下文中引用
+        int is_module_private;      // 是否为模块私有
+        int is_parameter_pack;      // 是否为参数包
+        int is_implicitly_declared; // 是否为隐式声明
+        int is_decltype_auto;       // 是否为decltype(auto)
+        int is_template_parameter;  // 是否为模板参数
+        int is_template_parameter_pack; // 是否为模板参数包
+        int is_template_template_parameter; // 是否为模板模板参数
+    } semantic;
+    
+    // 内存管理
+    unsigned ref_count;             // 引用计数
+    void *memory_pool;              // 内存池
+    
+    // 扩展数据(插件使用)
+    void *extension;
 } ASTNode;
 
 // AST序列化上下文
@@ -1484,12 +2159,68 @@ enum OutputFormat {
 
 // 词法分析器
 typedef enum {
-    TOKEN_EOF, TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_STRING,
-    TOKEN_INCLUDE, TOKEN_DEFINE, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR,
-    TOKEN_INT, TOKEN_CHAR, TOKEN_VOID, TOKEN_RETURN, TOKEN_STATIC,
+    // 特殊标记
+    TOKEN_EOF, TOKEN_ERROR, TOKEN_PREPROCESSOR,
+    
+    // 标识符和字面量
+    TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_FLOAT_NUMBER, TOKEN_STRING, TOKEN_CHAR_LITERAL,
+    
+    // 数据类型关键字
+    TOKEN_VOID, TOKEN_CHAR, TOKEN_SHORT, TOKEN_INT, TOKEN_LONG, 
+    TOKEN_FLOAT, TOKEN_DOUBLE, TOKEN_SIGNED, TOKEN_UNSIGNED, TOKEN_BOOL,
+    
+    // 存储类说明符
+    TOKEN_TYPEDEF, TOKEN_EXTERN, TOKEN_STATIC, TOKEN_AUTO, TOKEN_REGISTER,
+    
+    // 类型限定符
+    TOKEN_CONST, TOKEN_VOLATILE, TOKEN_RESTRICT, TOKEN_ATOMIC,
+    
+    // 函数说明符
+    TOKEN_INLINE, TOKEN_NORETURN,
+    
+    // 控制流关键字
+    TOKEN_IF, TOKEN_ELSE, TOKEN_SWITCH, TOKEN_CASE, TOKEN_DEFAULT,
+    TOKEN_WHILE, TOKEN_DO, TOKEN_FOR, TOKEN_BREAK, TOKEN_CONTINUE, 
+    TOKEN_GOTO, TOKEN_RETURN,
+    
+    // 结构、联合、枚举
+    TOKEN_STRUCT, TOKEN_UNION, TOKEN_ENUM, TOKEN_SIZEOF,
+    
+    // 标点符号
     TOKEN_LBRACE, TOKEN_RBRACE, TOKEN_LPAREN, TOKEN_RPAREN,
-    TOKEN_SEMICOLON, TOKEN_COMMA, TOKEN_ASSIGN, TOKEN_PLUS, TOKEN_MINUS,
-    TOKEN_MULTIPLY, TOKEN_DIVIDE, TOKEN_PRINTF, TOKEN_MALLOC, TOKEN_FREE
+    TOKEN_LBRACKET, TOKEN_RBRACKET, TOKEN_SEMICOLON, TOKEN_COLON,
+    TOKEN_COMMA, TOKEN_DOT, TOKEN_ELLIPSIS, TOKEN_QUESTION,
+    TOKEN_ARROW,
+    
+    // 操作符
+    // 赋值
+    TOKEN_ASSIGN, TOKEN_ADD_ASSIGN, TOKEN_SUB_ASSIGN, TOKEN_MUL_ASSIGN,
+    TOKEN_DIV_ASSIGN, TOKEN_MOD_ASSIGN, TOKEN_LEFT_SHIFT_ASSIGN, 
+    TOKEN_RIGHT_SHIFT_ASSIGN, TOKEN_BIT_AND_ASSIGN, TOKEN_BIT_XOR_ASSIGN,
+    TOKEN_BIT_OR_ASSIGN,
+    
+    // 算术
+    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MULTIPLY, TOKEN_DIVIDE, TOKEN_MOD,
+    TOKEN_INCREMENT, TOKEN_DECREMENT,
+    
+    // 关系
+    TOKEN_EQUAL, TOKEN_NOT_EQUAL, TOKEN_LESS, TOKEN_GREATER,
+    TOKEN_LESS_EQUAL, TOKEN_GREATER_EQUAL,
+    
+    // 逻辑
+    TOKEN_LOGICAL_AND, TOKEN_LOGICAL_OR, TOKEN_LOGICAL_NOT,
+    
+    // 位运算
+    TOKEN_BIT_AND, TOKEN_BIT_OR, TOKEN_BIT_XOR, TOKEN_BIT_NOT,
+    TOKEN_LEFT_SHIFT, TOKEN_RIGHT_SHIFT,
+    
+    // 预处理器指令
+    TOKEN_INCLUDE, TOKEN_DEFINE, TOKEN_UNDEF, TOKEN_IFDEF, TOKEN_IFNDEF,
+    TOKEN_ELIF, TOKEN_ENDIF, TOKEN_LINE, TOKEN_ERROR_DIRECTIVE,
+    TOKEN_PRAGMA,
+    
+    // 标准库函数
+    TOKEN_PRINTF, TOKEN_SCANF, TOKEN_MALLOC, TOKEN_FREE, TOKEN_EXIT
 } TokenType;
 
 typedef struct {
@@ -2077,6 +2808,19 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
         Token *token = &compiler->tokens[compiler->token_count++];
         token->line = line;
         
+        // 处理预处理器指令
+        if (*p == '#' && (p == source || *(p-1) == '\n')) {
+            const char *start = p++;
+            while (*p && *p != '\n') p++;
+            
+            int len = p - start;
+            token->value = malloc(len + 1);
+            strncpy(token->value, start, len);
+            token->value[len] = '\0';
+            token->type = TOKEN_PREPROCESSOR;
+            continue;
+        }
+        
         // 识别标识符和关键字
         if (isalpha(*p) || *p == '_') {
             const char *start = p;
@@ -2091,31 +2835,142 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
             if (strcmp(token->value, "int") == 0) token->type = TOKEN_INT;
             else if (strcmp(token->value, "char") == 0) token->type = TOKEN_CHAR;
             else if (strcmp(token->value, "void") == 0) token->type = TOKEN_VOID;
+            else if (strcmp(token->value, "short") == 0) token->type = TOKEN_SHORT;
+            else if (strcmp(token->value, "long") == 0) token->type = TOKEN_LONG;
+            else if (strcmp(token->value, "float") == 0) token->type = TOKEN_FLOAT;
+            else if (strcmp(token->value, "double") == 0) token->type = TOKEN_DOUBLE;
+            else if (strcmp(token->value, "signed") == 0) token->type = TOKEN_SIGNED;
+            else if (strcmp(token->value, "unsigned") == 0) token->type = TOKEN_UNSIGNED;
             else if (strcmp(token->value, "return") == 0) token->type = TOKEN_RETURN;
-            else if (strcmp(token->value, "static") == 0) token->type = TOKEN_STATIC;
             else if (strcmp(token->value, "if") == 0) token->type = TOKEN_IF;
             else if (strcmp(token->value, "else") == 0) token->type = TOKEN_ELSE;
             else if (strcmp(token->value, "while") == 0) token->type = TOKEN_WHILE;
+            else if (strcmp(token->value, "for") == 0) token->type = TOKEN_FOR;
+            else if (strcmp(token->value, "do") == 0) token->type = TOKEN_DO;
+            else if (strcmp(token->value, "break") == 0) token->type = TOKEN_BREAK;
+            else if (strcmp(token->value, "continue") == 0) token->type = TOKEN_CONTINUE;
+            else if (strcmp(token->value, "switch") == 0) token->type = TOKEN_SWITCH;
+            else if (strcmp(token->value, "case") == 0) token->type = TOKEN_CASE;
+            else if (strcmp(token->value, "default") == 0) token->type = TOKEN_DEFAULT;
+            else if (strcmp(token->value, "struct") == 0) token->type = TOKEN_STRUCT;
+            else if (strcmp(token->value, "union") == 0) token->type = TOKEN_UNION;
+            else if (strcmp(token->value, "enum") == 0) token->type = TOKEN_ENUM;
+            else if (strcmp(token->value, "typedef") == 0) token->type = TOKEN_TYPEDEF;
+            else if (strcmp(token->value, "static") == 0) token->type = TOKEN_STATIC;
+            else if (strcmp(token->value, "extern") == 0) token->type = TOKEN_EXTERN;
+            else if (strcmp(token->value, "const") == 0) token->type = TOKEN_CONST;
+            else if (strcmp(token->value, "volatile") == 0) token->type = TOKEN_VOLATILE;
+            else if (strcmp(token->value, "sizeof") == 0) token->type = TOKEN_SIZEOF;
             else if (strcmp(token->value, "printf") == 0) token->type = TOKEN_PRINTF;
             else if (strcmp(token->value, "malloc") == 0) token->type = TOKEN_MALLOC;
             else token->type = TOKEN_IDENTIFIER;
         }
-        // 识别数字
-        else if (isdigit(*p)) {
+        // 识别数字（十进制、十六进制、八进制、浮点数）
+        else if (isdigit(*p) || (*p == '.' && isdigit(*(p+1)))) {
             const char *start = p;
-            while (isdigit(*p)) p++;
+            int is_float = 0;
+            
+            // 处理十六进制数
+            if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) {
+                p += 2;
+                while (isxdigit(*p)) p++;
+            }
+            // 处理八进制数
+            else if (*p == '0') {
+                p++;
+                while (*p >= '0' && *p <= '7') p++;
+            }
+            // 处理十进制数
+            else {
+                while (isdigit(*p)) p++;
+                // 处理浮点数
+                if (*p == '.') {
+                    is_float = 1;
+                    p++;
+                    while (isdigit(*p)) p++;
+                }
+                // 处理科学计数法
+                if (*p == 'e' || *p == 'E') {
+                    is_float = 1;
+                    p++;
+                    if (*p == '+' || *p == '-') p++;
+                    while (isdigit(*p)) p++;
+                }
+            }
+            
+            // 处理浮点数后缀
+            if (is_float && (*p == 'f' || *p == 'F' || *p == 'l' || *p == 'L')) {
+                p++;
+            }
+            // 处理整数后缀
+            else if (!is_float && (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L')) {
+                p++;
+                if (*p == 'l' || *p == 'L') p++;  // 处理ll/LL后缀
+            }
             
             int len = p - start;
             token->value = malloc(len + 1);
             strncpy(token->value, start, len);
             token->value[len] = '\0';
-            token->type = TOKEN_NUMBER;
+            token->type = is_float ? TOKEN_FLOAT_NUMBER : TOKEN_NUMBER;
+        }
+        // 识别字符字面量
+        else if (*p == '\'') {
+            p++; // 跳过开始的单引号
+            const char *start = p;
+            
+            // 处理转义字符
+            if (*p == '\\') {
+                p++;
+                switch (*p) {
+                    case '\'': case '\"': case '\\': case '?':
+                        p++;
+                        break;
+                    case 'a': case 'b': case 'f': case 'n':
+                    case 'r': case 't': case 'v':
+                        p++;
+                        break;
+                    case 'x': // 十六进制转义
+                        p++;
+                        while (isxdigit(*p)) p++;
+                        break;
+                    case '0': case '1': case '2': case '3':
+                    case '4': case '5': case '6': case '7': // 八进制转义
+                        p++;
+                        while (*p >= '0' && *p <= '7') p++;
+                        break;
+                    default:
+                        p++; // 未知转义序列
+                }
+            } else {
+                p++; // 普通字符
+            }
+            
+            if (*p == '\'') {
+                p++; // 跳过结束的单引号
+                int len = p - start - 2; // 减去两端的单引号
+                token->value = malloc(len + 1);
+                strncpy(token->value, start, len);
+                token->value[len] = '\0';
+                token->type = TOKEN_CHAR_LITERAL;
+            } else {
+                // 错误的字符字面量
+                token->value = strdup("");
+                token->type = TOKEN_ERROR;
+            }
         }
         // 识别字符串
         else if (*p == '"') {
             p++; // 跳过开始的引号
             const char *start = p;
-            while (*p && *p != '"') p++;
+            while (*p && *p != '"' && *p != '\n') {
+                if (*p == '\\') {
+                    p++; // 跳过转义字符
+                    if (*p) p++; // 跳过转义序列中的下一个字符
+                } else {
+                    p++;
+                }
+            }
             
             int len = p - start;
             token->value = malloc(len + 1);
@@ -2124,38 +2979,229 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
             token->type = TOKEN_STRING;
             
             if (*p == '"') p++; // 跳过结束的引号
+            else {
+                // 未闭合的字符串
+                token->type = TOKEN_ERROR;
+            }
         }
-        // 识别单字符标记
+        // 识别注释和多字符操作符
+        else if (*p == '/') {
+            if (*(p+1) == '/') { // 单行注释
+                while (*p && *p != '\n') p++;
+                compiler->token_count--; // 不保存注释
+                continue;
+            } else if (*(p+1) == '*') { // 多行注释
+                p += 2;
+                while (*p && !(*p == '*' && *(p+1) == '/')) {
+                    if (*p == '\n') line++;
+                    p++;
+                }
+                if (*p) p += 2; // 跳过 */
+                else {
+                    // 未闭合的注释
+                    token->value = strdup("Unterminated comment");
+                    token->type = TOKEN_ERROR;
+                }
+                compiler->token_count--; // 不保存注释
+                continue;
+            } else if (*(p+1) == '=') { // /= 操作符
+                token->value = strdup(/=");
+                token->type = TOKEN_DIVIDE_ASSIGN;
+                p += 2;
+            } else { // 除号
+                token->value = strdup(/");
+                token->type = TOKEN_DIVIDE;
+                p++;
+            }
+        }
+        // 识别多字符操作符
         else {
-            token->value = malloc(2);
-            token->value[0] = *p;
-            token->value[1] = '\0';
-            
             switch (*p) {
-                case '{': token->type = TOKEN_LBRACE; break;
-                case '}': token->type = TOKEN_RBRACE; break;
-                case '(': token->type = TOKEN_LPAREN; break;
-                case ')': token->type = TOKEN_RPAREN; break;
-                case ';': token->type = TOKEN_SEMICOLON; break;
-                case ',': token->type = TOKEN_COMMA; break;
-                case '=': token->type = TOKEN_ASSIGN; break;
-                case '+': token->type = TOKEN_PLUS; break;
-                case '-': token->type = TOKEN_MINUS; break;
-                case '*': token->type = TOKEN_MULTIPLY; break;
-                case '/': 
-                    // 处理注释
-                    if (*(p+1) == '/') {
-                        while (*p && *p != '\n') p++;
-                        compiler->token_count--; // 不保存注释
-                        continue;
+                // 括号和标点
+                case '{': token->type = TOKEN_LBRACE; p++; break;
+                case '}': token->type = TOKEN_RBRACE; p++; break;
+                case '(': token->type = TOKEN_LPAREN; p++; break;
+                case ')': token->type = TOKEN_RPAREN; p++; break;
+                case '[': token->type = TOKEN_LBRACKET; p++; break;
+                case ']': token->type = TOKEN_RBRACKET; p++; break;
+                case ';': token->type = TOKEN_SEMICOLON; p++; break;
+                case ',': token->type = TOKEN_COMMA; p++; break;
+                case ':': token->type = TOKEN_COLON; p++; break;
+                case '?': token->type = TOKEN_QUESTION; p++; break;
+                case '~': token->type = TOKEN_BIT_NOT; p++; break;
+                
+                // 赋值操作符
+                case '=':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_EQUAL;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_ASSIGN;
+                        p++;
                     }
-                    token->type = TOKEN_DIVIDE; 
                     break;
+                    
+                // 比较操作符
+                case '!':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_NOT_EQUAL;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_LOGICAL_NOT;
+                        p++;
+                    }
+                    break;
+                    
+                case '<':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_LESS_EQUAL;
+                        p += 2;
+                    } else if (*(p+1) == '<') {
+                        if (*(p+2) == '=') {
+                            token->type = TOKEN_LEFT_SHIFT_ASSIGN;
+                            p += 3;
+                        } else {
+                            token->type = TOKEN_LEFT_SHIFT;
+                            p += 2;
+                        }
+                    } else {
+                        token->type = TOKEN_LESS;
+                        p++;
+                    }
+                    break;
+                    
+                case '>':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_GREATER_EQUAL;
+                        p += 2;
+                    } else if (*(p+1) == '>') {
+                        if (*(p+2) == '=') {
+                            token->type = TOKEN_RIGHT_SHIFT_ASSIGN;
+                            p += 3;
+                        } else {
+                            token->type = TOKEN_RIGHT_SHIFT;
+                            p += 2;
+                        }
+                    } else {
+                        token->type = TOKEN_GREATER;
+                        p++;
+                    }
+                    break;
+                
+                // 算术操作符
+                case '+':
+                    if (*(p+1) == '+') {
+                        token->type = TOKEN_INCREMENT;
+                        p += 2;
+                    } else if (*(p+1) == '=') {
+                        token->type = TOKEN_ADD_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_PLUS;
+                        p++;
+                    }
+                    break;
+                    
+                case '-':
+                    if (*(p+1) == '-') {
+                        token->type = TOKEN_DECREMENT;
+                        p += 2;
+                    } else if (*(p+1) == '=') {
+                        token->type = TOKEN_SUB_ASSIGN;
+                        p += 2;
+                    } else if (*(p+1) == '>') {
+                        token->type = TOKEN_ARROW;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_MINUS;
+                        p++;
+                    }
+                    break;
+                    
+                case '*':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_MULTIPLY_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_MULTIPLY;
+                        p++;
+                    }
+                    break;
+                    
+                case '%':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_MOD_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_MOD;
+                        p++;
+                    }
+                    break;
+                
+                // 位操作符
+                case '&':
+                    if (*(p+1) == '&') {
+                        token->type = TOKEN_LOGICAL_AND;
+                        p += 2;
+                    } else if (*(p+1) == '=') {
+                        token->type = TOKEN_BIT_AND_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_BIT_AND;
+                        p++;
+                    }
+                    break;
+                    
+                case '|':
+                    if (*(p+1) == '|') {
+                        token->type = TOKEN_LOGICAL_OR;
+                        p += 2;
+                    } else if (*(p+1) == '=') {
+                        token->type = TOKEN_BIT_OR_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_BIT_OR;
+                        p++;
+                    }
+                    break;
+                    
+                case '^':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_BIT_XOR_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_BIT_XOR;
+                        p++;
+                    }
+                    break;
+                
+                // 其他字符
+                case '.':
+                    if (*(p+1) == '.' && *(p+2) == '.') {
+                        token->type = TOKEN_ELLIPSIS;
+                        p += 3;
+                    } else {
+                        token->type = TOKEN_DOT;
+                        p++;
+                    }
+                    break;
+                    
                 default:
-                    compiler->token_count--; // 忽略未知字符
+                    // 未知字符，记录错误但继续
+                    char unknown[2] = {*p, '\0'};
+                    token->value = strdup(unknown);
+                    token->type = TOKEN_ERROR;
+                    p++;
                     break;
             }
-            p++;
+            
+            // 为操作符创建字符串表示
+            if (token->type != TOKEN_ERROR) {
+                int len = p - (start = source + (p - source) - (p - start));
+                token->value = malloc(len + 1);
+                strncpy(token->value, start, len);
+                token->value[len] = '\0';
+            }
         }
     }
     
