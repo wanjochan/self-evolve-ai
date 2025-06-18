@@ -14,10 +14,7 @@
 #define CONFIG_USR_INCLUDE "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include"
 #endif
 
-#ifndef CONFIG_SYSROOT
-#define CONFIG_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
-#endif
 #ifndef CONFIG_TCCDIR
-#define CONFIG_TCCDIR "/Users/wjc/repos/self-evolve-ai/tcc/build/macos-native/install/lib/tcc"
+#define CONFIG_TCCDIR "/Users/wjc/repos/self-evolve-ai/tcc/build/macos-native/lib/tcc"
 #endif
 #define CONFIG_TCC_PREDEFS 1

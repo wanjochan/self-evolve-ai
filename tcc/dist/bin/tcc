@@ -1,0 +1,40 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检测系统类型和架构
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+if [ "$OS" = "Darwin" ]; then
+    if [ "$ARCH" = "arm64" ]; then
+        # macOS ARM64
+        if [ -f "$SCRIPT_DIR/tcc-macos-arm64" ]; then
+            exec "$SCRIPT_DIR/tcc-macos-arm64" "$@"
+        fi
+    elif [ "$ARCH" = "x86_64" ]; then
+        # macOS x86_64
+        if [ -f "$SCRIPT_DIR/tcc-macos-x86_64" ]; then
+            exec "$SCRIPT_DIR/tcc-macos-x86_64" "$@"
+        fi
+    fi
+elif [ "$OS" = "Linux" ]; then
+    if [ "$ARCH" = "x86_64" ]; then
+        # Linux x86_64
+        if [ -f "$SCRIPT_DIR/tcc-x86_64-linux" ]; then
+            exec "$SCRIPT_DIR/tcc-x86_64-linux" "$@"
+        fi
+    elif [ "$ARCH" = "aarch64" ]; then
+        # Linux ARM64
+        if [ -f "$SCRIPT_DIR/tcc-aarch64-linux" ]; then
+            exec "$SCRIPT_DIR/tcc-aarch64-linux" "$@"
+        fi
+    fi
+fi
+
+# 如果没有找到匹配的版本，尝试使用主机版本
+if [ -f "$SCRIPT_DIR/tcc-host" ]; then
+    exec "$SCRIPT_DIR/tcc-host" "$@"
+fi
+
+echo "错误: 没有找到适合当前系统 ($OS $ARCH) 的 TCC 版本"
+exit 1

@@ -1,0 +1,6 @@
+TCC 构建整合报告
+生成时间: Wed Jun 18 22:05:09 HKT 2025
+系统信息: Darwin wjcmac.local 24.5.0 Darwin Kernel Version 24.5.0: Tue Apr 22 19:48:46 PDT 2025; root:xnu-11417.121.6~2/RELEASE_ARM64_T8103 arm64
+
+可用的 TCC 版本:
+
