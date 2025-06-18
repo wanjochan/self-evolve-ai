@@ -1,0 +1,11 @@
+--- Makefile.orig
++++ Makefile
+@@ -253,7 +253,7 @@
+ 	$(CC) -DC2STR $< -o c2str.exe && ./c2str.exe $@.in $@
+ 
+ tccdefs_.h: include/tccdefs.h conftest.c
+-	$(CC) -DC2STR conftest.c -o c2str.exe && ./c2str.exe include/tccdefs.h tccdefs_.h
++	gcc -DC2STR conftest.c -o c2str.exe && ./c2str.exe include/tccdefs.h tccdefs_.h
+ 
+ tcc$(EXESUF): libtcc.a tcc.o
+ 	$(LINK) -o $@ tcc.o $(LIBS)
