@@ -175,6 +175,12 @@ static Macro* find_macro(const char *name) {
 
 // 添加宏
 extern void add_macro(const char *name, const char *replacement, int is_function_like, char **params, int num_params) {
+    // 检查是否为可变参数宏
+    int is_variadic = 0;
+    if (is_function_like && num_params > 0 && strcmp(params[num_params - 1], "...") == 0) {
+        is_variadic = 1;
+        num_params--; // 不将...计入参数数量
+    }
     // 检查是否已存在同名宏
     Macro *existing = find_macro(name);
     if (existing) {
@@ -2488,6 +2494,9 @@ typedef enum {
     TOKEN_NUMBER,
     TOKEN_FLOAT_NUMBER,
     TOKEN_STRING,
+    TOKEN_CHAR_LITERAL,  // 'a', '\n', etc.
+    TOKEN_WCHAR_LITERAL, // L'a', L'\u1234', etc.
+    TOKEN_WIDE_STRING,   // L"wide string"
     TOKEN_CHAR,
     // Preprocessor tokens
     TOKEN_PP_INCLUDE,      // #include
@@ -3261,6 +3270,20 @@ static char* replace_macro_parameters(const char *replacement, char **params, in
     const char *src = replacement;
     char *dst = result;
     
+    // 检查是否是可变参数宏
+    int is_variadic = 0;
+    int va_args_index = -1;
+    if (num_params > 0) {
+        // 查找__VA_ARGS__参数
+        for (int i = 0; i < num_params; i++) {
+            if (strcmp(params[i], "__VA_ARGS__") == 0) {
+                is_variadic = 1;
+                va_args_index = i;
+                break;
+            }
+        }
+    }
+    
     while (*src) {
         if (*src == '#' && *(src + 1) == '#') {
             // 处理 ## 操作符
@@ -3279,6 +3302,7 @@ static char* replace_macro_parameters(const char *replacement, char **params, in
             param_name[param_len] = '\0';
             
             // 查找参数
+            int found = 0;
             for (int i = 0; i < num_params; i++) {
                 if (strcmp(params[i], param_name) == 0) {
                     // 添加字符串化的参数
@@ -3286,8 +3310,18 @@ static char* replace_macro_parameters(const char *replacement, char **params, in
                     strcpy(dst, params[i]);
                     dst += strlen(params[i]);
                     *dst++ = '"';
+                    found = 1;
                     break;
                 }
+            }
+            if (!found && is_variadic && strcmp(param_name, "__VA_ARGS__") == 0) {
+                // 处理__VA_ARGS__的字符串化
+                *dst++ = '"';
+                if (va_args_index >= 0 && va_args_index < num_params) {
+                    strcpy(dst, params[va_args_index]);
+                    dst += strlen(params[va_args_index]);
+                }
+                *dst++ = '"';
             }
         } else if (isalpha(*src) || *src == '_') {
             // 处理标识符（可能是参数）
@@ -3310,6 +3344,15 @@ static char* replace_macro_parameters(const char *replacement, char **params, in
                     is_param = 1;
                     break;
                 }
+            }
+            
+            if (!is_param && is_variadic && strcmp(ident, "__VA_ARGS__") == 0) {
+                // 处理__VA_ARGS__
+                if (va_args_index >= 0 && va_args_index < num_params) {
+                    strcpy(dst, params[va_args_index]);
+                    dst += strlen(params[va_args_index]);
+                }
+                is_param = 1;
             }
             
             if (!is_param) {
@@ -3396,7 +3439,7 @@ static int handle_identifier(BootstrapCompiler *compiler, const char *start, con
         
         // 解析参数
         int num_args = 0;
-        char **args = parse_macro_arguments(p, &num_args);
+        char **args = parse_macro_arguments(p, &num_args, macro->is_variadic);
         
         if (macro->num_params >= 0 && num_args != macro->num_params) {
             // 参数数量不匹配，报错
@@ -3405,6 +3448,47 @@ static int handle_identifier(BootstrapCompiler *compiler, const char *start, con
             free_macro_args(args, num_args);
             free(name);
             return 0;
+        }
+        
+        // 处理可变参数
+        if (macro->is_variadic) {
+            // 确保至少有一个参数用于可变参数部分
+            if (num_args < macro->num_params) {
+                fprintf(stderr, "Error: macro '%s' requires at least %d arguments\n", 
+                       macro->name, macro->num_params);
+                free_macro_args(args, num_args);
+                free(name);
+                return 0;
+            }
+            
+            // 合并可变参数
+            if (num_args > macro->num_params) {
+                size_t va_args_len = 2; // 两个引号
+                for (int i = macro->num_params; i < num_args; i++) {
+                    va_args_len += strlen(args[i]) + 2; // 参数长度 + ", "
+                }
+                
+                char *va_args = malloc(va_args_len);
+                if (va_args) {
+                    va_args[0] = '\0';
+                    for (int i = macro->num_params; i < num_args; i++) {
+                        if (i > macro->num_params) strcat(va_args, ", ");
+                        strcat(va_args, args[i]);
+                    }
+                    
+                    // 将合并后的参数添加到参数列表
+                    if (args) {
+                        char **new_args = realloc(args, sizeof(char*) * (macro->num_params + 1));
+                        if (new_args) {
+                            args = new_args;
+                            args[macro->num_params] = va_args;
+                            num_args = macro->num_params + 1;
+                        } else {
+                            free(va_args);
+                        }
+                    }
+                }
+            }
         }
         
         // 替换参数
@@ -4034,124 +4118,426 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
             else if (strcmp(token->value, "malloc") == 0) token->type = TOKEN_MALLOC;
             else token->type = TOKEN_IDENTIFIER;
         }
-        // 识别数字（十进制、十六进制、八进制、浮点数）
+        // 识别数字（二进制、八进制、十进制、十六进制、浮点数）
         else if (isdigit(*p) || (*p == '.' && isdigit(*(p+1)))) {
             const char *start = p;
             int is_float = 0;
+            int base = 10;
             
-            // 处理十六进制数
-            if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) {
+            // 处理二进制数 (0b1010 或 0B1010)
+            if (*p == '0' && (*(p+1) == 'b' || *(p+1) == 'B')) {
+                base = 2;
                 p += 2;
-                while (isxdigit(*p)) p++;
+                while (*p == '0' || *p == '1') p++;
+                // 检查是否有无效字符
+                if (isalnum(*p) && *p != 'u' && *p != 'U' && *p != 'l' && *p != 'L') {
+                    token->type = TOKEN_ERROR;
+                    token->value = strdup("Invalid binary number format");
+                    return 1;
+                }
             }
-            // 处理八进制数
+            // 处理十六进制数 (0x 或 0X 开头)
+            else if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) {
+                base = 16;
+                p += 2;
+                if (!isxdigit(*p) && *p != '.') {
+                    token->type = TOKEN_ERROR;
+                    token->value = strdup("Invalid hex number format");
+                    return 1;
+                }
+                // 处理十六进制数字部分
+                while (isxdigit(*p)) p++;
+                
+                // 处理十六进制浮点数的小数部分
+                if (*p == '.') {
+                    is_float = 1;
+                    p++;
+                    if (!isxdigit(*p)) {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Expected hex digit after decimal point");
+                        return 1;
+                    }
+                    while (isxdigit(*p)) p++;
+                }
+            }
+            // 处理八进制数 (0 开头)
             else if (*p == '0') {
+                base = 8;
                 p++;
                 while (*p >= '0' && *p <= '7') p++;
             }
             // 处理十进制数
             else {
+                base = 10;
                 while (isdigit(*p)) p++;
-                // 处理浮点数
+                // 处理浮点数的小数部分
                 if (*p == '.') {
                     is_float = 1;
                     p++;
+                    if (base != 10) {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Floating point must be in decimal");
+                        return 1;
+                    }
+                    // 处理小数部分
+                    if (!isdigit(*p)) {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Expected digit after decimal point");
+                        return 1;
+                    }
                     while (isdigit(*p)) p++;
                 }
-                // 处理科学计数法
-                if (*p == 'e' || *p == 'E') {
+                
+                // 处理指数部分
+                if (base == 10 && (*p == 'e' || *p == 'E' || 
+                    (base == 16 && (*p == 'p' || *p == 'P')))) {
                     is_float = 1;
-                    p++;
-                    if (*p == '+' || *p == '-') p++;
+                    p++; // 跳过 'e', 'E', 'p', 或 'P'
+                    
+                    // 处理可选的符号
+                    if (*p == '+' || *p == '-') {
+                        p++;
+                    }
+                    
+                    // 指数必须至少有一个数字
+                    if (!isdigit(*p)) {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Expected digit in exponent");
+                        return 1;
+                    }
+                    
+                    // 跳过指数数字
                     while (isdigit(*p)) p++;
                 }
             }
             
-            // 处理浮点数后缀
-            if (is_float && (*p == 'f' || *p == 'F' || *p == 'l' || *p == 'L')) {
-                p++;
+            // 处理浮点数后缀 (f, F, l, L)
+            if (is_float) {
+                if (*p == 'f' || *p == 'F' || *p == 'l' || *p == 'L') {
+                    p++;
+                    // 检查重复的后缀
+                    if (*p == 'f' || *p == 'F' || *p == 'l' || *p == 'L') {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Duplicate floating suffix");
+                        return 1;
+                    }
+                }
             }
-            // 处理整数后缀
-            else if (!is_float && (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L')) {
-                p++;
-                if (*p == 'l' || *p == 'L') p++;  // 处理ll/LL后缀
+            // 处理整数后缀 (u, U, l, L, ll, LL, z, t)
+            else {
+                int has_u = 0, has_l = 0, has_ll = 0;
+                
+                // 处理无符号和长整型后缀
+                while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L' || *p == 'z' || *p == 't') {
+                    if (*p == 'u' || *p == 'U') {
+                        if (has_u) {
+                            token->type = TOKEN_ERROR;
+                            token->value = strdup("Duplicate 'u' suffix in integer constant");
+                            return 1;
+                        }
+                        has_u = 1;
+                    } 
+                    else if ((*p == 'l' || *p == 'L') && !has_ll) {
+                        if (has_l) {
+                            has_ll = 1;
+                            has_l = 0;
+                        } else {
+                            has_l = 1;
+                        }
+                    }
+                    // z for size_t, t for ptrdiff_t (common extensions)
+                    else if (*p != 'z' && *p != 't') {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Invalid integer suffix");
+                        return 1;
+                    }
+                    p++;
+                }
+            }
+            
+            // 检查是否有无效的后缀字符
+            if (isalpha(*p)) {
+                token->type = TOKEN_ERROR;
+                token->value = strdup("Invalid suffix on number");
+                return 1;
             }
             
             int len = p - start;
             token->value = malloc(len + 1);
+            if (!token->value) {
+                token->type = TOKEN_ERROR;
+                token->value = strdup("Memory allocation failed");
+                return 1;
+            }
             strncpy(token->value, start, len);
             token->value[len] = '\0';
             token->type = is_float ? TOKEN_FLOAT_NUMBER : TOKEN_NUMBER;
         }
         // 识别字符字面量
-        else if (*p == '\'') {
+        else if (*p == '\'' || (*p == 'L' && *(p+1) == '\'')) {
+            int is_wide = 0;
+            if (*p == 'L') {
+                is_wide = 1;
+                p++; // 跳过'L'前缀
+            }
             p++; // 跳过开始的单引号
+            
             const char *start = p;
+            int char_len = 0;
             
             // 处理转义字符
             if (*p == '\\') {
                 p++;
+                char_len++;
+                
+                // 处理标准转义序列
                 switch (*p) {
                     case '\'': case '\"': case '\\': case '?':
-                        p++;
-                        break;
                     case 'a': case 'b': case 'f': case 'n':
                     case 'r': case 't': case 'v':
                         p++;
+                        char_len++;
                         break;
-                    case 'x': // 十六进制转义
+                        
+                    case 'x': { // 十六进制转义
                         p++;
-                        while (isxdigit(*p)) p++;
+                        int hex_digits = 0;
+                        while (isxdigit(*p) && hex_digits < 2) {
+                            p++;
+                            hex_digits++;
+                            char_len++;
+                        }
+                        if (hex_digits == 0) {
+                            // 错误的十六进制转义序列
+                            token->value = strdup("Invalid hex escape sequence");
+                            token->type = TOKEN_ERROR;
+                            p--; // 回退到'x'
+                            continue;
+                        }
                         break;
+                    }
+                    
                     case '0': case '1': case '2': case '3':
-                    case '4': case '5': case '6': case '7': // 八进制转义
+                    case '4': case '5': case '6': case '7': { // 八进制转义
+                        int oct_digits = 1;
                         p++;
-                        while (*p >= '0' && *p <= '7') p++;
+                        while (oct_digits < 3 && *p >= '0' && *p <= '7') {
+                            p++;
+                            oct_digits++;
+                        }
+                        char_len += oct_digits;
                         break;
+                    }
+                    
                     default:
-                        p++; // 未知转义序列
+                        // 未知转义序列，原样保留反斜杠
+                        p++;
+                        char_len++;
+                        break;
                 }
             } else {
-                p++; // 普通字符
+                // 普通字符
+                p++;
+                char_len++;
             }
             
+            // 检查字符常量是否合法闭合
             if (*p == '\'') {
                 p++; // 跳过结束的单引号
-                int len = p - start - 2; // 减去两端的单引号
-                token->value = malloc(len + 1);
-                strncpy(token->value, start, len);
-                token->value[len] = '\0';
-                token->type = TOKEN_CHAR_LITERAL;
+                
+                // 分配内存并复制字符内容
+                int value_len = p - start - 1; // 减去结束的单引号
+                token->value = malloc(value_len + 1);
+                if (!token->value) {
+                    token->type = TOKEN_ERROR;
+                    continue;
+                }
+                strncpy(token->value, start, value_len);
+                token->value[value_len] = '\0';
+                
+                // 设置token类型
+                token->type = is_wide ? TOKEN_WCHAR_LITERAL : TOKEN_CHAR_LITERAL;
+                
+                // 检查多字符常量
+                if (char_len > 4) { // 宽字符最多4个字节
+                    token->type = TOKEN_ERROR;
+                    free(token->value);
+                    token->value = strdup("Character constant too long");
+                }
             } else {
-                // 错误的字符字面量
-                token->value = strdup("");
+                // 未闭合的字符常量
+                token->value = strdup("Unterminated character constant");
                 token->type = TOKEN_ERROR;
+                // 跳过到行尾或下一个单引号
+                while (*p && *p != '\'' && *p != '\n') p++;
+                if (*p == '\'') p++;
             }
         }
         // 识别字符串
-        else if (*p == '"') {
+        else if (*p == '"' || (*p == 'L' && *(p+1) == '"')) {
+            int is_wide = 0;
+            if (*p == 'L') {
+                is_wide = 1;
+                p++; // 跳过'L'前缀
+            }
             p++; // 跳过开始的引号
+            
+            // 分配初始缓冲区
+            size_t buf_size = 32;
+            char *buffer = malloc(buf_size);
+            if (!buffer) {
+                token->type = TOKEN_ERROR;
+                token->value = strdup("Out of memory");
+                continue;
+            }
+            
+            size_t buf_pos = 0;
             const char *start = p;
+            
             while (*p && *p != '"' && *p != '\n') {
+                // 处理转义序列
                 if (*p == '\\') {
-                    p++; // 跳过转义字符
-                    if (*p) p++; // 跳过转义序列中的下一个字符
+                    p++; // 跳过反斜杠
+                    
+                    // 确保有足够的空间
+                    if (buf_pos + 4 >= buf_size) { // 预留足够空间给转义序列
+                        buf_size *= 2;
+                        char *new_buf = realloc(buffer, buf_size);
+                        if (!new_buf) {
+                            free(buffer);
+                            token->type = TOKEN_ERROR;
+                            token->value = strdup("Out of memory");
+                            goto string_parse_error;
+                        }
+                        buffer = new_buf;
+                    }
+                    
+                    // 处理转义序列
+                    switch (*p) {
+                        case '\'': case '"': case '?': case '\\':
+                            buffer[buf_pos++] = '\\';
+                            buffer[buf_pos++] = *p++;
+                            break;
+                            
+                        case 'a': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'a'; p++; break;
+                        case 'b': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'b'; p++; break;
+                        case 'f': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'f'; p++; break;
+                        case 'n': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'n'; p++; break;
+                        case 'r': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'r'; p++; break;
+                        case 't': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 't'; p++; break;
+                        case 'v': buffer[buf_pos++] = '\\'; buffer[buf_pos++] = 'v'; p++; break;
+                        
+                        // 十六进制转义序列
+                        case 'x': {
+                            buffer[buf_pos++] = '\\';
+                            buffer[buf_pos++] = 'x';
+                            p++; // 跳过'x'
+                            
+                            int hex_digits = 0;
+                            while (isxdigit(*p) && hex_digits < 2) {
+                                buffer[buf_pos++] = *p++;
+                                hex_digits++;
+                            }
+                            if (hex_digits == 0) {
+                                // 错误的十六进制转义序列
+                                free(buffer);
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid hex escape sequence in string");
+                                goto string_parse_error;
+                            }
+                            break;
+                        }
+                        
+                        // 八进制转义序列
+                        case '0': case '1': case '2': case '3':
+                        case '4': case '5': case '6': case '7': {
+                            buffer[buf_pos++] = '\\';
+                            buffer[buf_pos++] = *p++; // 第一个数字
+                            
+                            // 最多再读取两个八进制数字
+                            int oct_digits = 1;
+                            while (oct_digits < 3 && *p >= '0' && *p <= '7') {
+                                buffer[buf_pos++] = *p++;
+                                oct_digits++;
+                            }
+                            break;
+                        }
+                        
+                        // 未知转义序列，原样保留
+                        default:
+                            buffer[buf_pos++] = '\\';
+                            if (*p) buffer[buf_pos++] = *p++;
+                            break;
+                    }
                 } else {
-                    p++;
+                    // 普通字符
+                    if (buf_pos + 1 >= buf_size) {
+                        buf_size *= 2;
+                        char *new_buf = realloc(buffer, buf_size);
+                        if (!new_buf) {
+                            free(buffer);
+                            token->type = TOKEN_ERROR;
+                            token->value = strdup("Out of memory");
+                            goto string_parse_error;
+                        }
+                        buffer = new_buf;
+                    }
+                    buffer[buf_pos++] = *p++;
                 }
             }
             
-            int len = p - start;
-            token->value = malloc(len + 1);
-            strncpy(token->value, start, len);
-            token->value[len] = '\0';
-            token->type = TOKEN_STRING;
-            
-            if (*p == '"') p++; // 跳过结束的引号
-            else {
-                // 未闭合的字符串
-                token->type = TOKEN_ERROR;
+            // 确保字符串以空字符结尾
+            if (buf_pos >= buf_size) {
+                buf_size++;
+                char *new_buf = realloc(buffer, buf_size);
+                if (!new_buf) {
+                    free(buffer);
+                    token->type = TOKEN_ERROR;
+                    token->value = strdup("Out of memory");
+                    goto string_parse_error;
+                }
+                buffer = new_buf;
             }
+            buffer[buf_pos] = '\0';
+            
+            // 检查字符串是否合法闭合
+            if (*p == '"') {
+                p++; // 跳过结束的引号
+                
+                // 处理相邻的字符串字面量连接
+                while (isspace(*p)) p++;
+                if ((*p == '"') || (*p == 'L' && *(p+1) == '"')) {
+                    // 保存当前token
+                    token->value = buffer;
+                    token->type = is_wide ? TOKEN_WIDE_STRING : TOKEN_STRING;
+                    
+                    // 继续处理下一个字符串字面量
+                    continue;
+                }
+                
+                // 分配精确大小的内存并复制字符串内容
+                token->value = realloc(buffer, buf_pos + 1);
+                if (!token->value) {
+                    free(buffer);
+                    token->type = TOKEN_ERROR;
+                    token->value = strdup("Out of memory");
+                    continue;
+                }
+                
+                token->type = is_wide ? TOKEN_WIDE_STRING : TOKEN_STRING;
+            } else {
+                // 未闭合的字符串
+                free(buffer);
+                token->type = TOKEN_ERROR;
+                token->value = strdup("Unterminated string literal");
+                // 跳过到行尾或下一个引号
+                while (*p && *p != '"' && *p != '\n') p++;
+                if (*p == '"') p++;
+            }
+            
+            string_parse_error:
+            // 清理并继续
+            ;
         }
         // 识别注释和多字符操作符
         else if (*p == '/') {
@@ -4291,29 +4677,22 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                     if (*(p+1) == '=') {
                         token->type = TOKEN_MULTIPLY_ASSIGN;
                         p += 2;
+                    } else if (*(p+1) == '*') { // ** operator for exponentiation (C++ extension)
+                        token->type = TOKEN_EXPONENT;
+                        p += 2;
                     } else {
                         token->type = TOKEN_MULTIPLY;
                         p++;
                     }
                     break;
                     
-                case '%':
-                    if (*(p+1) == '=') {
-                        token->type = TOKEN_MOD_ASSIGN;
-                        p += 2;
-                    } else {
-                        token->type = TOKEN_MOD;
-                        p++;
-                    }
-                    break;
-                
-                // 位操作符
+                // Bitwise and logical operators
                 case '&':
-                    if (*(p+1) == '&') {
-                        token->type = TOKEN_LOGICAL_AND;
-                        p += 2;
-                    } else if (*(p+1) == '=') {
+                    if (*(p+1) == '=') {
                         token->type = TOKEN_BIT_AND_ASSIGN;
+                        p += 2;
+                    } else if (*(p+1) == '&') {
+                        token->type = TOKEN_LOGICAL_AND;
                         p += 2;
                     } else {
                         token->type = TOKEN_BIT_AND;
@@ -4322,11 +4701,11 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                     break;
                     
                 case '|':
-                    if (*(p+1) == '|') {
-                        token->type = TOKEN_LOGICAL_OR;
-                        p += 2;
-                    } else if (*(p+1) == '=') {
+                    if (*(p+1) == '=') {
                         token->type = TOKEN_BIT_OR_ASSIGN;
+                        p += 2;
+                    } else if (*(p+1) == '|') {
+                        token->type = TOKEN_LOGICAL_OR;
                         p += 2;
                     } else {
                         token->type = TOKEN_BIT_OR;
@@ -4343,34 +4722,411 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                         p++;
                     }
                     break;
-                
-                // 其他字符
+                    
+                case '%':
+                    if (*(p+1) == '=') {
+                        token->type = TOKEN_MOD_ASSIGN;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_MOD;
+                        p++;
+                    }
+                    break;
+                    
                 case '.':
                     if (*(p+1) == '.' && *(p+2) == '.') {
                         token->type = TOKEN_ELLIPSIS;
                         p += 3;
+                    } else if (*(p+1) == '*' && (p == source || !isalnum(*(p-1)))) {
+                        // .* pointer-to-member access (C++)
+                        token->type = TOKEN_DOT_STAR;
+                        p += 2;
                     } else {
                         token->type = TOKEN_DOT;
                         p++;
                     }
                     break;
                     
+                case '#':
+                    if (*(p+1) == '#') {
+                        token->type = TOKEN_DOUBLE_HASH;
+                        p += 2;
+                    } else {
+                        token->type = TOKEN_HASH;
+                        p++;
+                    }
+                    break;
+                    
+                case '\'':
+                    // Character literal
+                    token->type = TOKEN_CHAR_LITERAL;
+                    p++; // Skip opening quote
+                    start = p;
+                    
+                    // Handle empty character literal
+                    if (*p == '\'') {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Empty character constant");
+                        p++;
+                        break;
+                    }
+                    
+                    // Handle escape sequences
+                    if (*p == '\\') {
+                        p++; // Skip backslash
+                        // Handle escape sequences
+                        switch (*p) {
+                            case 'a': case 'b': case 'f': case 'n':
+                            case 'r': case 't': case 'v': case '\\':
+                            case '\'': case '"': case '?':
+                                p++; // Valid escape sequence
+                                break;
+                            case 'x': {
+                                // Hex escape sequence
+                                p++;
+                                int digits = 0;
+                                while (isxdigit(*p) && digits < 2) {
+                                    p++;
+                                    digits++;
+                                }
+                                if (digits == 0) {
+                                    token->type = TOKEN_ERROR;
+                                    token->value = strdup("Invalid hex escape sequence");
+                                }
+                                break;
+                            }
+                            case '0': case '1': case '2': case '3':
+                            case '4': case '5': case '6': case '7': {
+                                // Octal escape sequence (1-3 digits)
+                                int digits = 1;
+                                p++;
+                                while (digits < 3 && *p >= '0' && *p <= '7') {
+                                    p++;
+                                    digits++;
+                                }
+                                break;
+                            }
+                            default:
+                                // Unknown escape sequence
+                                token->type = TOKEN_ERROR;
+                                char err[64];
+                                snprintf(err, sizeof(err), "Unknown escape sequence: \\%c", *p);
+                                token->value = strdup(err);
+                                p++;
+                                break;
+                        }
+                    } else if (*p) {
+                        p++; // Regular character
+                    }
+                    
+                    // Look for closing quote
+                    if (*p != '\'') {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Unterminated character constant");
+                    } else {
+                        p++; // Skip closing quote
+                        len = p - start - 1; // Exclude the closing quote
+                        token->value = malloc(len + 1);
+                        strncpy(token->value, start, len);
+                        token->value[len] = '\0';
+                    }
+                    break;
+                    
+                case '"':
+                    // String literal
+                    token->type = TOKEN_STRING_LITERAL;
+                    p++; // Skip opening quote
+                    start = p;
+                    
+                    // Calculate length needed for the string
+                    const char *tmp = p;
+                    size_t str_len = 0;
+                    int has_errors = 0;
+                    
+                    while (*tmp && *tmp != '"') {
+                        if (*tmp == '\\') {
+                            if (*(tmp + 1) == 0) {
+                                has_errors = 1;
+                                break;
+                            }
+                            // Skip the escape sequence
+                            tmp++;
+                            switch (*tmp) {
+                                case 'a': case 'b': case 'f': case 'n':
+                                case 'r': case 't': case 'v': case '\\':
+                                case '\'': case '"': case '?':
+                                    tmp++;
+                                    str_len++;
+                                    break;
+                                case 'x': {
+                                    // Hex escape
+                                    tmp++;
+                                    int digits = 0;
+                                    while (isxdigit(*tmp) && digits < 2) {
+                                        tmp++;
+                                        digits++;
+                                    }
+                                    if (digits == 0) {
+                                        has_errors = 1;
+                                    } else {
+                                        str_len++;
+                                    }
+                                    break;
+                                }
+                                case '0': case '1': case '2': case '3':
+                                case '4': case '5': case '6': case '7': {
+                                    // Octal escape (1-3 digits)
+                                    int digits = 1;
+                                    tmp++;
+                                    while (digits < 3 && *tmp >= '0' && *tmp <= '7') {
+                                        tmp++;
+                                        digits++;
+                                    }
+                                    str_len++;
+                                    break;
+                                }
+                                default:
+                                    // Unknown escape sequence
+                                    has_errors = 1;
+                                    tmp++;
+                                    break;
+                            }
+                            if (has_errors) break;
+                        } else {
+                            tmp++;
+                            str_len++;
+                        }
+                    }
+                    
+                    if (has_errors || *tmp != '"') {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup(has_errors ? "Invalid escape sequence in string" : "Unterminated string literal");
+                        p = tmp;
+                        if (*p == '"') p++;
+                        break;
+                    }
+                    
+                    // Allocate and process the string
+                    token->value = malloc(str_len + 1);
+                    char *dest = token->value;
+                    
+                    while (*p && *p != '"') {
+                        if (*p == '\\') {
+                            p++; // Skip backslash
+                            switch (*p) {
+                                case 'a': *dest++ = '\a'; p++; break;
+                                case 'b': *dest++ = '\b'; p++; break;
+                                case 'f': *dest++ = '\f'; p++; break;
+                                case 'n': *dest++ = '\n'; p++; break;
+                                case 'r': *dest++ = '\r'; p++; break;
+                                case 't': *dest++ = '\t'; p++; break;
+                                case 'v': *dest++ = '\v'; p++; break;
+                                case '\\': *dest++ = '\\'; p++; break;
+                                case '\'': *dest++ = '\''; p++; break;
+                                case '"': *dest++ = '"'; p++; break;
+                                case '?': *dest++ = '?'; p++; break;
+                                case 'x': {
+                                    // Hex escape
+                                    p++; // Skip 'x'
+                                    unsigned char val = 0;
+                                    int digits = 0;
+                                    while (isxdigit(*p) && digits < 2) {
+                                        val = (val << 4) | 
+                                              (*p >= 'a' ? *p - 'a' + 10 :
+                                               *p >= 'A' ? *p - 'A' + 10 : *p - '0');
+                                        p++;
+                                        digits++;
+                                    }
+                                    *dest++ = val;
+                                    break;
+                                }
+                                default: {
+                                    // Octal escape
+                                    if (*p >= '0' && *p <= '7') {
+                                        unsigned char val = *p - '0';
+                                        p++;
+                                        int digits = 1;
+                                        while (digits < 3 && *p >= '0' && *p <= '7') {
+                                            val = (val << 3) | (*p - '0');
+                                            p++;
+                                            digits++;
+                                        }
+                                        *dest++ = val;
+                                    } else {
+                                        // Invalid escape, just copy the character
+                                        *dest++ = *p++;
+                                    }
+                                    break;
+                                }
+                            }
+                        } else {
+                            *dest++ = *p++;
+                        }
+                    }
+                    *dest = '\0';
+                    
+                    if (*p == '"') p++; // Skip closing quote
+                    break;
+                    
+                case '0': case '1': case '2': case '3': case '4':
+                case '5': case '6': case '7': case '8': case '9':
+                    // Integer or floating-point literal
+                    const char *start = p;
+                    int is_float = 0;
+                    int is_hex = 0;
+                    int has_digit = 0;
+                    
+                    // 处理十六进制数 (0x 或 0X 开头)
+                    if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) {
+                        is_hex = 1;
+                        p += 2;
+                        // 必须至少有一个十六进制数字
+                        if (!isxdigit(*p)) {
+                            token->type = TOKEN_ERROR;
+                            token->value = strdup("Invalid hexadecimal number");
+                            p++;
+                            break;
+                        }
+                        while (isxdigit(*p) || *p == '.') {
+                            if (*p == '.') {
+                                is_float = 1;
+                                // 十六进制浮点数必须包含指数部分
+                                if (*(p+1) == 'p' || *(p+1) == 'P') {
+                                    p += 2; // Skip 'p' or 'P'
+                                    if (*p == '+' || *p == '-') p++; // Skip sign
+                                    if (!isdigit(*p)) {
+                                        token->type = TOKEN_ERROR;
+                                        token->value = strdup("Invalid hexadecimal floating-point number");
+                                        break;
+                                    }
+                                    while (isdigit(*p)) p++;
+                                } else {
+                                    token->type = TOKEN_ERROR;
+                                    token->value = strdup("Hexadecimal floating constant requires an exponent");
+                                    break;
+                                }
+                            } else {
+                                has_digit = 1;
+                                p++;
+                            }
+                        }
+                        // 处理十六进制浮点数后缀
+                        if (is_float && (*p == 'p' || *p == 'P')) {
+                            p++;
+                            if (*p == '+' || *p == '-') p++;
+                            if (!isdigit(*p)) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid hexadecimal floating-point number");
+                                break;
+                            }
+                            while (isdigit(*p)) p++;
+                        }
+                    } 
+                    // 处理八进制数 (0 开头)
+                    else if (*p == '0') {
+                        p++;
+                        has_digit = 1;
+                        while (*p >= '0' && *p <= '7') { p++; has_digit = 1; }
+                        // 检查是否有小数点或指数
+                        if (*p == '.') {
+                            is_float = 1;
+                            p++;
+                            while (isdigit(*p)) { p++; has_digit = 1; }
+                        }
+                        if (*p == 'e' || *p == 'E') {
+                            is_float = 1;
+                            p++;
+                            if (*p == '+' || *p == '-') p++;
+                            if (!isdigit(*p)) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid floating-point number");
+                                break;
+                            }
+                            while (isdigit(*p)) p++;
+                        }
+                    }
+                    // 处理十进制数
+                    else {
+                        has_digit = 1;
+                        while (isdigit(*p)) p++;
+                        // 处理浮点数
+                        if (*p == '.') {
+                            is_float = 1;
+                            p++;
+                            while (isdigit(*p)) p++;
+                        }
+                        // 处理指数部分
+                        if (*p == 'e' || *p == 'E') {
+                            is_float = 1;
+                            p++;
+                            if (*p == '+' || *p == '-') p++;
+                            if (!isdigit(*p)) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid floating-point number");
+                                break;
+                            }
+                            while (isdigit(*p)) p++;
+                        }
+                    }
+                    
+                    // 处理后缀 (u, U, l, L, f, F)
+                    int has_suffix = 0;
+                    while (1) {
+                        if (tolower(*p) == 'u') {
+                            if (has_suffix & 1) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid numeric suffix");
+                                break;
+                            }
+                            has_suffix |= 1;
+                            p++;
+                        } else if (tolower(*p) == 'l') {
+                            if ((has_suffix >> 1) > 1) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid numeric suffix");
+                                break;
+                            }
+                            has_suffix = (has_suffix & ~2) | ((has_suffix & 2) ? 4 : 2);
+                            p++;
+                        } else if (tolower(*p) == 'f') {
+                            if (is_hex || (has_suffix & 8)) {
+                                token->type = TOKEN_ERROR;
+                                token->value = strdup("Invalid numeric suffix");
+                                break;
+                            }
+                            is_float = 1;
+                            has_suffix |= 8;
+                            p++;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if (token->type == TOKEN_ERROR) {
+                        // Error already set
+                    } else if (!has_digit) {
+                        token->type = TOKEN_ERROR;
+                        token->value = strdup("Invalid numeric constant");
+                    } else {
+                        // 保存数字标记
+                        int len = p - start;
+                        token->value = malloc(len + 1);
+                        strncpy(token->value, start, len);
+                        token->value[len] = '\0';
+                        token->type = is_float ? TOKEN_FLOAT_LITERAL : TOKEN_INT_LITERAL;
+                    }
+                    break;
+                    
                 default:
-                    // 未知字符，记录错误但继续
-                    char unknown[2] = {*p, '\0'};
-                    token->value = strdup(unknown);
+                    // Unknown character
                     token->type = TOKEN_ERROR;
+                    char error_msg[32];
+                    snprintf(error_msg, sizeof(error_msg), "Unknown character: %c (0x%02x)", *p, (unsigned char)*p);
+                    token->value = strdup(error_msg);
                     p++;
                     break;
             }
-            
-            // 为操作符创建字符串表示
-            if (token->type != TOKEN_ERROR) {
-                int len = p - (start = source + (p - source) - (p - start));
-                token->value = malloc(len + 1);
-                strncpy(token->value, start, len);
-                token->value[len] = '\0';
-            }
+{{ ... }}
         }
     }
     
