@@ -3,7 +3,7 @@
 ## 目录结构
 
 ```
-build_organized/
+build/
 ├── host/                   # 主机版本 TCC
 │   ├── bin/tcc            # 主机 TCC 编译器
 │   ├── lib/               # 运行时库
@@ -24,17 +24,17 @@ build_organized/
 
 ### 编译 x86_64 Linux 程序
 ```bash
-build_organized/cross/x86_64-linux/bin/tcc-x86_64-linux hello.c -o hello
+build/cross/x86_64-linux/bin/tcc-x86_64-linux hello.c -o hello
 ```
 
 ### 编译 ARM64 程序
 ```bash
-build_organized/cross/aarch64-linux/bin/tcc-aarch64-linux hello.c -o hello-arm64
+build/cross/aarch64-linux/bin/tcc-aarch64-linux hello.c -o hello-arm64
 ```
 
 ### 使用主机编译器
 ```bash
-build_organized/host/bin/tcc hello.c -o hello
+build/host/bin/tcc hello.c -o hello
 ```
 
 ## 验证编译器
@@ -46,7 +46,6 @@ bash scripts/test-tcc-organized.sh
 
 ## 支持的架构
 
-- x86_64
 - x86_64-linux
 
-重新组织时间: Wed Jun 18 11:51:23 AM UTC 2025
+重新组织时间: Wed Jun 18 11:53:02 AM UTC 2025
