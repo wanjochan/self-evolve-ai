@@ -22,6 +22,279 @@
 #include <sys/stat.h>  // For mkdir
 #include <errno.h>     // For errno
 
+// ====================================
+// 预处理器和宏处理
+// ====================================
+
+
+// 宏定义结构
+typedef struct Macro {
+    char *name;              // 宏名称
+    char **params;           // 参数列表（对于函数式宏）
+    int num_params;         // 参数数量
+    char *replacement;       // 替换文本
+    int is_function_like;    // 是否为函数式宏
+    int is_variadic;         // 是否支持可变参数
+    struct Macro *next;      // 下一个宏
+} Macro;
+
+// 宏表
+typedef struct {
+    Macro *head;
+    Macro *tail;
+} MacroTable;
+
+// 条件编译栈项
+typedef struct IfState {
+    int condition_met;    // 当前条件是否为真
+    int else_allowed;     // 是否允许出现#else
+    struct IfState *prev; // 前一个条件状态
+} IfState;
+
+// 宏展开状态
+typedef struct {
+    Token *expansion_tokens;  // 宏展开后的token列表
+    Token *current;           // 当前展开的token
+    int level;               // 展开嵌套深度
+    char *macro_name;        // 当前展开的宏名
+    char **args;             // 宏参数
+    int num_args;            // 参数数量
+    
+    // 条件编译状态
+    IfState *if_stack;       // 条件编译栈
+    int skipping;            // 是否跳过当前代码块
+    int skip_level;          // 当前跳过的嵌套级别
+} MacroExpansionState;
+
+// 全局宏表
+static MacroTable macro_table = {NULL, NULL};
+
+// 预定义宏
+static const char *predefined_macros[] = {
+    "__LINE__",
+    "__FILE__",
+    "__DATE__",
+    "__TIME__",
+    "__STDC__",
+    "__STDC_VERSION__",
+    "__cplusplus",
+    NULL
+};
+
+// 检查是否是预定义宏
+static int is_predefined_macro(const char *name) {
+    for (int i = 0; predefined_macros[i] != NULL; i++) {
+        if (strcmp(name, predefined_macros[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 展开预定义宏
+static char *expand_predefined_macro(const char *name, int line, const char *filename) {
+    if (strcmp(name, "__LINE__") == 0) {
+        char *result = malloc(16);
+        snprintf(result, 16, "%d", line);
+        return result;
+    } else if (strcmp(name, "__FILE__") == 0) {
+        char *result = malloc(strlen(filename) + 3);
+        snprintf(result, strlen(filename) + 3, "\"%s\"", filename);
+        return result;
+    } else if (strcmp(name, "__DATE__") == 0) {
+        time_t t = time(NULL);
+        struct tm *tm_info = localtime(&t);
+        char *result = malloc(12); // "Mmm dd yyyy" + null
+        strftime(result, 12, "%b %d %Y", tm_info);
+        return result;
+    } else if (strcmp(name, "__TIME__") == 0) {
+        time_t t = time(NULL);
+        struct tm *tm_info = localtime(&t);
+        char *result = malloc(9); // "hh:mm:ss" + null
+        strftime(result, 9, "%H:%M:%S", tm_info);
+        return result;
+    } else if (strcmp(name, "__STDC__") == 0) {
+        return strdup("1");
+    } else if (strcmp(name, "__STDC_VERSION__") == 0) {
+        return strdup("201710L");
+    } else if (strcmp(name, "__cplusplus") == 0) {
+        return strdup("1");
+    }
+    return NULL;
+}
+
+// 全局宏展开状态
+static MacroExpansionState macro_expansion = {NULL, NULL, 0, NULL, NULL, 0, NULL, 0, 0};
+
+// 释放宏参数
+static void free_macro_args(char **args, int count) {
+    if (!args) return;
+    for (int i = 0; i < count; i++) {
+        free(args[i]);
+    }
+    free(args);
+}
+
+// 重置宏展开状态
+static void reset_macro_expansion(void) {
+    if (macro_expansion.expansion_tokens) {
+        free(macro_expansion.expansion_tokens);
+    }
+    if (macro_expansion.macro_name) {
+        free(macro_expansion.macro_name);
+    }
+    if (macro_expansion.args) {
+        free_macro_args(macro_expansion.args, macro_expansion.num_args);
+    }
+    
+    // 清理条件编译栈
+    IfState *state = macro_expansion.if_stack;
+    while (state) {
+        IfState *prev = state->prev;
+        free(state);
+        state = prev;
+    }
+    
+    memset(&macro_expansion, 0, sizeof(macro_expansion));
+}
+
+// 查找宏
+static Macro* find_macro(const char *name) {
+    if (!name) return NULL;
+    
+    Macro *current = macro_table.head;
+    while (current) {
+        if (strcmp(current->name, name) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+// 添加宏
+static void add_macro(const char *name, const char *replacement, int is_function_like, char **params, int num_params) {
+    if (!name || !replacement) return;
+    
+    // 如果宏已存在，先删除
+    Macro *existing = find_macro(name);
+    if (existing) {
+        free(existing->replacement);
+        if (existing->params) {
+            for (int i = 0; i < existing->num_params; i++) {
+                free(existing->params[i]);
+            }
+            free(existing->params);
+        }
+        existing->replacement = strdup(replacement);
+        existing->is_function_like = is_function_like;
+        existing->num_params = num_params;
+        existing->params = params;
+        return;
+    }
+    
+    // 创建新宏
+    Macro *macro = (Macro*)malloc(sizeof(Macro));
+    if (!macro) return;
+    
+    macro->name = strdup(name);
+    macro->replacement = strdup(replacement);
+    macro->is_function_like = is_function_like;
+    macro->is_variadic = 0;  // 默认不支持可变参数
+    macro->num_params = num_params;
+    macro->params = params;
+    macro->next = NULL;
+    
+    // 添加到链表
+    if (!macro_table.head) {
+        macro_table.head = macro_table.tail = macro;
+    } else {
+        macro_table.tail->next = macro;
+        macro_table.tail = macro;
+    }
+}
+
+// 释放宏表
+static void free_macro_table(void) {
+    Macro *current = macro_table.head;
+    while (current) {
+        Macro *next = current->next;
+        free(current->name);
+        free(current->replacement);
+        if (current->params) {
+            for (int i = 0; i < current->num_params; i++) {
+                free(current->params[i]);
+            }
+            free(current->params);
+        }
+        free(current);
+        current = next;
+    }
+    macro_table.head = macro_table.tail = NULL;
+}
+
+// 展开宏
+static char* expand_macro(const char *name, char **args, int num_args) {
+    Macro *macro = find_macro(name);
+    if (!macro) return strdup(name);  // 不是宏，原样返回
+    
+    // 简单宏
+    if (!macro->is_function_like) {
+        return strdup(macro->replacement);
+    }
+    
+    // 函数式宏
+    if (num_args != macro->num_params) {
+        fprintf(stderr, "Error: macro %s expects %d arguments, but got %d\n", 
+                name, macro->num_params, num_args);
+        return strdup(name);
+    }
+    
+    // 简单的参数替换实现
+    char *result = strdup(macro->replacement);
+    char *pos = result;
+    size_t result_size = strlen(result) + 1;
+    
+    // 对每个参数进行替换
+    for (int i = 0; i < macro->num_params; i++) {
+        char param_token[64];
+        snprintf(param_token, sizeof(param_token), "%s", macro->params[i]);
+        
+        // 简单的字符串替换（实际实现需要更复杂的词法分析）
+        char *found;
+        while ((found = strstr(pos, param_token)) != NULL) {
+            // 确保匹配的是完整的标识符
+            if ((found == result || !isalnum(found[-1]) && found[-1] != '_') && 
+                !isalnum(found[strlen(param_token)]) && found[strlen(param_token)] != '_') {
+                
+                // 计算新结果的大小
+                size_t prefix_len = found - result;
+                size_t suffix_len = strlen(found + strlen(param_token));
+                size_t new_size = prefix_len + (args[i] ? strlen(args[i]) : 0) + suffix_len + 1;
+                
+                // 分配新内存
+                char *new_result = malloc(new_size);
+                
+                // 构建新字符串
+                strncpy(new_result, result, prefix_len);
+                new_result[prefix_len] = '\0';
+                if (args[i]) strcat(new_result, args[i]);
+                strcat(new_result, found + strlen(param_token));
+                
+                // 更新指针和大小
+                free(result);
+                result = new_result;
+                pos = result + prefix_len + (args[i] ? strlen(args[i]) : 0);
+                break;
+            }
+            pos = found + 1;
+        }
+    }
+    
+    return result;
+}
+
+
 // AST序列化相关定义
 #define ASTC_MAGIC "ASTC"
 #define ASTC_VERSION 1
@@ -1293,6 +1566,150 @@ typedef enum {
     WASX_PTR_MEMBER_ACCESS,// 指针成员访问
     WASX_CAST_EXPR,        // 类型转换
     
+    // 表达式类型
+    WASX_EXPR_IDENTIFIER,        // 标识符
+    WASX_EXPR_CONSTANT,          // 常量
+    WASX_EXPR_STRING_LITERAL,    // 字符串字面量
+    WASX_EXPR_COMPOUND_LITERAL,  // 复合字面量 (C99)
+    WASX_EXPR_FUNC_CALL,         // 函数调用
+    WASX_EXPR_ARRAY_SUBSCRIPT,   // 数组下标
+    WASX_EXPR_MEMBER_ACCESS,     // 成员访问
+    WASX_EXPR_PTR_MEMBER_ACCESS, // 指针成员访问
+    WASX_EXPR_POST_INC,          // 后置++
+    WASX_EXPR_POST_DEC,          // 后置--
+    WASX_EXPR_PRE_INC,           // 前置++
+    WASX_EXPR_PRE_DEC,           // 前置--
+    WASX_EXPR_ADDR,              // 取地址 &
+    WASX_EXPR_DEREF,             // 解引用 *
+    WASX_EXPR_PLUS,              // 正号 +
+    WASX_EXPR_MINUS,             // 负号 -
+    WASX_EXPR_BIT_NOT,           // 按位取反 ~
+    WASX_EXPR_LOGICAL_NOT,       // 逻辑非 !
+    WASX_EXPR_SIZEOF,            // sizeof
+    WASX_EXPR_ALIGNOF,           // _Alignof (C11)
+    WASX_EXPR_GENERIC,           // _Generic (C11)
+    WASX_EXPR_MUL,               // 乘 *
+    WASX_EXPR_DIV,               // 除 /
+    WASX_EXPR_MOD,               // 取模 %
+    WASX_EXPR_ADD,               // 加 +
+    WASX_EXPR_SUB,               // 减 -
+    WASX_EXPR_LEFT_SHIFT,        // 左移 <<
+    WASX_EXPR_RIGHT_SHIFT,       // 右移 >>
+    WASX_EXPR_LESS,              // 小于 <
+    WASX_EXPR_LESS_EQUAL,        // 小于等于 <=
+    WASX_EXPR_GREATER,           // 大于 >
+    WASX_EXPR_GREATER_EQUAL,     // 大于等于 >=
+    WASX_EXPR_EQUAL,             // 等于 ==
+    WASX_EXPR_NOT_EQUAL,         // 不等于 !=
+    WASX_EXPR_BIT_AND,           // 按位与 &
+    WASX_EXPR_BIT_XOR,           // 按位异或 ^
+    WASX_EXPR_BIT_OR,            // 按位或 |
+    WASX_EXPR_LOGICAL_AND,       // 逻辑与 &&
+    WASX_EXPR_LOGICAL_OR,        // 逻辑或 ||
+    WASX_EXPR_CONDITIONAL,       // 条件 ? :
+    WASX_EXPR_ASSIGN,            // =
+    WASX_EXPR_ADD_ASSIGN,        // +=
+    WASX_EXPR_SUB_ASSIGN,        // -=
+    WASX_EXPR_MUL_ASSIGN,        // *=
+    WASX_EXPR_DIV_ASSIGN,        // /=
+    WASX_EXPR_MOD_ASSIGN,        // %=
+    WASX_EXPR_LEFT_SHIFT_ASSIGN, // <<=
+    WASX_EXPR_RIGHT_SHIFT_ASSIGN,// >>=
+    WASX_EXPR_BIT_AND_ASSIGN,    // &=
+    WASX_EXPR_BIT_XOR_ASSIGN,    // ^=
+    WASX_EXPR_BIT_OR_ASSIGN,     // |=
+    WASX_EXPR_COMMA,             // 逗号表达式
+    WASX_EXPR_CAST,              // 类型转换 (type)expr
+    WASX_EXPR_VA_ARG,            // va_arg
+    WASX_EXPR_STATEMENT_EXPR,    // ({...})
+    WASX_EXPR_RANGE,             // x..y (GCC)
+    WASX_EXPR_BUILTIN_CHOOSE_EXPR, // __builtin_choose_expr
+    WASX_EXPR_BUILTIN_TYPES_COMPATIBLE_P, // __builtin_types_compatible_p
+    WASX_EXPR_BUILTIN_OFFSETOF,   // offsetof
+    WASX_EXPR_BUILTIN_VA_ARG,     // __builtin_va_arg
+    WASX_EXPR_BUILTIN_VA_COPY,    // __builtin_va_copy
+    WASX_EXPR_BUILTIN_VA_END,     // __builtin_va_end
+    WASX_EXPR_BUILTIN_VA_START,   // __builtin_va_start
+    WASX_EXPR_ATTRIBUTE,         // __attribute__
+    WASX_EXPR_ASM,               // __asm__
+    WASX_EXPR_ERROR,             // 错误表达式
+
+    // 语句类型
+    WASX_STMT_NONE,
+    WASX_STMT_DECL,              // 声明语句
+    WASX_STMT_NULL,              // 空语句
+    WASX_STMT_COMPOUND,          // 复合语句
+    WASX_STMT_CASE,              // case 语句
+    WASX_STMT_DEFAULT,           // default 语句
+    WASX_STMT_LABEL,             // 标签语句
+    WASX_STMT_ATTRIBUTED,        // 带属性的语句
+    WASX_STMT_IF,                // if 语句
+    WASX_STMT_SWITCH,            // switch 语句
+    WASX_STMT_WHILE,             // while 循环
+    WASX_STMT_DO,                // do-while 循环
+    WASX_STMT_FOR,               // for 循环
+    WASX_STMT_GOTO,              // goto 语句
+    WASX_STMT_INDIRECT_GOTO,     // 间接 goto 语句
+    WASX_STMT_CONTINUE,          // continue 语句
+    WASX_STMT_BREAK,             // break 语句
+    WASX_STMT_RETURN,            // return 语句
+    WASX_STMT_ASM,               // 内联汇编
+    WASX_STMT_GCC_ASM,           // GCC 内联汇编
+    WASX_STMT_MS_ASM,            // MSVC 内联汇编
+    WASX_STMT_SEH_LEAVE,         // SEH __leave
+    WASX_STMT_SEH_TRY,           // SEH __try
+    WASX_STMT_SEH_EXCEPT,        // SEH __except
+    WASX_STMT_SEH_FINALLY,       // SEH __finally
+    WASX_STMT_MS_DECLSPEC,       // MS __declspec
+    WASX_STMT_CXX_CATCH,         // C++ catch
+    WASX_STMT_CXX_TRY,           // C++ try
+    WASX_STMT_CXX_FOR_RANGE,     // C++11 范围 for
+    WASX_STMT_MS_TRY,            // MS __try
+    WASX_STMT_MS_EXCEPT,         // MS __except
+    WASX_STMT_MS_FINALLY,        // MS __finally
+    WASX_STMT_MS_LEAVE,          // MS __leave
+    WASX_STMT_PRAGMA,            // #pragma 指令
+    WASX_STMT_ERROR,             // 错误语句
+
+    // 声明类型
+    WASX_DECL_NONE,
+    WASX_DECL_VAR,               // 变量声明
+    WASX_DECL_FUNCTION,          // 函数声明
+    WASX_DECL_FUNCTION_DEF,      // 函数定义
+    WASX_DECL_STRUCT,            // 结构体定义
+    WASX_DECL_UNION,             // 联合体定义
+    WASX_DECL_ENUM,              // 枚举定义
+    WASX_DECL_ENUM_CONSTANT,     // 枚举常量
+    WASX_DECL_TYPEDEF,           // 类型定义
+    WASX_DECL_LABEL,             // 标签
+    WASX_DECL_FIELD,             // 结构体/联合体字段
+    WASX_DECL_PARAM,             // 函数参数
+    WASX_DECL_RECORD,            // 记录(结构体/联合体)
+    WASX_DECL_INITIALIZER,       // 初始化器
+    WASX_DECL_ATTRIBUTE,         // 属性
+    WASX_DECL_ASM_LABEL,         // 汇编标签
+    WASX_DECL_IMPLICIT,          // 隐式声明
+    WASX_DECL_PACKED,            // 打包属性
+    WASX_DECL_ALIGNED,           // 对齐属性
+    WASX_DECL_TRANSPARENT_UNION, // 透明联合体
+    WASX_DECL_VECTOR,            // 向量类型(GCC)
+    WASX_DECL_EXT_VECTOR,        // 扩展向量类型(Clang)
+    WASX_DECL_COMPLEX,           // 复数类型
+    WASX_DECL_IMAGINARY,         // 虚数类型
+    WASX_DECL_ATOMIC,            // 原子类型(C11)
+    WASX_DECL_THREAD_LOCAL,      // 线程局部存储(C11)
+    WASX_DECL_AUTO_TYPE,         // auto 类型(C23)
+    WASX_DECL_NULLPTR,           // nullptr_t(C23)
+    WASX_DECL_GENERIC_SELECTION, // _Generic 选择(C11)
+    WASX_DECL_OVERLOAD,          // 重载声明(C++)
+    WASX_DECL_TEMPLATE,          // 模板(C++)
+    WASX_DECL_FRIEND,            // 友元(C++)
+    WASX_DECL_USING,             // using 声明(C++)
+    WASX_DECL_CONCEPT,           // 概念(C++20)
+    WASX_DECL_REQUIRES,          // requires 子句(C++20)
+    WASX_DECL_CONSTRAINT,        // 约束(C++20)
+    WASX_DECL_ERROR,             // 错误声明
+    
     // 复合表达式
     WASX_INIT_LIST,        // 初始化列表
     WASX_DESIGNATION,      // 指示符 (C99)
@@ -1521,182 +1938,7 @@ typedef enum {
     Q_UNSIGNED = 1 << 31   // unsigned
 } TypeQualifier;
 
-// 表达式类型
-typedef enum {
-    EXPR_INVALID,
-    
-    // 基本表达式
-    EXPR_IDENTIFIER,        // 标识符
-    EXPR_CONSTANT,          // 常量
-    EXPR_STRING_LITERAL,    // 字符串字面量
-    EXPR_COMPOUND_LITERAL,  // 复合字面量 (C99)
-    
-    // 后缀表达式
-    EXPR_FUNC_CALL,         // 函数调用
-    EXPR_ARRAY_SUBSCRIPT,   // 数组下标
-    EXPR_MEMBER_ACCESS,     // 成员访问 .
-    EXPR_PTR_MEMBER_ACCESS, // 指针成员访问 ->
-    EXPR_POST_INC,          // 后置++
-    EXPR_POST_DEC,          // 后置--
-    
-    // 一元表达式
-    EXPR_PRE_INC,           // 前置++
-    EXPR_PRE_DEC,           // 前置--
-    EXPR_ADDR,              // 取地址 &
-    EXPR_DEREF,             // 解引用 *
-    EXPR_PLUS,              // 正号 +
-    EXPR_MINUS,             // 负号 -
-    EXPR_BIT_NOT,           // 按位取反 ~
-    EXPR_LOGICAL_NOT,       // 逻辑非 !
-    EXPR_SIZEOF,            // sizeof
-    EXPR_ALIGNOF,           // _Alignof (C11)
-    EXPR_GENERIC,           // _Generic (C11)
-    
-    // 二元表达式
-    EXPR_MUL,               // 乘 *
-    EXPR_DIV,               // 除 /
-    EXPR_MOD,               // 取模 %
-    EXPR_ADD,               // 加 +
-    EXPR_SUB,               // 减 -
-    EXPR_LEFT_SHIFT,        // 左移 <<
-    EXPR_RIGHT_SHIFT,       // 右移 >>
-    EXPR_LESS,              // 小于 <
-    EXPR_LESS_EQUAL,        // 小于等于 <=
-    EXPR_GREATER,           // 大于 >
-    EXPR_GREATER_EQUAL,     // 大于等于 >=
-    EXPR_EQUAL,             // 等于 ==
-    EXPR_NOT_EQUAL,         // 不等于 !=
-    EXPR_BIT_AND,           // 按位与 &
-    EXPR_BIT_XOR,           // 按位异或 ^
-    EXPR_BIT_OR,            // 按位或 |
-    EXPR_LOGICAL_AND,       // 逻辑与 &&
-    EXPR_LOGICAL_OR,        // 逻辑或 ||
-    
-    // 条件表达式
-    EXPR_CONDITIONAL,       // 条件 ? :
-    
-    // 赋值表达式
-    EXPR_ASSIGN,            // =
-    EXPR_ADD_ASSIGN,        // +=
-    EXPR_SUB_ASSIGN,        // -=
-    EXPR_MUL_ASSIGN,        // *=
-    EXPR_DIV_ASSIGN,        // /=
-    EXPR_MOD_ASSIGN,        // %=
-    EXPR_LEFT_SHIFT_ASSIGN, // <<=
-    EXPR_RIGHT_SHIFT_ASSIGN,// >>=
-    EXPR_BIT_AND_ASSIGN,    // &=
-    EXPR_BIT_XOR_ASSIGN,    // ^=
-    EXPR_BIT_OR_ASSIGN,     // |=
-    
-    // 逗号表达式
-    EXPR_COMMA,             // ,
-    
-    // 类型转换
-    EXPR_CAST,              // (type)expr
-    
-    // 变长参数
-    EXPR_VA_ARG,            // va_arg
-    
-    // 扩展表达式 (GNU, Clang)
-    EXPR_STATEMENT_EXPR,    // ({...})
-    EXPR_RANGE,             // x..y (GCC)
-    EXPR_BUILTIN_CHOOSE_EXPR, // __builtin_choose_expr
-    EXPR_BUILTIN_TYPES_COMPATIBLE_P, // __builtin_types_compatible_p
-    EXPR_BUILTIN_OFFSETOF,   // offsetof
-    EXPR_BUILTIN_VA_ARG,     // __builtin_va_arg
-    EXPR_BUILTIN_VA_COPY,    // __builtin_va_copy
-    EXPR_BUILTIN_VA_END,     // __builtin_va_end
-    EXPR_BUILTIN_VA_START,   // __builtin_va_start
-    
-    // 属性
-    EXPR_ATTRIBUTE,         // __attribute__
-    
-    // 内联汇编
-    EXPR_ASM,               // __asm__
-    
-    // 错误恢复
-    EXPR_ERROR              // 错误表达式
-} ExprType;
-
-// 声明类型
-typedef enum {
-    DECL_NONE,
-    DECL_VAR,               // 变量声明
-    DECL_FUNCTION,          // 函数声明
-    DECL_FUNCTION_DEF,      // 函数定义
-    DECL_STRUCT,            // 结构体定义
-    DECL_UNION,             // 联合体定义
-    DECL_ENUM,              // 枚举定义
-    DECL_ENUM_CONSTANT,     // 枚举常量
-    DECL_TYPEDEF,           // 类型定义
-    DECL_LABEL,             // 标签
-    DECL_FIELD,             // 结构体/联合体字段
-    DECL_PARAM,             // 函数参数
-    DECL_RECORD,            // 记录(结构体/联合体)
-    DECL_INITIALIZER,       // 初始化器
-    DECL_ATTRIBUTE,         // 属性
-    DECL_ASM_LABEL,         // 汇编标签
-    DECL_IMPLICIT,          // 隐式声明
-    DECL_PACKED,            // 打包属性
-    DECL_ALIGNED,           // 对齐属性
-    DECL_TRANSPARENT_UNION, // 透明联合体
-    DECL_VECTOR,            // 向量类型(GCC)
-    DECL_EXT_VECTOR,        // 扩展向量类型(Clang)
-    DECL_COMPLEX,           // 复数类型
-    DECL_IMAGINARY,         // 虚数类型
-    DECL_ATOMIC,            // 原子类型(C11)
-    DECL_THREAD_LOCAL,      // 线程局部存储(C11)
-    DECL_AUTO_TYPE,         // auto 类型(C23)
-    DECL_NULLPTR,           // nullptr_t(C23)
-    DECL_GENERIC_SELECTION, // _Generic 选择(C11)
-    DECL_OVERLOAD,          // 重载声明(C++)
-    DECL_TEMPLATE,          // 模板(C++)
-    DECL_FRIEND,            // 友元(C++)
-    DECL_USING,             // using 声明(C++)
-    DECL_CONCEPT,           // 概念(C++20)
-    DECL_REQUIRES,          // requires 子句(C++20)
-    DECL_CONSTRAINT,        // 约束(C++20)
-    DECL_ERROR              // 错误声明
-} DeclType;
-
-// 语句类型
-typedef enum {
-    STMT_NONE,
-    STMT_DECL,              // 声明语句
-    STMT_NULL,              // 空语句
-    STMT_COMPOUND,          // 复合语句
-    STMT_CASE,              // case 语句
-    STMT_DEFAULT,           // default 语句
-    STMT_LABEL,             // 标签语句
-    STMT_ATTRIBUTED,        // 带属性的语句
-    STMT_IF,                // if 语句
-    STMT_SWITCH,            // switch 语句
-    STMT_WHILE,             // while 循环
-    STMT_DO,                // do-while 循环
-    STMT_FOR,               // for 循环
-    STMT_GOTO,              // goto 语句
-    STMT_INDIRECT_GOTO,     // 间接 goto 语句
-    STMT_CONTINUE,          // continue 语句
-    STMT_BREAK,             // break 语句
-    STMT_RETURN,            // return 语句
-    STMT_ASM,               // 内联汇编
-    STMT_GCC_ASM,           // GCC 内联汇编
-    STMT_MS_ASM,            // MSVC 内联汇编
-    STMT_SEH_LEAVE,         // SEH __leave
-    STMT_SEH_TRY,           // SEH __try
-    STMT_SEH_EXCEPT,        // SEH __except
-    STMT_SEH_FINALLY,       // SEH __finally
-    STMT_MS_DECLSPEC,       // MS __declspec
-    STMT_CXX_CATCH,         // C++ catch
-    STMT_CXX_TRY,           // C++ try
-    STMT_CXX_FOR_RANGE,     // C++11 范围 for
-    STMT_MS_TRY,            // MS __try
-    STMT_MS_EXCEPT,         // MS __except
-    STMT_MS_FINALLY,        // MS __finally
-    STMT_MS_LEAVE,          // MS __leave
-    STMT_PRAGMA,            // #pragma 指令
-    STMT_ERROR              // 错误语句
-} StmtType;
+// 表达式、语句和声明类型已合并到 WasmNodeType 枚举中，使用 WASX_ 前缀
 
 // 类型节点
 typedef struct Type {
@@ -1883,6 +2125,7 @@ typedef struct ASTNode {
         struct {
             int directive;           // 预处理指令类型
             char *name;               // 宏名/头文件名
+            struct Macro *macro;      // 宏定义结构
             struct ASTNode *replacement; // 替换列表/标记
             struct ASTNode *params;   // 参数列表(函数宏)
             int num_params;           // 参数数量
@@ -2159,11 +2402,33 @@ enum OutputFormat {
 
 // 词法分析器
 typedef enum {
-    // 特殊标记
-    TOKEN_EOF, TOKEN_ERROR, TOKEN_PREPROCESSOR,
-    
-    // 标识符和字面量
-    TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_FLOAT_NUMBER, TOKEN_STRING, TOKEN_CHAR_LITERAL,
+    TOKEN_EOF = 0,
+    TOKEN_IDENTIFIER,
+    TOKEN_NUMBER,
+    TOKEN_FLOAT_NUMBER,
+    TOKEN_STRING,
+    TOKEN_CHAR,
+    // Preprocessor tokens
+    TOKEN_PP_INCLUDE,      // #include
+    TOKEN_PP_DEFINE,       // #define
+    TOKEN_PP_UNDEF,        // #undef
+    TOKEN_PP_IFDEF,        // #ifdef
+    TOKEN_PP_IFNDEF,       // #ifndef
+    TOKEN_PP_IF,           // #if
+    TOKEN_PP_ELIF,         // #elif
+    TOKEN_PP_ELSE,         // #else
+    TOKEN_PP_ENDIF,        // #endif
+    TOKEN_PP_LINE,         // #line
+    TOKEN_PP_ERROR,        // #error
+    TOKEN_PP_PRAGMA,       // #pragma
+    TOKEN_PP_DEFINED,      // defined()
+    TOKEN_PP_HASH,         // #
+    TOKEN_PP_HASHHASH,     // ##
+    TOKEN_PP_STRINGIZE,    // #
+    TOKEN_PP_HEADER_NAME,  // <header.h> or "header.h" in #include
+    TOKEN_PP_NUMBER,       // Preprocessing number
+    TOKEN_PP_IDENTIFIER,   // Preprocessing identifier
+    TOKEN_PP_OTHER,        // Other preprocessor tokens
     
     // 数据类型关键字
     TOKEN_VOID, TOKEN_CHAR, TOKEN_SHORT, TOKEN_INT, TOKEN_LONG, 
@@ -2791,10 +3056,537 @@ static char* read_self_source() {
     return code;
 }
 
+// 解析宏参数
+static char** parse_macro_arguments(const char **p, int *num_args) {
+    if (**p != '(') {
+        return NULL;
+    }
+    (*p)++; // 跳过'('
+    
+    char **args = NULL;
+    int capacity = 4;
+    int count = 0;
+    
+    args = malloc(sizeof(char*) * capacity);
+    if (!args) return NULL;
+    
+    while (**p && **p != ')') {
+        // 跳过空白
+        while (isspace(**p)) (*p)++;
+        if (**p == ')' || **p == '\0') break;
+        
+        // 查找参数结束位置
+        const char *arg_start = *p;
+        int paren_level = 0;
+        
+        while (**p && (paren_level > 0 || (**p != ',' && **p != ')'))) {
+            if (**p == '(') paren_level++;
+            else if (**p == ')') paren_level--;
+            (*p)++;
+        }
+        
+        // 分配并保存参数
+        int arg_len = *p - arg_start;
+        char *arg = malloc(arg_len + 1);
+        if (!arg) {
+            free_macro_args(args, count);
+            return NULL;
+        }
+        strncpy(arg, arg_start, arg_len);
+        arg[arg_len] = '\0';
+        
+        // 添加到参数列表
+        if (count >= capacity) {
+            capacity *= 2;
+            char **new_args = realloc(args, sizeof(char*) * capacity);
+            if (!new_args) {
+                free(arg);
+                free_macro_args(args, count);
+                return NULL;
+            }
+            args = new_args;
+        }
+        args[count++] = arg;
+        
+        // 跳过逗号
+        if (**p == ',') (*p)++;
+    }
+    
+    if (**p == ')') (*p)++;
+    *num_args = count;
+    return args;
+}
+
+// 替换宏参数
+static char* replace_macro_parameters(const char *replacement, char **params, int num_params) {
+    if (!replacement || !*replacement) return strdup("");
+    
+    // 计算需要的最大长度
+    size_t max_len = strlen(replacement) * 2 + 1;
+    char *result = malloc(max_len);
+    if (!result) return NULL;
+    
+    const char *src = replacement;
+    char *dst = result;
+    
+    while (*src) {
+        if (*src == '#' && *(src + 1) == '#') {
+            // 处理 ## 操作符
+            *dst++ = '#';
+            *dst++ = '#';
+            src += 2;
+        } else if (*src == '#' && isalpha(*(src + 1))) {
+            // 处理 # 操作符（字符串化）
+            const char *param_start = ++src;
+            while (isalnum(*src) || *src == '_') src++;
+            
+            char param_name[128];
+            int param_len = src - param_start;
+            if (param_len >= sizeof(param_name)) param_len = sizeof(param_name) - 1;
+            strncpy(param_name, param_start, param_len);
+            param_name[param_len] = '\0';
+            
+            // 查找参数
+            for (int i = 0; i < num_params; i++) {
+                if (strcmp(params[i], param_name) == 0) {
+                    // 添加字符串化的参数
+                    *dst++ = '"';
+                    strcpy(dst, params[i]);
+                    dst += strlen(params[i]);
+                    *dst++ = '"';
+                    break;
+                }
+            }
+        } else if (isalpha(*src) || *src == '_') {
+            // 处理标识符（可能是参数）
+            const char *ident_start = src;
+            while (isalnum(*src) || *src == '_') src++;
+            
+            char ident[128];
+            int ident_len = src - ident_start;
+            if (ident_len >= sizeof(ident)) ident_len = sizeof(ident) - 1;
+            strncpy(ident, ident_start, ident_len);
+            ident[ident_len] = '\0';
+            
+            // 检查是否是参数
+            int is_param = 0;
+            for (int i = 0; i < num_params; i++) {
+                if (strcmp(params[i], ident) == 0) {
+                    // 替换为参数值
+                    strcpy(dst, params[i]);
+                    dst += strlen(params[i]);
+                    is_param = 1;
+                    break;
+                }
+            }
+            
+            if (!is_param) {
+                // 不是参数，原样复制
+                strncpy(dst, ident_start, src - ident_start);
+                dst += src - ident_start;
+            }
+        } else {
+            // 其他字符原样复制
+            *dst++ = *src++;
+        }
+    }
+
+// 计算需要的最大长度
+size_t max_len = strlen(replacement) * 2 + 1;
+char *result = malloc(max_len);
+if (!result) return NULL;
+
+const char *src = replacement;
+char *dst = result;
+
+while (*src) {
+    if (*src == '#' && *(src + 1) == '#') {
+        // 处理 ## 操作符
+        *dst++ = '#';
+        *dst++ = '#';
+        src += 2;
+    } else if (*src == '#' && isalpha(*(src + 1))) {
+        // 处理 # 操作符（字符串化）
+        const char *param_start = ++src;
+        while (isalnum(*src) || *src == '_') src++;
+
+        char param_name[128];
+        int param_len = src - param_start;
+        if (param_len >= sizeof(param_name)) param_len = sizeof(param_name) - 1;
+        strncpy(param_name, param_start, param_len);
+        param_name[param_len] = '\0';
+
+        // 查找参数
+        for (int i = 0; i < num_params; i++) {
+            if (strcmp(params[i], param_name) == 0) {
+                // 添加字符串化的参数
+                *dst++ = '"';
+                strcpy(dst, params[i]);
+                dst += strlen(params[i]);
+                *dst++ = '"';
+                break;
+            }
+        }
+    } else if (isalpha(*src) || *src == '_') {
+        // 处理标识符（可能是参数）
+        const char *ident_start = src;
+        while (isalnum(*src) || *src == '_') src++;
+
+        char ident[128];
+        int ident_len = src - ident_start;
+        if (ident_len >= sizeof(ident)) ident_len = sizeof(ident) - 1;
+        strncpy(ident, ident_start, ident_len);
+        ident[ident_len] = '\0';
+
+        // 检查是否是参数
+        int is_param = 0;
+        for (int i = 0; i < num_params; i++) {
+            if (strcmp(params[i], ident) == 0) {
+                // 替换为参数值
+                strcpy(dst, params[i]);
+                dst += strlen(params[i]);
+                is_param = 1;
+                break;
+            }
+        }
+
+        if (!is_param) {
+            // 不是参数，原样复制
+            strncpy(dst, ident_start, src - ident_start);
+            dst += src - ident_start;
+        }
+    } else {
+        // 其他字符原样复制
+        *dst++ = *src++;
+    }
+}
+
+*dst = '\0';
+return result;
+}
+
+// 处理标识符
+static int handle_identifier(BootstrapCompiler *compiler, const char *start, const char **p, int line) {
+const char *ident_start = start;
+while (isalnum(**p) || **p == '_') (*p)++;
+
+int ident_len = *p - ident_start;
+char ident[128] = {0};
+strncpy(ident, ident_start, ident_len < 127 ? ident_len : 127);
+
+// 检查是否是预定义宏
+if (is_predefined_macro(ident)) {
+    char *expanded = expand_predefined_macro(ident, line, compiler->filename ? compiler->filename : "<unknown>");
+    if (expanded) {
+        // 将展开的文本添加到输入流中
+        size_t expanded_len = strlen(expanded);
+        char *new_input = malloc(expanded_len + 1);
+        strcpy(new_input, expanded);
+        strcat(new_input, *p);
+
+        // 更新输入指针
+        *p = new_input;
+
+            return 0;
+        }
+        
+        // 解析参数
+        int num_args = 0;
+        char **args = parse_macro_arguments(p, &num_args);
+        
+        if (macro->num_params >= 0 && num_args != macro->num_params) {
+            // 参数数量不匹配，报错
+            fprintf(stderr, "Error: macro '%s' expects %d arguments, but got %d\n", 
+                   macro->name, macro->num_params, num_args);
+            free_macro_args(args, num_args);
+            free(name);
+            return 0;
+        }
+        
+        // 替换参数
+        char *expanded = replace_macro_parameters(macro->replacement, args, num_args);
+        free_macro_args(args, num_args);
+        
+        if (!expanded) {
+            free(name);
+            return 0;
+        }
+        
+        // 创建新的词法分析器来展开宏
+        BootstrapCompiler macro_compiler;
+        memset(&macro_compiler, 0, sizeof(macro_compiler));
+        macro_compiler.token_count = 0;
+        
+        // 对宏替换文本进行词法分析
+        tokenize(&macro_compiler, expanded);
+        free(expanded);
+        
+        if (macro_compiler.token_count > 0) {
+            // 保存展开的tokens
+            macro_expansion.expansion_tokens = malloc(sizeof(Token) * macro_compiler.token_count);
+            if (macro_expansion.expansion_tokens) {
+                memcpy(macro_expansion.expansion_tokens, macro_compiler.tokens, 
+                      sizeof(Token) * macro_compiler.token_count);
+                macro_expansion.current = macro_expansion.expansion_tokens;
+                macro_expansion.level = macro_compiler.token_count;
+                macro_expansion.macro_name = name; // 保存宏名用于错误报告
+                return 1;
+            }
+        }
+    } else {
+        // 简单宏直接展开
+        free(name);
+        
+        // 创建新的词法分析器来展开宏
+        BootstrapCompiler macro_compiler;
+        memset(&macro_compiler, 0, sizeof(macro_compiler));
+        macro_compiler.token_count = 0;
+        
+        // 对宏替换文本进行词法分析
+        tokenize(&macro_compiler, macro->replacement);
+        
+        if (macro_compiler.token_count > 0) {
+            // 保存展开的tokens
+            macro_expansion.expansion_tokens = malloc(sizeof(Token) * macro_compiler.token_count);
+            if (macro_expansion.expansion_tokens) {
+                memcpy(macro_expansion.expansion_tokens, macro_compiler.tokens, 
+                      sizeof(Token) * macro_compiler.token_count);
+                macro_expansion.current = macro_expansion.expansion_tokens;
+                macro_expansion.level = macro_compiler.token_count;
+                macro_expansion.macro_name = strdup(macro->name);
+                return 1;
+            }
+        }
+    }
+    
+    free(name);
+    return 0;
+}
+
+// 计算条件表达式
+static int evaluate_condition(const char *expr) {
+    // 简单实现：只检查是否定义了宏
+    // TODO: 实现完整的表达式求值
+    while (isspace(*expr)) expr++;
+    
+    // 检查 defined 操作符
+    if (strncmp(expr, "defined", 7) == 0) {
+        const char *p = expr + 7;
+        while (isspace(*p)) p++;
+        
+        if (*p == '(') {
+            p++;
+            while (isspace(*p)) p++;
+            
+            const char *name_start = p;
+            while (isalnum(*p) || *p == '_') p++;
+            
+            char name[128];
+            int len = p - name_start;
+            if (len >= sizeof(name)) len = sizeof(name) - 1;
+            strncpy(name, name_start, len);
+            name[len] = '\0';
+            
+            while (isspace(*p)) p++;
+            if (*p == ')') p++;
+            
+            return find_macro(name) != NULL;
+        } else {
+            // 没有括号的 defined 用法
+            const char *name_start = p;
+            while (isalnum(*p) || *p == '_') p++;
+            
+            char name[128];
+            int len = p - name_start;
+            if (len >= sizeof(name)) len = sizeof(name) - 1;
+            strncpy(name, name_start, len);
+            name[len] = '\0';
+            
+            return find_macro(name) != NULL;
+        }
+    }
+    
+    // 简单检查标识符是否已定义
+    const char *p = expr;
+    while (isalnum(*p) || *p == '_') p++;
+    
+    if (p > expr) {
+        char name[128];
+        int len = p - expr;
+        if (len >= sizeof(name)) len = sizeof(name) - 1;
+        strncpy(name, expr, len);
+        name[len] = '\0';
+        
+        return find_macro(name) != NULL;
+    }
+    
+    // 默认返回假
+    return 0;
+}
+
+// 处理条件编译指令
+static void handle_conditional_directive(BootstrapCompiler *compiler, Token *token, const char **p) {
+    if (token->type == TOKEN_PP_IF) {
+        // 解析条件表达式
+        const char *expr_start = *p;
+        while (**p && **p != '\n') (*p)++;
+        
+        char expr[1024];
+        int expr_len = *p - expr_start;
+        if (expr_len >= sizeof(expr)) expr_len = sizeof(expr) - 1;
+        strncpy(expr, expr_start, expr_len);
+        expr[expr_len] = '\0';
+        
+        // 计算条件
+        int condition = evaluate_condition(expr);
+        
+        // 推入条件栈
+        IfState *state = malloc(sizeof(IfState));
+        if (state) {
+            state->condition_met = condition;
+            state->else_allowed = 1;
+            state->prev = macro_expansion.if_stack;
+            macro_expansion.if_stack = state;
+            
+            if (!condition) {
+                macro_expansion.skipping = 1;
+                macro_expansion.skip_level = 1;
+            }
+        }
+    } 
+    else if (token->type == TOKEN_PP_IFDEF || token->type == TOKEN_PP_IFNDEF) {
+        // 跳过空白
+        while (isspace(**p)) (*p)++;
+        
+        // 获取标识符
+        const char *ident_start = *p;
+        while (isalnum(**p) || **p == '_') (*p)++;
+        
+        char ident[128];
+        int ident_len = *p - ident_start;
+        if (ident_len >= sizeof(ident)) ident_len = sizeof(ident) - 1;
+        strncpy(ident, ident_start, ident_len);
+        ident[ident_len] = '\0';
+        
+        // 检查是否已定义
+        int is_defined = find_macro(ident) != NULL;
+        int condition = (token->type == TOKEN_PP_IFDEF) ? is_defined : !is_defined;
+        
+        // 推入条件栈
+        IfState *state = malloc(sizeof(IfState));
+        if (state) {
+            state->condition_met = condition;
+            state->else_allowed = 1;
+            state->prev = macro_expansion.if_stack;
+            macro_expansion.if_stack = state;
+            
+            if (!condition) {
+                macro_expansion.skipping = 1;
+                macro_expansion.skip_level = 1;
+            }
+        }
+    }
+    else if (token->type == TOKEN_PP_ELIF) {
+        IfState *state = macro_expansion.if_stack;
+        if (!state) {
+            fprintf(stderr, "Error: #elif without #if\n");
+            return;
+        }
+        
+        if (!state->else_allowed) {
+            fprintf(stderr, "Error: #elif after #else\n");
+            return;
+        }
+        
+        // 如果前面的条件已经满足，跳过这个分支
+        if (state->condition_met) {
+            macro_expansion.skipping = 1;
+            macro_expansion.skip_level = 1;
+            return;
+        }
+        
+        // 解析条件表达式
+        const char *expr_start = *p;
+        while (**p && **p != '\n') (*p)++;
+        
+        char expr[1024];
+        int expr_len = *p - expr_start;
+        if (expr_len >= sizeof(expr)) expr_len = sizeof(expr) - 1;
+        strncpy(expr, expr_start, expr_len);
+        expr[expr_len] = '\0';
+        
+        // 计算条件
+        state->condition_met = evaluate_condition(expr);
+        
+        // 如果条件为真，停止跳过
+        if (state->condition_met) {
+            macro_expansion.skipping = 0;
+            macro_expansion.skip_level = 0;
+        } else {
+            macro_expansion.skipping = 1;
+            macro_expansion.skip_level = 1;
+        }
+    }
+    else if (token->type == TOKEN_PP_ELSE) {
+        IfState *state = macro_expansion.if_stack;
+        if (!state) {
+            fprintf(stderr, "Error: #else without #if\n");
+            return;
+        }
+        
+        if (!state->else_allowed) {
+            fprintf(stderr, "Error: multiple #else in one #if\n");
+            return;
+        }
+        
+        state->else_allowed = 0;
+        
+        // 如果前面的条件已经满足，跳过else分支
+        if (state->condition_met) {
+            macro_expansion.skipping = 1;
+            macro_expansion.skip_level = 1;
+        } else {
+            macro_expansion.skipping = 0;
+            macro_expansion.skip_level = 0;
+        }
+    }
+    else if (token->type == TOKEN_PP_ENDIF) {
+        IfState *state = macro_expansion.if_stack;
+        if (!state) {
+            fprintf(stderr, "Error: #endif without #if\n");
+            return;
+        }
+        
+        // 弹出条件栈
+        macro_expansion.if_stack = state->prev;
+        free(state);
+        
+        // 恢复跳过状态
+        if (macro_expansion.if_stack) {
+            macro_expansion.skipping = macro_expansion.if_stack->condition_met ? 0 : 1;
+            macro_expansion.skip_level = macro_expansion.if_stack->condition_met ? 0 : 1;
+        } else {
+            macro_expansion.skipping = 0;
+            macro_expansion.skip_level = 0;
+        }
+    }
+    
+    // 跳过到行尾
+    while (**p && **p != '\n') (*p)++;
+    if (**p == '\n') (*p)++;
+}
+
 static int tokenize(BootstrapCompiler *compiler, const char *source) {
     compiler->token_count = 0;
     const char *p = source;
     int line = 1;
+    
+    // 重置宏展开状态
+    reset_macro_expansion();
+    
+    // 初始化条件编译状态
+    macro_expansion.skipping = 0;
+    macro_expansion.skip_level = 0;
     
     while (*p && compiler->token_count < MAX_TOKENS - 1) {
         // 跳过空白字符
@@ -2805,19 +3597,286 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
         
         if (!*p) break;
         
+        // 如果当前处于跳过状态，检查是否是条件编译指令
+        if (macro_expansion.skipping && *p == '#') {
+            const char *save_p = p;
+            p++; // 跳过'#'
+            
+            // 跳过空白
+            while (isspace(*p) && *p != '\n') p++;
+            
+            // 检查是否是指令开始
+            if (isalpha(*p) || *p == '_') {
+                const char *directive_start = p;
+                while (isalnum(*p) || *p == '_') p++;
+                
+                int directive_len = p - directive_start;
+                char directive[16] = {0};
+                strncpy(directive, directive_start, directive_len < 15 ? directive_len : 15);
+                
+                // 检查是否是条件编译指令
+                if (strcmp(directive, "if") == 0 || strcmp(directive, "ifdef") == 0 || 
+                    strcmp(directive, "ifndef") == 0 || strcmp(directive, "elif") == 0 ||
+                    strcmp(directive, "else") == 0 || strcmp(directive, "endif") == 0) {
+                    // 回退到#位置，让主循环处理这个指令
+                    p = save_p;
+                } else {
+                    // 不是条件编译指令，继续跳过
+                    while (*p && *p != '\n') p++;
+                    if (*p == '\n') {
+                        line++;
+                        p++;
+                    }
+                    continue;
+                }
+            } else {
+                // 不是有效的指令，继续跳过
+                p = save_p + 1;
+                while (*p && *p != '\n') p++;
+                if (*p == '\n') {
+                    line++;
+                    p++;
+                }
+                continue;
+            }
+        }
+        
         Token *token = &compiler->tokens[compiler->token_count++];
         token->line = line;
+        
+        // 检查是否有宏展开的tokens
+        if (macro_expansion.current && macro_expansion.level > 0) {
+            // 复制展开的token
+            *token = *macro_expansion.current++;
+            token->line = line; // 保留原始行号
+            
+            // 检查是否还有更多tokens
+            if (macro_expansion.current >= macro_expansion.expansion_tokens + macro_expansion.level) {
+                reset_macro_expansion(); // 展开结束
+            }
+            continue;
+        }
         
         // 处理预处理器指令
         if (*p == '#' && (p == source || *(p-1) == '\n')) {
             const char *start = p++;
-            while (*p && *p != '\n') p++;
+            const char *directive_start = p;
             
-            int len = p - start;
-            token->value = malloc(len + 1);
-            strncpy(token->value, start, len);
-            token->value[len] = '\0';
-            token->type = TOKEN_PREPROCESSOR;
+            // 跳过#后面的空白
+            while (isspace(*p) && *p != '\n') p++;
+            
+            // 提取指令名
+            directive_start = p;
+            while (isalpha(*p) || *p == '_') p++;
+            
+            int directive_len = p - directive_start;
+            char directive[16] = {0};
+            strncpy(directive, directive_start, directive_len < 15 ? directive_len : 15);
+            
+            // 根据指令设置token类型
+            if (strcmp(directive, "if") == 0) {
+                token->type = TOKEN_PP_IF;
+            } else if (strcmp(directive, "ifdef") == 0) {
+                token->type = TOKEN_PP_IFDEF;
+            } else if (strcmp(directive, "ifndef") == 0) {
+                token->type = TOKEN_PP_IFNDEF;
+            } else if (strcmp(directive, "elif") == 0) {
+                token->type = TOKEN_PP_ELIF;
+            } else if (strcmp(directive, "else") == 0) {
+                token->type = TOKEN_PP_ELSE;
+            } else if (strcmp(directive, "endif") == 0) {
+                token->type = TOKEN_PP_ENDIF;
+            } else if (strcmp(directive, "include") == 0) {
+                // 如果当前处于跳过状态，跳过整个include
+                if (macro_expansion.skipping) {
+                    // 跳过到行尾
+                    while (*p && *p != '\n') p++;
+                    if (*p == '\n') p++;
+                    compiler->token_count--; // 不添加这个token
+                    continue;
+                }
+                
+                token->type = TOKEN_PP_INCLUDE;
+                
+                // 跳过空白
+                while (isspace(*p) && *p != '\n') p++;
+                
+                // 处理头文件名
+                if (*p == '"' || *p == '<') {
+                    char quote = *p++;
+                    const char *header_start = p;
+                    while (*p && *p != quote && *p != '\n') p++;
+                    
+                    if (*p == quote) {
+                        int header_len = p - header_start;
+                        token->value = malloc(header_len + 1);
+                        strncpy(token->value, header_start, header_len);
+                        token->value[header_len] = '\0';
+                        p++; // 跳过结束引号
+                    }
+                }
+            }
+            // 处理条件编译指令
+            if (token->type == TOKEN_PP_IF || token->type == TOKEN_PP_IFDEF || 
+                token->type == TOKEN_PP_IFNDEF || token->type == TOKEN_PP_ELIF ||
+                token->type == TOKEN_PP_ELSE || token->type == TOKEN_PP_ENDIF) {
+                // 处理条件编译指令
+                handle_conditional_directive(compiler, token, &p);
+                
+                // 如果当前处于跳过状态，继续跳过直到遇到下一个条件编译指令
+                if (macro_expansion.skipping) {
+                    compiler->token_count--; // 不添加这个token
+                    continue;
+                }
+            } 
+            else if (strcmp(directive, "define") == 0) {
+                // 如果当前处于跳过状态，跳过整个define
+                if (macro_expansion.skipping) {
+                    // 跳过到行尾
+                    while (*p && *p != '\n') p++;
+                    if (*p == '\n') p++;
+                    compiler->token_count--; // 不添加这个token
+                    continue;
+                }
+                
+                token->type = TOKEN_PP_DEFINE;
+                
+                // 跳过空白
+                while (isspace(*p) && *p != '\n') p++;
+                
+                // 提取宏名称
+                const char *name_start = p;
+                while (isalnum(*p) || *p == '_') p++;
+                int name_len = p - name_start;
+                char *name = malloc(name_len + 1);
+                strncpy(name, name_start, name_len);
+                name[name_len] = '\0';
+                
+                // 检查是否为函数式宏
+                int is_function_like = 0;
+                char **params = NULL;
+                int num_params = 0;
+                
+                // 跳过空白
+                while (isspace(*p) && *p != '\n') p++;
+                
+                if (*p == '(') {
+                    // 函数式宏
+                    is_function_like = 1;
+                    p++; // 跳过'('
+                    
+                    // 解析参数列表
+                    while (*p && *p != ')' && *p != '\n') {
+                        // 跳过空白
+                        while (isspace(*p)) p++;
+                        
+                        // 提取参数名
+                        if (isalpha(*p) || *p == '_') {
+                            const char *param_start = p;
+                            while (isalnum(*p) || *p == '_') p++;
+                            
+                            // 添加到参数列表
+                            params = realloc(params, (num_params + 1) * sizeof(char*));
+                            int param_len = p - param_start;
+                            params[num_params] = malloc(param_len + 1);
+                            strncpy(params[num_params], param_start, param_len);
+                            params[num_params][param_len] = '\0';
+                            num_params++;
+                            
+                            // 跳过逗号
+                            while (isspace(*p)) p++;
+                            if (*p == ',') {
+                                p++;
+                                // 跳过逗号后的空白
+                                while (isspace(*p)) p++;
+                            }
+                        } else if (*p == '.') {
+                            // 处理可变参数...
+                            if (strncmp(p, "...", 3) == 0) {
+                                // TODO: 支持可变参数
+                                p += 3;
+                            } else {
+                                p++;
+                            }
+                        } else {
+                            p++;
+                        }
+                    }
+                    
+                    if (*p == ')') p++; // 跳过')'
+                }
+                
+                // 提取替换文本
+                const char *repl_start = p;
+                while (*p && *p != '\n') p++;
+                
+                // 去除尾部空白
+                const char *repl_end = p;
+                while (repl_end > repl_start && isspace(*(repl_end-1))) {
+                    repl_end--;
+                }
+                
+                char *replacement = malloc(repl_end - repl_start + 1);
+                strncpy(replacement, repl_start, repl_end - repl_start);
+                replacement[repl_end - repl_start] = '\0';
+                
+                // 添加到宏表
+                add_macro(name, replacement, is_function_like, params, num_params);
+                
+                // 保存宏定义文本
+                int len = p - start;
+                token->value = malloc(len + 1);
+                strncpy(token->value, start, len);
+                token->value[len] = '\0';
+                
+                free(name);
+                // 注意：params和replacement由宏表管理，不要在这里释放
+                
+                continue;
+            }
+            else if (strcmp(directive, "undef") == 0) {
+                token->type = TOKEN_PP_UNDEF;
+            }
+            else if (strcmp(directive, "ifdef") == 0) {
+                token->type = TOKEN_PP_IFDEF;
+            }
+            else if (strcmp(directive, "ifndef") == 0) {
+                token->type = TOKEN_PP_IFNDEF;
+            }
+            else if (strcmp(directive, "if") == 0) {
+                token->type = TOKEN_PP_IF;
+            }
+            else if (strcmp(directive, "elif") == 0) {
+                token->type = TOKEN_PP_ELIF;
+            }
+            else if (strcmp(directive, "else") == 0) {
+                token->type = TOKEN_PP_ELSE;
+            }
+            else if (strcmp(directive, "endif") == 0) {
+                token->type = TOKEN_PP_ENDIF;
+            }
+            else if (strcmp(directive, "line") == 0) {
+                token->type = TOKEN_PP_LINE;
+            }
+            else if (strcmp(directive, "error") == 0) {
+                token->type = TOKEN_PP_ERROR;
+            }
+            else if (strcmp(directive, "pragma") == 0) {
+                token->type = TOKEN_PP_PRAGMA;
+            }
+            else {
+                token->type = TOKEN_PP_OTHER;
+            }
+            
+            // 如果不是include指令，则保存整个预处理指令
+            if (token->type != TOKEN_PP_INCLUDE) {
+                while (*p && *p != '\n') p++;
+                int len = p - start;
+                token->value = malloc(len + 1);
+                strncpy(token->value, start, len);
+                token->value[len] = '\0';
+            }
+            
             continue;
         }
         
@@ -2825,6 +3884,12 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
         if (isalpha(*p) || *p == '_') {
             const char *start = p;
             while (isalnum(*p) || *p == '_') p++;
+            
+            // 检查是否为宏并处理展开
+            if (handle_identifier(compiler, start, p, line)) {
+                compiler->token_count--; // 回退当前token
+                continue; // 继续处理展开的tokens
+            }
             
             int len = p - start;
             token->value = malloc(len + 1);
@@ -3005,11 +4070,11 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                 compiler->token_count--; // 不保存注释
                 continue;
             } else if (*(p+1) == '=') { // /= 操作符
-                token->value = strdup(/=");
+                token->value = strdup("/=");
                 token->type = TOKEN_DIVIDE_ASSIGN;
                 p += 2;
             } else { // 除号
-                token->value = strdup(/");
+                token->value = strdup("/");
                 token->type = TOKEN_DIVIDE;
                 p++;
             }
