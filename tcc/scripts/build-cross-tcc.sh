@@ -1,188 +1,186 @@
 #!/bin/bash
 
-# TCC交叉编译构建脚本
-# 构建12种不同架构的TCC可执行文件
+# 从源码构建真正的交叉编译版本的 TCC
+# 这个脚本会构建 TCC 的交叉编译器，能够生成不同架构和操作系统的可执行文件
 
-set -e  # 遇到错误立即退出
+set -e
 
-# 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TCC_ROOT="$(dirname "$SCRIPT_DIR")"
-SRC_DIR="$TCC_ROOT/src"
 BUILD_DIR="$TCC_ROOT/build"
+DIST_DIR="$TCC_ROOT/dist"
 
-echo "=== TCC交叉编译构建开始 ==="
+echo "=== 构建 TCC 交叉编译器 ==="
 echo "TCC根目录: $TCC_ROOT"
-echo "源码目录: $SRC_DIR"
 echo "构建目录: $BUILD_DIR"
+echo "安装目录: $DIST_DIR"
 
-# 检查源码目录
-if [ ! -d "$SRC_DIR" ] || [ ! -f "$SRC_DIR/Makefile" ]; then
-    echo "错误: TCC源码目录不存在或不完整"
+# 创建构建目录
+mkdir -p "$BUILD_DIR"
+
+# 检查是否已经构建了本地版本的 TCC
+if [ ! -f "$DIST_DIR/bin/tcc-macos-arm64" ]; then
+    echo "错误: 本地版本的 TCC 不存在，请先构建 macOS ARM64 版本的 TCC"
     exit 1
 fi
 
-# 创建构建目录结构
-mkdir -p "$BUILD_DIR"/{x86_64,x86_32,arm64,arm32}/{linux,windows,macos}
-
-# 定义目标架构配置
-declare -A TARGETS=(
-    # x86_64架构
-    ["x86_64-linux"]="CC=gcc ARCH=x86_64 TARGET=x86_64-linux-gnu"
-    ["x86_64-windows"]="CC=x86_64-w64-mingw32-gcc ARCH=x86_64 TARGET=x86_64-w64-mingw32"
+# 构建交叉编译器
+build_cross_compiler() {
+    local target=$1
+    local build_subdir="$BUILD_DIR/$target"
     
-    # i686架构 (32位x86)
-    ["i686-linux"]="CC=gcc ARCH=i386 TARGET=i386-linux-gnu CFLAGS=-m32"
-    ["i686-windows"]="CC=i686-w64-mingw32-gcc ARCH=i386 TARGET=i686-w64-mingw32"
+    echo "构建 $target 交叉编译器..."
     
-    # ARM64架构
-    ["aarch64-linux"]="CC=aarch64-linux-gnu-gcc ARCH=arm64 TARGET=aarch64-linux-gnu"
+    # 创建构建子目录
+    mkdir -p "$build_subdir"
     
-    # ARM32架构  
-    ["arm-linux"]="CC=arm-linux-gnueabi-gcc ARCH=arm TARGET=arm-linux-gnueabi"
-)
-
-# 构建函数
-build_tcc() {
-    local target_name=$1
-    local config=$2
+    # 进入 TCC 源码目录
+    cd "$TCC_ROOT/src"
     
-    echo ""
-    echo "=== 构建 TCC for $target_name ==="
-    
-    # 提取架构和平台
-    local arch=$(echo $target_name | cut -d'-' -f1)
-    local platform=$(echo $target_name | cut -d'-' -f2)
-    
-    # 确定输出目录
-    local output_dir
-    case $arch in
-        "x86_64") output_dir="$BUILD_DIR/x86_64/$platform" ;;
-        "i686") output_dir="$BUILD_DIR/x86_32/$platform" ;;
-        "aarch64") output_dir="$BUILD_DIR/arm64/$platform" ;;
-        "arm") output_dir="$BUILD_DIR/arm32/$platform" ;;
+    # 配置和构建
+    case "$target" in
+        "x86_64")
+            echo "配置 x86_64-linux 交叉编译器..."
+            ./configure --prefix="$build_subdir" --cpu=x86_64 --enable-cross
+            ;;
+        "i386")
+            echo "配置 i386-linux 交叉编译器..."
+            ./configure --prefix="$build_subdir" --cpu=i386 --enable-cross
+            ;;
+        "x86_64-win32")
+            echo "配置 x86_64-win32 交叉编译器..."
+            ./configure --prefix="$build_subdir" --cpu=x86_64 --targetos=WIN32 --enable-cross
+            ;;
+        "i386-win32")
+            echo "配置 i386-win32 交叉编译器..."
+            ./configure --prefix="$build_subdir" --cpu=i386 --targetos=WIN32 --enable-cross
+            ;;
+        *)
+            echo "错误: 不支持的目标平台 $target"
+            return 1
+            ;;
     esac
     
-    # 创建临时构建目录
-    local tmp_build_dir="$BUILD_DIR/tmp_$target_name"
-    rm -rf "$tmp_build_dir"
-    mkdir -p "$tmp_build_dir"
-    
-    # 复制源码到临时目录
-    echo "复制源码到临时目录..."
-    cp -r "$SRC_DIR"/* "$tmp_build_dir/"
-    cd "$tmp_build_dir"
-    
-    # 清理之前的构建
-    make distclean 2>/dev/null || true
-    
-    echo "配置构建环境: $config"
-    
-    # 配置构建
-    eval "$config ./configure --prefix=$output_dir"
-    
     # 编译
-    echo "开始编译..."
-    eval "$config make"
+    make cross
     
-    # 安装到输出目录
-    echo "安装到 $output_dir"
+    # 安装
     make install
     
-    # 重命名可执行文件以标识目标平台
-    if [ -f "$output_dir/bin/tcc" ]; then
-        mv "$output_dir/bin/tcc" "$output_dir/bin/tcc-$target_name"
-        echo "生成可执行文件: $output_dir/bin/tcc-$target_name"
+    # 复制到 dist 目录
+    mkdir -p "$DIST_DIR/bin"
+    if [ -f "$build_subdir/bin/$target-tcc" ]; then
+        cp "$build_subdir/bin/$target-tcc" "$DIST_DIR/bin/"
+        echo "已安装 $target-tcc 到 $DIST_DIR/bin/"
+    else
+        echo "警告: $target-tcc 未构建成功"
     fi
     
-    # 清理临时目录
-    cd "$TCC_ROOT"
-    rm -rf "$tmp_build_dir"
-    
-    echo "✓ $target_name 构建完成"
-}
-
-# 检查交叉编译器
-check_cross_compilers() {
-    echo "=== 检查交叉编译器 ==="
-    
-    local compilers=(
-        "gcc"
-        "x86_64-w64-mingw32-gcc" 
-        "i686-w64-mingw32-gcc"
-        "aarch64-linux-gnu-gcc"
-        "arm-linux-gnueabi-gcc"
-    )
-    
-    for compiler in "${compilers[@]}"; do
-        if command -v "$compiler" >/dev/null 2>&1; then
-            echo "✓ $compiler: $(which $compiler)"
-        else
-            echo "✗ $compiler: 未找到"
-        fi
-    done
-}
-
-# 生成构建报告
-generate_report() {
+    echo "完成 $target 交叉编译器构建"
     echo ""
-    echo "=== 构建报告 ==="
+}
+
+# 测试交叉编译器
+test_cross_compiler() {
+    local target=$1
+    local test_file="$TCC_ROOT/test_programs/hello.c"
+    local output_dir="$TCC_ROOT/cross_test"
     
-    local report_file="$BUILD_DIR/build_report.txt"
-    echo "TCC交叉编译构建报告" > "$report_file"
-    echo "构建时间: $(date)" >> "$report_file"
-    echo "" >> "$report_file"
+    echo "测试 $target 交叉编译器..."
     
-    echo "生成的TCC可执行文件:" | tee -a "$report_file"
+    # 创建测试目录
+    mkdir -p "$output_dir"
     
-    find "$BUILD_DIR" -name "tcc-*" -type f | while read -r file; do
-        if [ -x "$file" ]; then
-            local size=$(ls -lh "$file" | awk '{print $5}')
-            echo "  $file (大小: $size)" | tee -a "$report_file"
+    # 创建简单的测试程序
+    if [ ! -f "$test_file" ]; then
+        echo '#include <stdio.h>' > "$test_file"
+        echo 'int main() {' >> "$test_file"
+        echo '    printf("Hello from %s!\n", "Cross-Compiled TCC");' >> "$test_file"
+        echo '    return 0;' >> "$test_file"
+        echo '}' >> "$test_file"
+    fi
+    
+    # 使用交叉编译器编译测试程序
+    if [ -f "$DIST_DIR/bin/$target-tcc" ]; then
+        local output_file="$output_dir/hello-$target"
+        
+        # 为 Windows 目标添加 .exe 后缀
+        if [[ "$target" == *-win32 ]]; then
+            output_file="$output_file.exe"
         fi
-    done
+        
+        echo "编译 $test_file 到 $output_file..."
+        "$DIST_DIR/bin/$target-tcc" -o "$output_file" "$test_file" || echo "警告: $target 编译失败"
+        
+        # 检查文件类型
+        if [ -f "$output_file" ]; then
+            echo "生成文件: $output_file"
+            file "$output_file" || echo "无法检查文件类型"
+        else
+            echo "错误: 未生成输出文件"
+        fi
+    else
+        echo "错误: $target-tcc 不存在，无法测试"
+    fi
     
-    echo "" | tee -a "$report_file"
-    echo "报告保存至: $report_file"
+    echo "完成 $target 交叉编译器测试"
+    echo ""
+}
+
+# 构建所有交叉编译器
+build_all() {
+    # Linux x86_64
+    build_cross_compiler "x86_64"
+    
+    # Linux i386
+    build_cross_compiler "i386"
+    
+    # Windows x86_64
+    build_cross_compiler "x86_64-win32"
+    
+    # Windows i386
+    build_cross_compiler "i386-win32"
+}
+
+# 测试所有交叉编译器
+test_all() {
+    # Linux x86_64
+    test_cross_compiler "x86_64"
+    
+    # Linux i386
+    test_cross_compiler "i386"
+    
+    # Windows x86_64
+    test_cross_compiler "x86_64-win32"
+    
+    # Windows i386
+    test_cross_compiler "i386-win32"
+}
+
+# 显示结果
+show_results() {
+    echo "=== 交叉编译器构建结果 ==="
+    ls -la "$DIST_DIR/bin" | grep -E "tcc|i386|x86_64"
+    
+    echo ""
+    echo "=== 交叉编译测试结果 ==="
+    ls -la "$TCC_ROOT/cross_test" || echo "没有测试结果"
 }
 
 # 主函数
 main() {
-    # 检查交叉编译器
-    check_cross_compilers
+    # 构建所有交叉编译器
+    build_all
     
-    # 开始构建
-    echo ""
-    echo "=== 开始批量构建 ==="
+    # 测试所有交叉编译器
+    test_all
     
-    local success_count=0
-    local total_count=${#TARGETS[@]}
-    
-    for target in "${!TARGETS[@]}"; do
-        if build_tcc "$target" "${TARGETS[$target]}"; then
-            ((success_count++))
-        else
-            echo "✗ $target 构建失败"
-        fi
-    done
+    # 显示结果
+    show_results
     
     echo ""
-    echo "=== 构建总结 ==="
-    echo "成功: $success_count/$total_count"
-    
-    # 生成报告
-    generate_report
-    
-    if [ $success_count -eq $total_count ]; then
-        echo "🎉 所有目标构建成功！"
-        return 0
-    else
-        echo "⚠️ 部分目标构建失败"
-        return 1
-    fi
+    echo "🎉 TCC 交叉编译器构建完成！"
 }
 
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+# 运行主函数
+main "$@"
