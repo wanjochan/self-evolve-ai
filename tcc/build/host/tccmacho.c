@@ -1277,14 +1277,14 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct tcc_macho *mo)
 		        bind->reserved = 0;
 		        bind->next = 0;
 		        bind->bind = 1;
-		    };
+		    }
 		    else {
 		        if (segment->page_start[j] == TCC_DYLD_CHAINED_PTR_START_NONE)
 			    segment->page_start[j] = cur_o;
 		        else {
 			    rebase = (struct tcc_dyld_chained_ptr_64_rebase *) last;
 			    rebase->next = (cur_o - last_o) / 4;
-		        };
+		        }
 		        rebase = (struct tcc_dyld_chained_ptr_64_rebase *)
 				    (s->data + r_offset);
 		        last = rebase;
@@ -1298,12 +1298,12 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct tcc_macho *mo)
 		        rebase->reserved = 0;
 		        rebase->next = 0;
 		        rebase->bind = 0;
-		    };
-		};
+		    }
+		}
 		bind_index += mo->bind_rebase[k].bind;
-	    };
-	};
-    };
+	    }
+	}
+    }
     // add imports
     header->imports_offset = data - mo->chained_fixups->data;
     import = (struct tcc_dyld_chained_import *) data;
@@ -1324,10 +1324,10 @@ ST_FUNC void bind_rebase_import(TCCState *s1, struct tcc_macho *mo)
             strcpy((char *) data, name);
 	    data += strlen(name) + 1;
 	    bind_index++;
-	};
-    };
+	}
+    }
     tcc_free(mo->bind_rebase);
-};
+}
 #endif
 
 ST_FUNC int macho_output_file(TCCState *s1, const char *filename)
@@ -1397,7 +1397,7 @@ ST_FUNC int macho_output_file(TCCState *s1, const char *filename)
 	retval = system (command);
 	if (retval == -1 || !(WIFEXITED(retval) && WEXITSTATUS(retval) == 0))
 	    tcc_error ("command failed '%s'", command);
-    };
+    }
 #endif
     return ret;
 };
@@ -1405,7 +1405,7 @@ ST_FUNC int macho_output_file(TCCState *s1, const char *filename)
 static uint32_t macho_swap32(uint32_t x)
 {
   return (x >> 24) | (x << 24) | ((x >> 8) & 0xff00) | ((x & 0xff00) << 8);
-};
+}
 #define SWAP(x) (swap ? macho_swap32(x) : (x))
 #define tbd_parse_movepast(s) \
     (pos = (pos = strstr(pos, s)) ? pos + strlen(s) : NULL)
@@ -1443,7 +1443,7 @@ ST_FUNC void tcc_add_macos_sdkpath(TCCState* s)
             ":" "/Applications/Xcode.app/Developer/SDKs/MacOSX.sdk/usr/lib"
             );
     cstr_free(&path);
-};
+}
 
 ST_FUNC char* macho_tbd_soname(int fd) {
     char *soname, *data, *pos;
@@ -1477,7 +1477,7 @@ ST_FUNC int macho_load_tbd(TCCState* s1, int fd, const char* filename, int lev)
     ret = 0;
     if (tcc_add_dllref(s1, soname, lev)->found)
         goto the_end;
-    while(pos) {
+    while (pos) {
         char* sym = NULL;
         int cont = 1;
         if (!tbd_parse_movepast("symbols: ")) break;
