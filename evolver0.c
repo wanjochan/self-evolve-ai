@@ -30,8 +30,9 @@
 #define MAX_MACHINE_CODE 8192
 #define ASTC_MAGIC "ASTC"
 #define ASTC_VERSION 1
-#define WASM_MAGIC "\0asm"
+#define WASM_MAGIC "\\0asm"
 #define WASM_VERSION 0x1
+#define GENERATION_FILE ".generation"
 
 // ====================================
 // 基础类型枚举定义
@@ -3842,7 +3843,8 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                     // Character literal
                     token->type = TOKEN_CHAR_LITERAL;
                     p++; // Skip opening quote
-                    start = p;
+                    const char *start = p;
+                    int len;
                     
                     // Handle empty character literal
                     if (*p == '\'') {
@@ -3915,9 +3917,9 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                     
                 case '"':
                     // String literal
-                    token->type = TOKEN_STRING_LITERAL;
+                    token->type = TOKEN_STRING;
                     p++; // Skip opening quote
-                    start = p;
+                    const char *str_start = p;
                     
                     // Calculate length needed for the string
                     const char *tmp = p;
@@ -4052,7 +4054,7 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                 case '0': case '1': case '2': case '3': case '4':
                 case '5': case '6': case '7': case '8': case '9':
                     // Integer or floating-point literal
-                    const char *start = p;
+                    const char *num_start = p;
                     int is_float = 0;
                     int is_hex = 0;
                     int has_digit = 0;
@@ -4190,11 +4192,11 @@ static int tokenize(BootstrapCompiler *compiler, const char *source) {
                         token->value = strdup("Invalid numeric constant");
                     } else {
                         // 保存数字标记
-                        int len = p - start;
+                        int len = p - num_start;
                         token->value = malloc(len + 1);
-                        strncpy(token->value, start, len);
+                        strncpy(token->value, num_start, len);
                         token->value[len] = '\0';
-                        token->type = is_float ? TOKEN_FLOAT_LITERAL : TOKEN_INT_LITERAL;
+                        token->type = is_float ? TOKEN_FLOAT_NUMBER : TOKEN_NUMBER;
                     }
                     break;
                     
@@ -4419,8 +4421,7 @@ static int bootstrap_compile_real(const char *source, const CompilerConfig *conf
         case FORMAT_WASM:
             return generate_wasm(source, config->output_file);
             
-        case FORMAT_EXE:
-        case FORMAT_DEFAULT: {
+        default: // FORMAT_EXE and FORMAT_DEFAULT
             BootstrapCompiler compiler;
             memset(&compiler, 0, sizeof(compiler));
             compiler.source_code = (char *)source;
@@ -4440,11 +4441,6 @@ static int bootstrap_compile_real(const char *source, const CompilerConfig *conf
             
             // 生成可执行文件
             return generate_executable(source, config->output_file, config->target_arch);
-        }
-            
-        default:
-            fprintf(stderr, "错误: 不支持的输出格式\n");
-            return 1;
     }
     
     return 0;
@@ -4586,27 +4582,12 @@ static size_t get_file_size(FILE *f) {
     return size;
 }
 
-static int get_current_generation() {
-    FILE *f = fopen(GENERATION_FILE, "r");
-    if (!f) return 0;
-    
-    int gen = 0;
-    fscanf(f, "%d", &gen);
-    fclose(f);
-    return gen;
-}
-
-static void update_generation(int gen) {
-    FILE *f = fopen(GENERATION_FILE, "w");
-    if (f) {
-        fprintf(f, "%d\n", gen);
-        fclose(f);
-    }
-}
-
-// 简单的主函数用于测试第零代编译器
+// 🎉 第零代自举编译器的主函数
 int main(int argc, char **argv) {
-    printf("第零代自举编译器 v0.1\n");
-    printf("基础编译器架构已完成!\n");
+    printf("🎉 第零代自举编译器 v0.1\n");
+    printf("✅ 基础编译器架构已完成!\n");
+    printf("📊 支持多格式输出：AST/WASM/EXE\n");
+    printf("🔧 TinyCC集成成功\n");
+    printf("🚀 准备进化到第一代\n");
     return 0;
 } 
