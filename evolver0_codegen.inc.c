@@ -108,33 +108,53 @@ static void init_codegen(CodeGen *gen) {
     gen->code = (uint8_t*)malloc(4096);
     gen->size = 0;
     gen->capacity = 4096;
+    
+    // 初始化标签数组
+    gen->label_capacity = 1024;
+    gen->labels = malloc(sizeof(*gen->labels) * gen->label_capacity);
     gen->label_count = 0;
+    
     gen->reloc_count = 0;
     gen->stack_offset = 0;
     gen->max_stack_size = 0;
+    
+    // 初始化局部变量数组
+    gen->local_capacity = 256;
+    gen->locals = malloc(sizeof(*gen->locals) * gen->local_capacity);
     gen->local_count = 0;
+    
     gen->string_count = 0;
+    gen->current_function = NULL;
+    gen->in_main = false;
 }
 
 static void free_codegen(CodeGen *gen) {
     free(gen->code);
     
+    // 释放标签数组
     for (int i = 0; i < gen->label_count; i++) {
         free(gen->labels[i].name);
     }
+    free(gen->labels);
     
+    // 释放重定位
     for (int i = 0; i < gen->reloc_count; i++) {
         free(gen->relocations[i].label);
     }
     
+    // 释放局部变量数组
     for (int i = 0; i < gen->local_count; i++) {
         free(gen->locals[i].name);
     }
+    free(gen->locals);
     
+    // 释放字符串常量
     for (int i = 0; i < gen->string_count; i++) {
         free(gen->strings[i].str);
         free(gen->strings[i].label);
     }
+    
+    free(gen->current_function);
 }
 
 static void emit_byte(CodeGen *gen, uint8_t byte) {
@@ -168,7 +188,10 @@ static void emit_int64(CodeGen *gen, int64_t value) {
 // ====================================
 
 static void add_label(CodeGen *gen, const char *name) {
-    if (gen->label_count >= 1024) return;
+    if (gen->label_count >= gen->label_capacity) {
+        gen->label_capacity *= 2;
+        gen->labels = realloc(gen->labels, sizeof(*gen->labels) * gen->label_capacity);
+    }
     
     gen->labels[gen->label_count].name = strdup(name);
     gen->labels[gen->label_count].offset = gen->size;
@@ -219,7 +242,10 @@ static void resolve_relocations(CodeGen *gen) {
 // ====================================
 
 static int add_local(CodeGen *gen, const char *name, TypeInfo *type) {
-    if (gen->local_count >= 256) return -1;
+    if (gen->local_count >= gen->local_capacity) {
+        gen->local_capacity *= 2;
+        gen->locals = realloc(gen->locals, sizeof(*gen->locals) * gen->local_capacity);
+    }
     
     int size = type ? type->size : 8;
     int alignment = type ? type->alignment : 8;
@@ -741,8 +767,14 @@ static void gen_return_stmt(CodeGen *gen, ASTNode *node) {
         emit_mov_reg_imm(gen, RAX, 0);
     }
     
-    // 跳转到函数结尾
-    emit_jmp(gen, ".L_func_epilogue");
+    // 直接生成函数尾声，不跳转
+    // MOV RSP, RBP
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0xEC);
+    
+    emit_pop(gen, RBP);
+    emit_ret(gen);
 }
 
 static void gen_var_decl(CodeGen *gen, ASTNode *node) {
@@ -842,17 +874,21 @@ static void gen_function(CodeGen *gen, ASTNode *node) {
         gen_statement(gen, node->data.function.body);
     }
     
-    // 函数结尾标签
-    add_label(gen, ".L_func_epilogue");
-    
-    // 函数尾声
-    // MOV RSP, RBP
-    emit_byte(gen, 0x48);
-    emit_byte(gen, 0x89);
-    emit_byte(gen, 0xEC);
-    
-    emit_pop(gen, RBP);
-    emit_ret(gen);
+    // 如果函数体没有显式返回，添加默认返回
+    // 检查最后生成的字节是否是RET (0xC3)
+    if (gen->size == 0 || gen->code[gen->size - 1] != 0xC3) {
+        // 函数结尾标签
+        add_label(gen, ".L_func_epilogue");
+        
+        // 函数尾声
+        // MOV RSP, RBP
+        emit_byte(gen, 0x48);
+        emit_byte(gen, 0x89);
+        emit_byte(gen, 0xEC);
+        
+        emit_pop(gen, RBP);
+        emit_ret(gen);
+    }
     
     // 回填栈空间大小
     int32_t stack_size = (gen->max_stack_size + 15) & ~15; // 16字节对齐
@@ -864,6 +900,42 @@ static void gen_function(CodeGen *gen, ASTNode *node) {
 // ====================================
 
 static void gen_translation_unit(CodeGen *gen, ASTNode *node) {
+    bool has_main = false;
+    
+    // 第一遍：查找main函数
+    for (int i = 0; i < node->data.generic.child_count; i++) {
+        ASTNode *decl = node->data.generic.children[i];
+        if (decl->type == AST_FUNCTION_DEF && 
+            strcmp(decl->data.function.name, "main") == 0) {
+            has_main = true;
+            break;
+        }
+    }
+    
+    // 如果有main函数，先生成_start函数
+    if (has_main) {
+        // _start:
+        add_label(gen, "_start");
+        
+        // 调用main
+        emit_call(gen, "main");
+        
+        // 将返回值移到RDI作为退出码
+        // MOV RDI, RAX
+        emit_byte(gen, 0x48);
+        emit_byte(gen, 0x89);
+        emit_byte(gen, 0xC7);
+        
+        // 调用exit系统调用
+        // MOV RAX, 60  ; exit系统调用号
+        emit_mov_reg_imm(gen, RAX, 60);
+        
+        // SYSCALL
+        emit_byte(gen, 0x0F);
+        emit_byte(gen, 0x05);
+    }
+    
+    // 第二遍：生成所有函数
     for (int i = 0; i < node->data.generic.child_count; i++) {
         ASTNode *decl = node->data.generic.children[i];
         

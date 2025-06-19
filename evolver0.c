@@ -1212,6 +1212,57 @@ static void ast_print(ASTNode *node, int indent) {
     print_indent(indent);
     
     switch (node->type) {
+        case AST_TRANSLATION_UNIT:
+            printf("TranslationUnit\n");
+            for (int i = 0; i < node->data.generic.child_count; i++) {
+                ast_print(node->data.generic.children[i], indent + 1);
+            }
+            break;
+            
+        case AST_FUNCTION_DEF:
+            printf("FunctionDef: %s\n", node->data.function.name);
+            print_indent(indent + 1);
+            printf("Parameters:\n");
+            for (int i = 0; i < node->data.function.param_count; i++) {
+                ast_print(node->data.function.params[i], indent + 2);
+            }
+            print_indent(indent + 1);
+            printf("Body:\n");
+            ast_print(node->data.function.body, indent + 2);
+            break;
+            
+        case AST_COMPOUND_STMT:
+            printf("CompoundStmt (%d statements)\n", node->data.generic.child_count);
+            for (int i = 0; i < node->data.generic.child_count; i++) {
+                ast_print(node->data.generic.children[i], indent + 1);
+            }
+            break;
+            
+        case AST_RETURN_STMT:
+            printf("ReturnStmt\n");
+            if (node->data.return_stmt.value) {
+                ast_print(node->data.return_stmt.value, indent + 1);
+            }
+            break;
+            
+        case AST_INTEGER_LITERAL:
+            printf("IntegerLiteral: %lld\n", node->value.int_val);
+            break;
+            
+        case AST_PARAM_DECL:
+            printf("ParamDecl: %s\n", node->data.var_decl.name);
+            break;
+            
+        case AST_VAR_DECL:
+            printf("VarDecl: %s\n", node->data.var_decl.name);
+            if (node->data.var_decl.init) {
+                print_indent(indent + 1);
+                printf("Init:\n");
+                ast_print(node->data.var_decl.init, indent + 2);
+            }
+            break;
+            
+        // 保留旧的兼容
         case AST_PROGRAM:
             printf("Program\n");
             for (int i = 0; i < node->data.compound.count; i++) {
@@ -1474,6 +1525,8 @@ static bool codegen_program(ASTNode *ast, CodeGen *gen) {
 
 // 写入ELF文件
 static int write_elf_file(const char *filename, unsigned char *code, size_t code_size) {
+    // 对于64位程序，入口点应该是代码段的起始地址
+    // 因为我们在开头生成了_start函数
     return create_elf_executable(filename, code, code_size, 64);  // 64位
 }
 
