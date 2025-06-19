@@ -2947,6 +2947,76 @@ ASTNode *deserialize_ast_from_astc(const char *filename) {
         }
         
         if (fread(string_table[i], 1, str_len, file) != str_len) {
+            // 清理已分配的字符串
+            for (uint32_t j = 0; j < i; j++) {
+                free(string_table[j]);
+            }
+            free(string_table);
+            fclose(file);
+            fprintf(stderr, "读取字符串内容失败\n");
+            return NULL;
+        }
+        string_table[i][str_len] = '\0';
+    }
+    
+    // 读取节点偏移量
+    uint64_t *node_offsets = (uint64_t *)malloc(num_strings * sizeof(uint64_t));
+    if (!node_offsets) {
+        // 清理已分配的字符串
+        for (uint32_t j = 0; j < num_strings; j++) {
+            free(string_table[j]);
+        }
+        free(string_table);
+        fclose(file);
+        fprintf(stderr, "分配节点偏移量内存失败\n");
+        return NULL;
+    }
+    
+    if (fread(node_offsets, sizeof(uint64_t), num_strings, file) != num_strings) {
+        // 清理已分配的字符串
+        for (uint32_t j = 0; j < num_strings; j++) {
+            free(string_table[j]);
+        }
+        free(string_table);
+        free(node_offsets);
+        fclose(file);
+        fprintf(stderr, "读取节点偏移量失败\n");
+        return NULL;
+    }
+    
+    // 读取节点数据
+    ASTNode *root = (ASTNode *)malloc(node_offsets[0] - header.string_table_offset);
+    if (!root) {
+        // 清理已分配的字符串
+        for (uint32_t j = 0; j < num_strings; j++) {
+            free(string_table[j]);
+        }
+        free(string_table);
+        free(node_offsets);
+        fclose(file);
+        fprintf(stderr, "分配根节点内存失败\n");
+        return NULL;
+    }
+    
+    if (fread(root, 1, node_offsets[0] - header.string_table_offset, file) != node_offsets[0] - header.string_table_offset) {
+        // 清理已分配的字符串
+        for (uint32_t j = 0; j < num_strings; j++) {
+            free(string_table[j]);
+        }
+        free(string_table);
+        free(node_offsets);
+        free(root);
+        fclose(file);
+        fprintf(stderr, "读取根节点数据失败\n");
+        return NULL;
+    }
+    
+    // 清理
+    free(node_offsets);
+    fclose(file);
+    
+    return root;
+}
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
