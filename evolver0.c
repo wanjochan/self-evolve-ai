@@ -5267,176 +5267,87 @@ static int generate_machine_code(BootstrapCompiler *compiler) {
 }
 
 static int parse_and_generate(BootstrapCompiler *compiler) {
-    // 简化的解析：只寻找main函数并生成返回42的代码
-    int found_main = 0;
+    // 使用真正的解析器
+    ASTNode *ast = parse_c_code(compiler->tokens, compiler->token_count);
     
-    for (int i = 0; i < compiler->token_count; i++) {
-        if (compiler->tokens[i].type == TOKEN_IDENTIFIER &&
-            strcmp(compiler->tokens[i].value, "main") == 0) {
-            found_main = 1;
-            break;
-        }
-    }
-    
-    if (!found_main) {
-        printf("错误：未找到main函数\n");
+    if (!ast) {
+        fprintf(stderr, "解析失败\n");
         return -1;
     }
     
-    // 生成机器码
-    return generate_machine_code(compiler);
-}
-
-static int write_elf_executable(const char *filename, MachineCode *code) {
-    FILE *f = fopen(filename, "wb");
-    if (!f) {
-        printf("错误：无法创建输出文件 %s\n", filename);
+    if (compiler->config.verbose) {
+        printf("解析成功，生成AST\n");
+        print_ast(ast);
+    }
+    
+    // 生成x86-64机器码
+    unsigned char *code;
+    size_t code_size;
+    int entry_offset = generate_x86_64_code(ast, &code, &code_size);
+    
+    if (entry_offset < 0) {
+        fprintf(stderr, "代码生成失败\n");
+        free_ast_node(ast);
         return -1;
     }
     
-    // 简化的ELF头（64位）
-    unsigned char elf_header[64] = {
-        // ELF魔数
-        0x7F, 'E', 'L', 'F',
-        // 64位，小端序，版本1
-        2, 1, 1, 0,
-        // 填充
-        0, 0, 0, 0, 0, 0, 0, 0,
-        // 可执行文件类型
-        2, 0,
-        // x86-64架构
-        0x3E, 0x00,
-        // 版本
-        1, 0, 0, 0,
-        // 入口点地址 (0x401000)
-        0x00, 0x10, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 程序头表偏移 (64)
-        0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 节区头表偏移 (0)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 标志
-        0x00, 0x00, 0x00, 0x00,
-        // ELF头大小
-        0x40, 0x00,
-        // 程序头表项大小
-        0x38, 0x00,
-        // 程序头表项数量
-        0x01, 0x00,
-        // 节区头表项大小
-        0x00, 0x00,
-        // 节区头表项数量
-        0x00, 0x00,
-        // 字符串表索引
-        0x00, 0x00
-    };
+    if (compiler->config.verbose) {
+        printf("生成机器码 %zu 字节，入口点偏移 %d\n", code_size, entry_offset);
+    }
     
-    // 程序头表
-    unsigned char program_header[56] = {
-        // 段类型：LOAD
-        1, 0, 0, 0,
-        // 段标志：可执行+可读
-        5, 0, 0, 0,
-        // 文件偏移
-        0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 虚拟地址
-        0x00, 0x10, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 物理地址
-        0x00, 0x10, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // 文件大小
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 稍后填充
-        // 内存大小
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 稍后填充
-        // 对齐
-        0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    };
+    // 将生成的代码复制到编译器的机器码缓冲区
+    if (code_size > MAX_MACHINE_CODE) {
+        fprintf(stderr, "生成的机器码太大\n");
+        free(code);
+        free_ast_node(ast);
+        return -1;
+    }
     
-    // 填充代码大小
-    *((unsigned int*)(program_header + 32)) = code->size;
-    *((unsigned int*)(program_header + 40)) = code->size;
+    memcpy(compiler->machine_code.code, code, code_size);
+    compiler->machine_code.size = code_size;
+    compiler->machine_code.entry_point = entry_offset;
     
-    // 写入ELF头
-    fwrite(elf_header, 1, 64, f);
-    
-    // 写入程序头表
-    fwrite(program_header, 1, 56, f);
-    
-    // 写入机器码
-    fwrite(code->code, 1, code->size, f);
-    
-    fclose(f);
-    
-    // 设置可执行权限 (暂时跳过，依赖系统默认权限)
-    
-    printf("✓ 生成ELF可执行文件: %s (%d字节机器码)\n", filename, code->size);
+    free(code);
+    free_ast_node(ast);
     
     return 0;
 }
 
-static int bootstrap_compile_real(const char *source, const CompilerConfig *config) {
-    if (!source || !config) {
-        fprintf(stderr, "错误: 无效的输入参数\n");
+static int write_elf_executable(const char *filename, MachineCode *code) {
+    return generate_elf_executable(filename, code->code, code->size, code->entry_point);
+}
+
+static int generate_executable(const char *source, const char *output_file, const char *target_arch) {
+    BootstrapCompiler compiler;
+    memset(&compiler, 0, sizeof(compiler));
+    compiler.source_code = (char *)source;
+    compiler.config.output_file = output_file;
+    compiler.config.target_arch = target_arch;
+    compiler.config.verbose = true;
+    
+    // 词法分析
+    printf("开始词法分析...\n");
+    if (tokenize(&compiler, source) == 0) {
+        fprintf(stderr, "词法分析失败\n");
+        return 1;
+    }
+    printf("词法分析完成，生成 %d 个token\n", compiler.token_count);
+    
+    // 语法分析和代码生成
+    printf("开始语法分析和代码生成...\n");
+    if (parse_and_generate(&compiler) != 0) {
+        fprintf(stderr, "语法分析或代码生成失败\n");
         return 1;
     }
     
-    // 确保输出文件名不为空
-    if (!config->output_file || strlen(config->output_file) == 0) {
-        fprintf(stderr, "错误: 未指定输出文件名\n");
+    // 生成可执行文件
+    printf("生成可执行文件: %s\n", output_file);
+    if (write_elf_executable(output_file, &compiler.machine_code) != 0) {
+        fprintf(stderr, "生成可执行文件失败\n");
         return 1;
     }
     
-    // 根据配置选择输出格式
-    switch (config->output_format) {
-        case FORMAT_AST: {
-            // 确保输出文件扩展名为.astc
-            char *output_file = strdup(config->output_file);
-            if (!strstr(output_file, ".")) {
-                // 如果没有扩展名，添加.astc
-                char *new_output = malloc(strlen(output_file) + 6); // 5 for ".astc" + 1 for '\0'
-                sprintf(new_output, "%s.astc", output_file);
-                free(output_file);
-                output_file = new_output;
-            } else if (strcmp(strrchr(output_file, '.'), ".astc") != 0) {
-                // 如果扩展名不是.astc，替换之
-                char *dot = strrchr(output_file, '.');
-                strcpy(dot, ".astc");
-            }
-            
-            int result = generate_ast(source, output_file);
-            free(output_file);
-            return result;
-        }
-            
-        case FORMAT_WASM:
-            return generate_wasm(source, config->output_file);
-            
-        case FORMAT_EXE:
-        case FORMAT_DEFAULT: {
-            BootstrapCompiler compiler;
-            memset(&compiler, 0, sizeof(compiler));
-            compiler.source_code = (char *)source;
-            compiler.config = *config;
-            
-            // 词法分析
-            if (tokenize(&compiler, source) != 0) {
-                fprintf(stderr, "词法分析失败\n");
-                return 1;
-            }
-            
-            // 语法分析和代码生成
-            if (parse_and_generate(&compiler) != 0) {
-                fprintf(stderr, "语法分析或代码生成失败\n");
-                return 1;
-            }
-            
-            // 生成可执行文件
-            return generate_executable(source, config->output_file, config->target_arch);
-        }
-            
-        default:
-            fprintf(stderr, "错误: 不支持的输出格式\n");
-            return 1;
-    }
-    
+    printf("✓ 成功生成可执行文件: %s\n", output_file);
     return 0;
 }
 
@@ -5592,4 +5503,83 @@ static void update_generation(int gen) {
         fprintf(f, "%d\n", gen);
         fclose(f);
     }
-} 
+}
+
+// 在文件末尾添加
+static char* read_self_source() {
+    FILE *f = fopen("evolver0.c", "r");
+    if (!f) {
+        return NULL;
+    }
+    
+    fseek(f, 0, SEEK_END);
+    size_t size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    
+    char *source = malloc(size + 1);
+    if (!source) {
+        fclose(f);
+        return NULL;
+    }
+    
+    size_t read_size = fread(source, 1, size, f);
+    source[read_size] = '\0';
+    
+    fclose(f);
+    return source;
+}
+
+// 修复bootstrap_compile_real函数
+static int bootstrap_compile_real(const char *source, const CompilerConfig *config) {
+    if (!source || !config) {
+        fprintf(stderr, "错误: 无效的输入参数\n");
+        return 1;
+    }
+    
+    // 确保输出文件名不为空
+    if (!config->output_file || strlen(config->output_file) == 0) {
+        fprintf(stderr, "错误: 未指定输出文件名\n");
+        return 1;
+    }
+    
+    // 根据配置选择输出格式
+    switch (config->output_format) {
+        case FORMAT_AST: {
+            // 确保输出文件扩展名为.astc
+            char *output_file = strdup(config->output_file);
+            if (!strstr(output_file, ".")) {
+                // 如果没有扩展名，添加.astc
+                char *new_output = malloc(strlen(output_file) + 6); // 5 for ".astc" + 1 for '\0'
+                sprintf(new_output, "%s.astc", output_file);
+                free(output_file);
+                output_file = new_output;
+            } else if (strcmp(strrchr(output_file, '.'), ".astc") != 0) {
+                // 如果扩展名不是.astc，替换之
+                char *dot = strrchr(output_file, '.');
+                strcpy(dot, ".astc");
+            }
+            
+            int result = generate_ast(source, output_file);
+            free(output_file);
+            return result;
+        }
+            
+        case FORMAT_WASM:
+            return generate_wasm(source, config->output_file);
+            
+        case FORMAT_EXE:
+        case FORMAT_DEFAULT: {
+            return generate_executable(source, config->output_file, config->target_arch);
+        }
+            
+        default:
+            fprintf(stderr, "错误: 不支持的输出格式\n");
+            return 1;
+    }
+    
+    return 0;
+}
+
+// 包含解析器和代码生成模块
+#include "evolver0_parser.inc.c"
+#include "evolver0_codegen.inc.c" 
