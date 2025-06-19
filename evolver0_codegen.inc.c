@@ -1,497 +1,919 @@
 /**
- * evolver0_codegen.inc.c - evolver0的代码生成模块
- * 这个文件被evolver0.c包含
+ * evolver0_codegen.inc.c - 代码生成器模块
+ * 被 evolver0.c 包含
  */
 
-// ====================================
-// x86-64 代码生成
-// ====================================
+#ifndef EVOLVER0_CODEGEN_INC_C
+#define EVOLVER0_CODEGEN_INC_C
 
-typedef struct {
-    unsigned char *code;    // 代码缓冲区
-    size_t size;           // 当前代码大小
-    size_t capacity;       // 缓冲区容量
-    
-    // 符号表
-    struct {
-        char *name;
-        int offset;       // 相对于栈指针的偏移
-        int is_global;
-    } symbols[256];
-    int symbol_count;
-    
-    // 栈帧信息
-    int stack_offset;     // 当前栈偏移
-    int local_count;      // 局部变量数量
-} CodeGenerator;
-
-// ====================================
-// 代码生成辅助函数
-// ====================================
-
-static CodeGenerator* create_codegen() {
-    CodeGenerator *gen = calloc(1, sizeof(CodeGenerator));
-    gen->capacity = 4096;
-    gen->code = malloc(gen->capacity);
-    gen->size = 0;
-    gen->stack_offset = 0;
-    gen->local_count = 0;
-    gen->symbol_count = 0;
-    return gen;
-}
-
-static void free_codegen(CodeGenerator *gen) {
-    if (!gen) return;
-    free(gen->code);
-    free(gen);
-}
-
-static void ensure_capacity(CodeGenerator *gen, size_t needed) {
-    if (gen->size + needed > gen->capacity) {
-        gen->capacity = (gen->capacity + needed) * 2;
-        gen->code = realloc(gen->code, gen->capacity);
-    }
-}
-
-static void emit(CodeGenerator *gen, unsigned char byte) {
-    ensure_capacity(gen, 1);
-    gen->code[gen->size++] = byte;
-}
-
-static void emit_bytes(CodeGenerator *gen, const unsigned char *bytes, size_t count) {
-    ensure_capacity(gen, count);
-    memcpy(gen->code + gen->size, bytes, count);
-    gen->size += count;
-}
-
-static void emit_int32(CodeGenerator *gen, int32_t value) {
-    emit(gen, value & 0xFF);
-    emit(gen, (value >> 8) & 0xFF);
-    emit(gen, (value >> 16) & 0xFF);
-    emit(gen, (value >> 24) & 0xFF);
-}
-
-static void emit_int64(CodeGenerator *gen, int64_t value) {
-    emit_int32(gen, value & 0xFFFFFFFF);
-    emit_int32(gen, (value >> 32) & 0xFFFFFFFF);
-}
+#include <stdint.h>
 
 // ====================================
 // x86-64 指令编码
 // ====================================
 
-// push rax
-static void emit_push_rax(CodeGenerator *gen) {
-    emit(gen, 0x50);
+// CodeGen结构已在主文件定义，这里只是扩展定义
+#if 0
+typedef struct {
+    uint8_t *code;
+    size_t size;
+    size_t capacity;
+    
+    // 标签和重定位
+    struct {
+        char *name;
+        size_t offset;
+    } labels[1024];
+    int label_count;
+    
+    struct {
+        char *label;
+        size_t offset;
+        int type; // 0=相对跳转, 1=绝对地址
+    } relocations[1024];
+    int reloc_count;
+    
+    // 当前函数状态
+    int stack_offset;
+    int max_stack_size;
+    
+    // 局部变量
+    struct {
+        char *name;
+        int offset; // 相对于RBP的偏移
+        TypeInfo *type;
+    } locals[256];
+    int local_count;
+    
+    // 字符串常量
+    struct {
+        char *str;
+        char *label;
+    } strings[256];
+    int string_count;
+    
+} CodeGen;
+#endif
+
+// 扩展CodeGen结构，添加新字段
+typedef struct {
+    unsigned char *code;
+    size_t size;
+    size_t capacity;
+    
+    // 标签管理
+    struct {
+        char *name;
+        size_t offset;
+    } *labels;
+    int label_count;
+    int label_capacity;
+    
+    // 重定位
+    struct {
+        char *label;
+        size_t offset;
+        int type;
+    } relocations[1024];
+    int reloc_count;
+    
+    // 局部变量
+    struct {
+        char *name;
+        int offset;  // 相对于RBP的偏移
+        TypeInfo *type;
+    } *locals;
+    int local_count;
+    int local_capacity;
+    int stack_offset;
+    int max_stack_size;
+    
+    // 字符串常量
+    struct {
+        char *str;
+        char *label;
+    } strings[256];
+    int string_count;
+    
+    // 当前函数信息
+    char *current_function;
+    bool in_main;
+} CodeGen;
+
+// ====================================
+// 辅助函数
+// ====================================
+
+static void init_codegen(CodeGen *gen) {
+    gen->code = (uint8_t*)malloc(4096);
+    gen->size = 0;
+    gen->capacity = 4096;
+    gen->label_count = 0;
+    gen->reloc_count = 0;
+    gen->stack_offset = 0;
+    gen->max_stack_size = 0;
+    gen->local_count = 0;
+    gen->string_count = 0;
 }
 
-// pop rax
-static void emit_pop_rax(CodeGenerator *gen) {
-    emit(gen, 0x58);
+static void free_codegen(CodeGen *gen) {
+    free(gen->code);
+    
+    for (int i = 0; i < gen->label_count; i++) {
+        free(gen->labels[i].name);
+    }
+    
+    for (int i = 0; i < gen->reloc_count; i++) {
+        free(gen->relocations[i].label);
+    }
+    
+    for (int i = 0; i < gen->local_count; i++) {
+        free(gen->locals[i].name);
+    }
+    
+    for (int i = 0; i < gen->string_count; i++) {
+        free(gen->strings[i].str);
+        free(gen->strings[i].label);
+    }
 }
 
-// push rbp
-static void emit_push_rbp(CodeGenerator *gen) {
-    emit(gen, 0x55);
+static void emit_byte(CodeGen *gen, uint8_t byte) {
+    if (gen->size >= gen->capacity) {
+        gen->capacity *= 2;
+        gen->code = (uint8_t*)realloc(gen->code, gen->capacity);
+    }
+    gen->code[gen->size++] = byte;
 }
 
-// pop rbp
-static void emit_pop_rbp(CodeGenerator *gen) {
-    emit(gen, 0x5D);
+static void emit_bytes(CodeGen *gen, const uint8_t *bytes, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        emit_byte(gen, bytes[i]);
+    }
 }
 
-// mov rbp, rsp
-static void emit_mov_rbp_rsp(CodeGenerator *gen) {
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x89);  // MOV r/m64, r64
-    emit(gen, 0xE5);  // ModRM: rbp = rsp
+static void emit_int32(CodeGen *gen, int32_t value) {
+    emit_byte(gen, value & 0xFF);
+    emit_byte(gen, (value >> 8) & 0xFF);
+    emit_byte(gen, (value >> 16) & 0xFF);
+    emit_byte(gen, (value >> 24) & 0xFF);
 }
 
-// mov rsp, rbp
-static void emit_mov_rsp_rbp(CodeGenerator *gen) {
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x89);  // MOV r/m64, r64
-    emit(gen, 0xEC);  // ModRM: rsp = rbp
-}
-
-// mov rax, imm64
-static void emit_mov_rax_imm64(CodeGenerator *gen, int64_t value) {
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0xB8);  // MOV rax, imm64
-    emit_int64(gen, value);
-}
-
-// mov rdi, rax
-static void emit_mov_rdi_rax(CodeGenerator *gen) {
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x89);  // MOV r/m64, r64
-    emit(gen, 0xC7);  // ModRM: rdi = rax
-}
-
-// add rax, rbx (pop rbx; add rax, rbx)
-static void emit_add_rax_rbx(CodeGenerator *gen) {
-    emit(gen, 0x5B);  // pop rbx
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x01);  // ADD r/m64, r64
-    emit(gen, 0xD8);  // ModRM: rax += rbx
-}
-
-// sub rax, rbx (pop rbx; sub rax, rbx; neg rax)
-static void emit_sub_rax_rbx(CodeGenerator *gen) {
-    emit(gen, 0x5B);  // pop rbx
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x29);  // SUB r/m64, r64
-    emit(gen, 0xD8);  // ModRM: rax -= rbx
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0xF7);  // NEG r/m64
-    emit(gen, 0xD8);  // ModRM: neg rax
-}
-
-// imul rax, rbx (pop rbx; imul rax, rbx)
-static void emit_imul_rax_rbx(CodeGenerator *gen) {
-    emit(gen, 0x5B);  // pop rbx
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x0F);  // Two-byte opcode prefix
-    emit(gen, 0xAF);  // IMUL r64, r/m64
-    emit(gen, 0xC3);  // ModRM: rax *= rbx
-}
-
-// xor rdx, rdx (clear rdx for division)
-static void emit_xor_rdx_rdx(CodeGenerator *gen) {
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0x31);  // XOR r/m64, r64
-    emit(gen, 0xD2);  // ModRM: rdx = 0
-}
-
-// idiv rbx (pop rbx; idiv rbx)
-static void emit_idiv_rbx(CodeGenerator *gen) {
-    emit(gen, 0x5B);  // pop rbx
-    emit_xor_rdx_rdx(gen);  // clear rdx
-    emit(gen, 0x48);  // REX.W
-    emit(gen, 0xF7);  // IDIV r/m64
-    emit(gen, 0xFB);  // ModRM: idiv rbx
-}
-
-// syscall
-static void emit_syscall(CodeGenerator *gen) {
-    emit(gen, 0x0F);
-    emit(gen, 0x05);
-}
-
-// ret
-static void emit_ret(CodeGenerator *gen) {
-    emit(gen, 0xC3);
+static void emit_int64(CodeGen *gen, int64_t value) {
+    emit_int32(gen, value & 0xFFFFFFFF);
+    emit_int32(gen, (value >> 32) & 0xFFFFFFFF);
 }
 
 // ====================================
-// AST代码生成
+// 标签和重定位
 // ====================================
 
-static void generate_expression(CodeGenerator *gen, ASTNode *node);
-static void generate_statement(CodeGenerator *gen, ASTNode *node);
-
-// 生成整数字面量
-static void generate_integer_literal(CodeGenerator *gen, ASTNode *node) {
-    emit_mov_rax_imm64(gen, node->value.int_val);
-    emit_push_rax(gen);
+static void add_label(CodeGen *gen, const char *name) {
+    if (gen->label_count >= 1024) return;
+    
+    gen->labels[gen->label_count].name = strdup(name);
+    gen->labels[gen->label_count].offset = gen->size;
+    gen->label_count++;
 }
 
-// 生成二元操作
-static void generate_binary_op(CodeGenerator *gen, ASTNode *node) {
-    // 生成右操作数
-    generate_expression(gen, node->data.expr.rhs);
+static size_t find_label(CodeGen *gen, const char *name) {
+    for (int i = 0; i < gen->label_count; i++) {
+        if (strcmp(gen->labels[i].name, name) == 0) {
+            return gen->labels[i].offset;
+        }
+    }
+    return (size_t)-1;
+}
+
+static void add_relocation(CodeGen *gen, const char *label, int type) {
+    if (gen->reloc_count >= 1024) return;
     
-    // 生成左操作数
-    generate_expression(gen, node->data.expr.lhs);
+    gen->relocations[gen->reloc_count].label = strdup(label);
+    gen->relocations[gen->reloc_count].offset = gen->size;
+    gen->relocations[gen->reloc_count].type = type;
+    gen->reloc_count++;
+}
+
+static void resolve_relocations(CodeGen *gen) {
+    for (int i = 0; i < gen->reloc_count; i++) {
+        size_t label_offset = find_label(gen, gen->relocations[i].label);
+        if (label_offset == (size_t)-1) {
+            fprintf(stderr, "未定义的标签: %s\n", gen->relocations[i].label);
+            continue;
+        }
+        
+        size_t reloc_offset = gen->relocations[i].offset;
+        
+        if (gen->relocations[i].type == 0) {
+            // 相对跳转
+            int32_t rel = label_offset - (reloc_offset + 4);
+            memcpy(gen->code + reloc_offset, &rel, 4);
+        } else {
+            // 绝对地址
+            memcpy(gen->code + reloc_offset, &label_offset, 8);
+        }
+    }
+}
+
+// ====================================
+// 局部变量管理
+// ====================================
+
+static int add_local(CodeGen *gen, const char *name, TypeInfo *type) {
+    if (gen->local_count >= 256) return -1;
     
-    // 左操作数在rax，右操作数在栈上
-    emit_pop_rax(gen);  // 左操作数 -> rax
+    int size = type ? type->size : 8;
+    int alignment = type ? type->alignment : 8;
     
-    // 根据操作符生成代码
-    BinaryOp op = OP_ADD; // 需要从node中获取实际操作符
-    // TODO: 从node中提取实际的操作符
+    // 对齐
+    gen->stack_offset = (gen->stack_offset + alignment - 1) & ~(alignment - 1);
+    gen->stack_offset += size;
     
-    switch (op) {
+    gen->locals[gen->local_count].name = strdup(name);
+    gen->locals[gen->local_count].offset = -gen->stack_offset;
+    gen->locals[gen->local_count].type = type;
+    gen->local_count++;
+    
+    if (gen->stack_offset > gen->max_stack_size) {
+        gen->max_stack_size = gen->stack_offset;
+    }
+    
+    return -gen->stack_offset;
+}
+
+static int find_local(CodeGen *gen, const char *name) {
+    for (int i = gen->local_count - 1; i >= 0; i--) {
+        if (strcmp(gen->locals[i].name, name) == 0) {
+            return gen->locals[i].offset;
+        }
+    }
+    return 0;
+}
+
+// ====================================
+// x86-64 指令生成
+// ====================================
+
+// MOV reg, imm
+static void emit_mov_reg_imm(CodeGen *gen, int reg, int64_t imm) {
+    if (imm >= -2147483648LL && imm <= 2147483647LL) {
+        // MOV r32, imm32 (带符号扩展到64位)
+        if (reg >= 8) {
+            emit_byte(gen, 0x41);
+        }
+        emit_byte(gen, 0xB8 + (reg & 7));
+        emit_int32(gen, imm);
+    } else {
+        // MOV r64, imm64
+        emit_byte(gen, 0x48 | (reg >= 8 ? 0x01 : 0x00));
+        emit_byte(gen, 0xB8 + (reg & 7));
+        emit_int64(gen, imm);
+    }
+}
+
+// PUSH reg
+static void emit_push(CodeGen *gen, int reg) {
+    if (reg >= 8) {
+        emit_byte(gen, 0x41);
+    }
+    emit_byte(gen, 0x50 + (reg & 7));
+}
+
+// POP reg
+static void emit_pop(CodeGen *gen, int reg) {
+    if (reg >= 8) {
+        emit_byte(gen, 0x41);
+    }
+    emit_byte(gen, 0x58 + (reg & 7));
+}
+
+// ADD dst, src
+static void emit_add(CodeGen *gen, int dst, int src) {
+    emit_byte(gen, 0x48 | (dst >= 8 ? 0x04 : 0x00) | (src >= 8 ? 0x01 : 0x00));
+    emit_byte(gen, 0x01);
+    emit_byte(gen, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+// SUB dst, src
+static void emit_sub(CodeGen *gen, int dst, int src) {
+    emit_byte(gen, 0x48 | (dst >= 8 ? 0x04 : 0x00) | (src >= 8 ? 0x01 : 0x00));
+    emit_byte(gen, 0x29);
+    emit_byte(gen, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+// IMUL dst, src
+static void emit_imul(CodeGen *gen, int dst, int src) {
+    emit_byte(gen, 0x48 | (dst >= 8 ? 0x04 : 0x00) | (src >= 8 ? 0x01 : 0x00));
+    emit_byte(gen, 0x0F);
+    emit_byte(gen, 0xAF);
+    emit_byte(gen, 0xC0 | ((dst & 7) << 3) | (src & 7));
+}
+
+// CQO (符号扩展RAX到RDX:RAX)
+static void emit_cqo(CodeGen *gen) {
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x99);
+}
+
+// IDIV src
+static void emit_idiv(CodeGen *gen, int src) {
+    emit_byte(gen, 0x48 | (src >= 8 ? 0x01 : 0x00));
+    emit_byte(gen, 0xF7);
+    emit_byte(gen, 0xF8 | (src & 7));
+}
+
+// MOV dst, [rbp+offset]
+static void emit_mov_reg_mem(CodeGen *gen, int reg, int offset) {
+    emit_byte(gen, 0x48 | (reg >= 8 ? 0x04 : 0x00));
+    emit_byte(gen, 0x8B);
+    
+    if (offset == 0) {
+        emit_byte(gen, 0x45 | ((reg & 7) << 3));
+    } else if (offset >= -128 && offset <= 127) {
+        emit_byte(gen, 0x45 | ((reg & 7) << 3));
+        emit_byte(gen, offset);
+    } else {
+        emit_byte(gen, 0x85 | ((reg & 7) << 3));
+        emit_int32(gen, offset);
+    }
+}
+
+// MOV [rbp+offset], reg
+static void emit_mov_mem_reg(CodeGen *gen, int offset, int reg) {
+    emit_byte(gen, 0x48 | (reg >= 8 ? 0x04 : 0x00));
+    emit_byte(gen, 0x89);
+    
+    if (offset == 0) {
+        emit_byte(gen, 0x45 | ((reg & 7) << 3));
+    } else if (offset >= -128 && offset <= 127) {
+        emit_byte(gen, 0x45 | ((reg & 7) << 3));
+        emit_byte(gen, offset);
+    } else {
+        emit_byte(gen, 0x85 | ((reg & 7) << 3));
+        emit_int32(gen, offset);
+    }
+}
+
+// CMP reg1, reg2
+static void emit_cmp(CodeGen *gen, int reg1, int reg2) {
+    emit_byte(gen, 0x48 | (reg1 >= 8 ? 0x01 : 0x00) | (reg2 >= 8 ? 0x04 : 0x00));
+    emit_byte(gen, 0x39);
+    emit_byte(gen, 0xC0 | ((reg2 & 7) << 3) | (reg1 & 7));
+}
+
+// SETcc reg
+static void emit_setcc(CodeGen *gen, int cc, int reg) {
+    if (reg >= 4) {
+        emit_byte(gen, reg >= 8 ? 0x41 : 0x40);
+    }
+    emit_byte(gen, 0x0F);
+    emit_byte(gen, 0x90 + cc);
+    emit_byte(gen, 0xC0 | (reg & 7));
+}
+
+// MOVZX reg64, reg8
+static void emit_movzx(CodeGen *gen, int dst, int src) {
+    emit_byte(gen, 0x48 | (dst >= 8 ? 0x04 : 0x00) | (src >= 8 ? 0x01 : 0x00));
+    emit_byte(gen, 0x0F);
+    emit_byte(gen, 0xB6);
+    emit_byte(gen, 0xC0 | ((dst & 7) << 3) | (src & 7));
+}
+
+// JMP rel32
+static void emit_jmp(CodeGen *gen, const char *label) {
+    emit_byte(gen, 0xE9);
+    add_relocation(gen, label, 0);
+    emit_int32(gen, 0);
+}
+
+// Jcc rel32
+static void emit_jcc(CodeGen *gen, int cc, const char *label) {
+    emit_byte(gen, 0x0F);
+    emit_byte(gen, 0x80 + cc);
+    add_relocation(gen, label, 0);
+    emit_int32(gen, 0);
+}
+
+// CALL func
+static void emit_call(CodeGen *gen, const char *func) {
+    emit_byte(gen, 0xE8);
+    add_relocation(gen, func, 0);
+    emit_int32(gen, 0);
+}
+
+// RET
+static void emit_ret(CodeGen *gen) {
+    emit_byte(gen, 0xC3);
+}
+
+// ====================================
+// 寄存器定义
+// ====================================
+
+typedef enum {
+    RAX = 0, RCX = 1, RDX = 2, RBX = 3,
+    RSP = 4, RBP = 5, RSI = 6, RDI = 7,
+    R8 = 8, R9 = 9, R10 = 10, R11 = 11,
+    R12 = 12, R13 = 13, R14 = 14, R15 = 15
+} Register;
+
+// ====================================
+// 表达式代码生成
+// ====================================
+
+static void gen_expression(CodeGen *gen, ASTNode *node);
+
+static void gen_binary_expr(CodeGen *gen, ASTNode *node) {
+    // 计算左操作数
+    gen_expression(gen, node->data.binary.left);
+    emit_push(gen, RAX);
+    
+    // 计算右操作数
+    gen_expression(gen, node->data.binary.right);
+    
+    // 右操作数在RAX，弹出左操作数到RCX
+    emit_pop(gen, RCX);
+    
+    switch (node->data.binary.op) {
         case OP_ADD:
-            emit_add_rax_rbx(gen);
+            emit_add(gen, RAX, RCX);
             break;
             
         case OP_SUB:
-            emit_sub_rax_rbx(gen);
+            // 交换操作数：结果 = 左 - 右
+            emit_byte(gen, 0x48); // REX.W
+            emit_byte(gen, 0x89); // MOV
+            emit_byte(gen, 0xC2); // RDX, RAX
+            emit_byte(gen, 0x48); // REX.W
+            emit_byte(gen, 0x89); // MOV
+            emit_byte(gen, 0xC8); // RAX, RCX
+            emit_sub(gen, RAX, RDX);
             break;
             
         case OP_MUL:
-            emit_imul_rax_rbx(gen);
+            emit_imul(gen, RAX, RCX);
             break;
             
         case OP_DIV:
-            emit_idiv_rbx(gen);
-            break;
-            
-        default:
-            // 不支持的操作
-            break;
-    }
-    
-    emit_push_rax(gen);  // 结果压栈
-}
-
-// 生成表达式
-static void generate_expression(CodeGenerator *gen, ASTNode *node) {
-    if (!node) return;
-    
-    switch (node->node_type) {
-        case NODE_INTEGER_LITERAL:
-            generate_integer_literal(gen, node);
-            break;
-            
-        case NODE_BINARY_OP:
-            generate_binary_op(gen, node);
-            break;
-            
-        case NODE_IDENTIFIER:
-            // TODO: 实现变量访问
-            emit_mov_rax_imm64(gen, 0);
-            emit_push_rax(gen);
-            break;
-            
-        case NODE_FUNCTION_CALL:
-            // TODO: 实现函数调用
-            break;
-            
-        default:
-            break;
-    }
-}
-
-// 生成return语句
-static void generate_return_stmt(CodeGenerator *gen, ASTNode *node) {
-    if (node->data.stmt.cond) {
-        // 生成返回值表达式
-        generate_expression(gen, node->data.stmt.cond);
-        emit_pop_rax(gen);  // 结果 -> rax
-    } else {
-        // 无返回值，返回0
-        emit_mov_rax_imm64(gen, 0);
-    }
-    
-    // 使用syscall退出（对于main函数）
-    emit_mov_rdi_rax(gen);      // 退出码 -> rdi
-    emit_mov_rax_imm64(gen, 60); // sys_exit
-    emit_syscall(gen);
-}
-
-// 生成复合语句
-static void generate_compound_stmt(CodeGenerator *gen, ASTNode *node) {
-    for (int i = 0; i < node->data.expr.num_args; i++) {
-        generate_statement(gen, node->data.expr.args[i]);
-    }
-}
-
-// 生成语句
-static void generate_statement(CodeGenerator *gen, ASTNode *node) {
-    if (!node) return;
-    
-    switch (node->node_type) {
-        case NODE_RETURN_STMT:
-            generate_return_stmt(gen, node);
-            break;
-            
-        case NODE_COMPOUND_STMT:
-            generate_compound_stmt(gen, node);
-            break;
-            
-        case NODE_EXPRESSION_STMT:
-            if (node->data.stmt.cond) {
-                generate_expression(gen, node->data.stmt.cond);
-                emit_pop_rax(gen);  // 丢弃表达式结果
+        case OP_MOD:
+            // 交换操作数
+            emit_byte(gen, 0x48); // REX.W
+            emit_byte(gen, 0x89); // MOV
+            emit_byte(gen, 0xC2); // RDX, RAX
+            emit_byte(gen, 0x48); // REX.W
+            emit_byte(gen, 0x89); // MOV
+            emit_byte(gen, 0xC8); // RAX, RCX
+            emit_cqo(gen);
+            emit_idiv(gen, RDX);
+            if (node->data.binary.op == OP_MOD) {
+                // 余数在RDX
+                emit_byte(gen, 0x48); // REX.W
+                emit_byte(gen, 0x89); // MOV
+                emit_byte(gen, 0xD0); // RAX, RDX
             }
             break;
             
-        case NODE_VAR_DECL:
-            // TODO: 实现变量声明
-            break;
-            
-        case NODE_IF_STMT:
-            // TODO: 实现if语句
-            break;
-            
-        case NODE_WHILE_STMT:
-            // TODO: 实现while循环
-            break;
-            
-        case NODE_FOR_STMT:
-            // TODO: 实现for循环
+        case OP_LT:
+        case OP_GT:
+        case OP_LE:
+        case OP_GE:
+        case OP_EQ:
+        case OP_NE:
+            emit_cmp(gen, RCX, RAX);
+            int cc;
+            switch (node->data.binary.op) {
+                case OP_LT: cc = 0x0C; break; // L
+                case OP_GT: cc = 0x0F; break; // G
+                case OP_LE: cc = 0x0E; break; // LE
+                case OP_GE: cc = 0x0D; break; // GE
+                case OP_EQ: cc = 0x04; break; // E
+                case OP_NE: cc = 0x05; break; // NE
+            }
+            emit_setcc(gen, cc, RAX);
+            emit_movzx(gen, RAX, RAX);
             break;
             
         default:
+            fprintf(stderr, "未实现的二元操作: %d\n", node->data.binary.op);
+    }
+}
+
+static void gen_unary_expr(CodeGen *gen, ASTNode *node) {
+    switch (node->data.unary.op) {
+        case OP_MINUS:
+            gen_expression(gen, node->data.unary.operand);
+            // NEG RAX
+            emit_byte(gen, 0x48);
+            emit_byte(gen, 0xF7);
+            emit_byte(gen, 0xD8);
             break;
-    }
-}
-
-// 生成函数
-static void generate_function(CodeGenerator *gen, ASTNode *node) {
-    // 函数序言
-    emit_push_rbp(gen);       // push rbp
-    emit_mov_rbp_rsp(gen);    // mov rbp, rsp
-    
-    // TODO: 为局部变量分配栈空间
-    
-    // 生成函数体
-    if (node->decl.body) {
-        generate_statement(gen, node->decl.body);
-    }
-    
-    // 如果函数没有显式返回，添加默认返回
-    // 这里简化处理，假设所有函数都通过syscall退出
-}
-
-// 主代码生成函数
-static int generate_x86_64_code(ASTNode *ast, unsigned char **out_code, size_t *out_size) {
-    if (!ast || !out_code || !out_size) return -1;
-    
-    CodeGenerator *gen = create_codegen();
-    
-    // 遍历翻译单元，查找main函数
-    int entry_offset = 0;
-    bool found_main = false;
-    
-    if (ast->node_type == NODE_TRANSLATION_UNIT) {
-        for (int i = 0; i < ast->data.expr.num_args; i++) {
-            ASTNode *decl = ast->data.expr.args[i];
             
-            if (decl->node_type == NODE_FUNCTION_DECL) {
-                if (strcmp(decl->decl.name, "main") == 0) {
-                    entry_offset = gen->size;
-                    generate_function(gen, decl);
-                    found_main = true;
-                    break;
+        case OP_NOT:
+            gen_expression(gen, node->data.unary.operand);
+            // TEST RAX, RAX
+            emit_byte(gen, 0x48);
+            emit_byte(gen, 0x85);
+            emit_byte(gen, 0xC0);
+            // SETE AL
+            emit_byte(gen, 0x0F);
+            emit_byte(gen, 0x94);
+            emit_byte(gen, 0xC0);
+            // MOVZX RAX, AL
+            emit_movzx(gen, RAX, RAX);
+            break;
+            
+        default:
+            fprintf(stderr, "未实现的一元操作: %d\n", node->data.unary.op);
+    }
+}
+
+static void gen_assignment_expr(CodeGen *gen, ASTNode *node) {
+    // 计算右值
+    gen_expression(gen, node->data.assignment.right);
+    
+    // 存储到左值
+    if (node->data.assignment.left->type == AST_IDENTIFIER) {
+        const char *name = node->data.assignment.left->data.identifier.name;
+        int offset = find_local(gen, name);
+        if (offset != 0) {
+            emit_mov_mem_reg(gen, offset, RAX);
+        } else {
+            fprintf(stderr, "未定义的变量: %s\n", name);
+        }
+    } else {
+        fprintf(stderr, "不支持的左值类型\n");
+    }
+}
+
+static void gen_call_expr(CodeGen *gen, ASTNode *node) {
+    // 计算参数（简化：只支持前6个参数）
+    const int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};
+    
+    for (int i = node->data.call.arg_count - 1; i >= 0; i--) {
+        gen_expression(gen, node->data.call.args[i]);
+        emit_push(gen, RAX);
+    }
+    
+    for (int i = 0; i < node->data.call.arg_count && i < 6; i++) {
+        emit_pop(gen, arg_regs[i]);
+    }
+    
+    // 调用函数
+    if (node->data.call.function->type == AST_IDENTIFIER) {
+        emit_call(gen, node->data.call.function->data.identifier.name);
+    } else {
+        fprintf(stderr, "不支持的函数调用形式\n");
+    }
+}
+
+static void gen_expression(CodeGen *gen, ASTNode *node) {
+    if (!node) return;
+    
+    switch (node->type) {
+        case AST_INTEGER_LITERAL:
+            emit_mov_reg_imm(gen, RAX, node->value.int_val);
+            break;
+            
+        case AST_IDENTIFIER:
+            {
+                const char *name = node->data.identifier.name;
+                int offset = find_local(gen, name);
+                if (offset != 0) {
+                    emit_mov_reg_mem(gen, RAX, offset);
+                } else {
+                    fprintf(stderr, "未定义的变量: %s\n", name);
+                    emit_mov_reg_imm(gen, RAX, 0);
                 }
             }
+            break;
+            
+        case AST_BINARY_EXPR:
+            gen_binary_expr(gen, node);
+            break;
+            
+        case AST_UNARY_EXPR:
+            gen_unary_expr(gen, node);
+            break;
+            
+        case AST_ASSIGNMENT_EXPR:
+            gen_assignment_expr(gen, node);
+            break;
+            
+        case AST_CALL_EXPR:
+            gen_call_expr(gen, node);
+            break;
+            
+        default:
+            fprintf(stderr, "未实现的表达式类型: %d\n", node->type);
+    }
+}
+
+// ====================================
+// 语句代码生成
+// ====================================
+
+static void gen_statement(CodeGen *gen, ASTNode *node);
+
+static void gen_compound_stmt(CodeGen *gen, ASTNode *node) {
+    for (int i = 0; i < node->data.generic.child_count; i++) {
+        gen_statement(gen, node->data.generic.children[i]);
+    }
+}
+
+static void gen_expression_stmt(CodeGen *gen, ASTNode *node) {
+    if (node->data.generic.child_count > 0) {
+        gen_expression(gen, node->data.generic.children[0]);
+    }
+}
+
+static void gen_if_stmt(CodeGen *gen, ASTNode *node) {
+    static int if_counter = 0;
+    char else_label[32], end_label[32];
+    
+    snprintf(else_label, sizeof(else_label), ".L_else_%d", if_counter);
+    snprintf(end_label, sizeof(end_label), ".L_endif_%d", if_counter);
+    if_counter++;
+    
+    // 计算条件
+    gen_expression(gen, node->data.if_stmt.condition);
+    
+    // TEST RAX, RAX
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x85);
+    emit_byte(gen, 0xC0);
+    
+    // JE else_label
+    emit_jcc(gen, 0x04, else_label);
+    
+    // then分支
+    gen_statement(gen, node->data.if_stmt.then_stmt);
+    
+    if (node->data.if_stmt.else_stmt) {
+        emit_jmp(gen, end_label);
+        add_label(gen, else_label);
+        gen_statement(gen, node->data.if_stmt.else_stmt);
+        add_label(gen, end_label);
+    } else {
+        add_label(gen, else_label);
+    }
+}
+
+static void gen_while_stmt(CodeGen *gen, ASTNode *node) {
+    static int while_counter = 0;
+    char loop_label[32], end_label[32];
+    
+    snprintf(loop_label, sizeof(loop_label), ".L_while_%d", while_counter);
+    snprintf(end_label, sizeof(end_label), ".L_endwhile_%d", while_counter);
+    while_counter++;
+    
+    add_label(gen, loop_label);
+    
+    // 计算条件
+    gen_expression(gen, node->data.while_stmt.condition);
+    
+    // TEST RAX, RAX
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x85);
+    emit_byte(gen, 0xC0);
+    
+    // JE end_label
+    emit_jcc(gen, 0x04, end_label);
+    
+    // 循环体
+    gen_statement(gen, node->data.while_stmt.body);
+    
+    // JMP loop_label
+    emit_jmp(gen, loop_label);
+    
+    add_label(gen, end_label);
+}
+
+static void gen_for_stmt(CodeGen *gen, ASTNode *node) {
+    static int for_counter = 0;
+    char loop_label[32], cond_label[32], end_label[32];
+    
+    snprintf(cond_label, sizeof(cond_label), ".L_for_cond_%d", for_counter);
+    snprintf(loop_label, sizeof(loop_label), ".L_for_loop_%d", for_counter);
+    snprintf(end_label, sizeof(end_label), ".L_for_end_%d", for_counter);
+    for_counter++;
+    
+    // 初始化
+    if (node->data.for_stmt.init) {
+        if (node->data.for_stmt.init->type == AST_VAR_DECL) {
+            gen_statement(gen, node->data.for_stmt.init);
+        } else {
+            gen_expression(gen, node->data.for_stmt.init);
         }
     }
     
-    if (!found_main) {
-        free_codegen(gen);
-        return -1;
+    add_label(gen, cond_label);
+    
+    // 条件
+    if (node->data.for_stmt.condition) {
+        gen_expression(gen, node->data.for_stmt.condition);
+        
+        // TEST RAX, RAX
+        emit_byte(gen, 0x48);
+        emit_byte(gen, 0x85);
+        emit_byte(gen, 0xC0);
+        
+        // JE end_label
+        emit_jcc(gen, 0x04, end_label);
     }
     
-    // 复制生成的代码
-    *out_code = malloc(gen->size);
-    memcpy(*out_code, gen->code, gen->size);
-    *out_size = gen->size;
+    // 循环体
+    gen_statement(gen, node->data.for_stmt.body);
     
-    free_codegen(gen);
-    return entry_offset;
+    // 增量
+    if (node->data.for_stmt.increment) {
+        gen_expression(gen, node->data.for_stmt.increment);
+    }
+    
+    // JMP cond_label
+    emit_jmp(gen, cond_label);
+    
+    add_label(gen, end_label);
+}
+
+static void gen_return_stmt(CodeGen *gen, ASTNode *node) {
+    if (node->data.return_stmt.value) {
+        gen_expression(gen, node->data.return_stmt.value);
+    } else {
+        emit_mov_reg_imm(gen, RAX, 0);
+    }
+    
+    // 跳转到函数结尾
+    emit_jmp(gen, ".L_func_epilogue");
+}
+
+static void gen_var_decl(CodeGen *gen, ASTNode *node) {
+    // 分配局部变量
+    add_local(gen, node->data.var_decl.name, node->type_info);
+    
+    // 如果有初始化
+    if (node->data.var_decl.init) {
+        gen_expression(gen, node->data.var_decl.init);
+        int offset = find_local(gen, node->data.var_decl.name);
+        emit_mov_mem_reg(gen, offset, RAX);
+    }
+}
+
+static void gen_statement(CodeGen *gen, ASTNode *node) {
+    if (!node) return;
+    
+    switch (node->type) {
+        case AST_COMPOUND_STMT:
+            gen_compound_stmt(gen, node);
+            break;
+            
+        case AST_EXPRESSION_STMT:
+            gen_expression_stmt(gen, node);
+            break;
+            
+        case AST_IF_STMT:
+            gen_if_stmt(gen, node);
+            break;
+            
+        case AST_WHILE_STMT:
+            gen_while_stmt(gen, node);
+            break;
+            
+        case AST_FOR_STMT:
+            gen_for_stmt(gen, node);
+            break;
+            
+        case AST_RETURN_STMT:
+            gen_return_stmt(gen, node);
+            break;
+            
+        case AST_VAR_DECL:
+            gen_var_decl(gen, node);
+            break;
+            
+        default:
+            fprintf(stderr, "未实现的语句类型: %d\n", node->type);
+    }
+    
+    // 处理链表中的下一个声明
+    if (node->next) {
+        gen_statement(gen, node->next);
+    }
 }
 
 // ====================================
-// ELF文件生成
+// 函数代码生成
 // ====================================
 
-#define ELF_MAGIC 0x464C457F  // 0x7F, 'E', 'L', 'F'
-
-typedef struct {
-    uint32_t magic;
-    uint8_t class;      // 1 = 32-bit, 2 = 64-bit
-    uint8_t data;       // 1 = little-endian, 2 = big-endian
-    uint8_t version;    // 1 = current
-    uint8_t osabi;      // 0 = System V
-    uint8_t abiversion; // 0
-    uint8_t pad[7];     // 填充到16字节
-} ElfIdent;
-
-typedef struct {
-    ElfIdent ident;
-    uint16_t type;      // 2 = executable
-    uint16_t machine;   // 62 = x86-64
-    uint32_t version;   // 1 = current
-    uint64_t entry;     // 入口点地址
-    uint64_t phoff;     // 程序头表偏移
-    uint64_t shoff;     // 节头表偏移（可选）
-    uint32_t flags;     // 处理器特定标志
-    uint16_t ehsize;    // ELF头大小
-    uint16_t phentsize; // 程序头表项大小
-    uint16_t phnum;     // 程序头表项数量
-    uint16_t shentsize; // 节头表项大小
-    uint16_t shnum;     // 节头表项数量
-    uint16_t shstrndx;  // 节名字符串表索引
-} Elf64Header;
-
-typedef struct {
-    uint32_t type;    // 段类型：1 = LOAD
-    uint32_t flags;   // 段标志：1 = X, 2 = W, 4 = R
-    uint64_t offset;  // 文件偏移
-    uint64_t vaddr;   // 虚拟地址
-    uint64_t paddr;   // 物理地址（通常与vaddr相同）
-    uint64_t filesz;  // 文件中的大小
-    uint64_t memsz;   // 内存中的大小
-    uint64_t align;   // 对齐
-} Elf64Phdr;
-
-static int generate_elf_executable(const char *filename, unsigned char *code, size_t code_size, int entry_offset) {
-    FILE *f = fopen(filename, "wb");
-    if (!f) {
-        perror("无法创建输出文件");
-        return -1;
+static void gen_function(CodeGen *gen, ASTNode *node) {
+    // 添加函数标签
+    add_label(gen, node->data.function.name);
+    
+    // 重置局部变量
+    gen->local_count = 0;
+    gen->stack_offset = 0;
+    gen->max_stack_size = 0;
+    
+    // 函数序言
+    emit_push(gen, RBP);
+    // MOV RBP, RSP
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0xE5);
+    
+    // 保存函数序言后的位置，用于后续调整栈空间
+    size_t stack_adjustment_pos = gen->size;
+    // SUB RSP, imm32 (占位)
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x81);
+    emit_byte(gen, 0xEC);
+    emit_int32(gen, 0);
+    
+    // 处理参数
+    const int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};
+    for (int i = 0; i < node->data.function.param_count && i < 6; i++) {
+        ASTNode *param = node->data.function.params[i];
+        if (param->type == AST_PARAM_DECL) {
+            int offset = add_local(gen, param->data.var_decl.name, param->type_info);
+            emit_mov_mem_reg(gen, offset, arg_regs[i]);
+        }
     }
     
-    // 基地址
-    const uint64_t base_addr = 0x400000;
-    const size_t page_size = 4096;
-    
-    // 计算大小
-    size_t headers_size = sizeof(Elf64Header) + sizeof(Elf64Phdr);
-    size_t total_size = headers_size + code_size;
-    
-    // 创建ELF头
-    Elf64Header ehdr = {0};
-    ehdr.ident.magic = ELF_MAGIC;
-    ehdr.ident.class = 2;        // 64-bit
-    ehdr.ident.data = 1;         // little-endian
-    ehdr.ident.version = 1;      // current
-    ehdr.ident.osabi = 0;        // System V
-    ehdr.type = 2;               // ET_EXEC
-    ehdr.machine = 62;           // EM_X86_64
-    ehdr.version = 1;            // current
-    ehdr.entry = base_addr + headers_size + entry_offset;  // 入口点
-    ehdr.phoff = sizeof(Elf64Header);  // 程序头紧跟ELF头
-    ehdr.shoff = 0;              // 无节头表
-    ehdr.flags = 0;              // 无特殊标志
-    ehdr.ehsize = sizeof(Elf64Header);
-    ehdr.phentsize = sizeof(Elf64Phdr);
-    ehdr.phnum = 1;              // 一个程序头
-    ehdr.shentsize = 0;          // 无节头
-    ehdr.shnum = 0;              // 无节
-    ehdr.shstrndx = 0;           // 无节名表
-    
-    // 创建程序头
-    Elf64Phdr phdr = {0};
-    phdr.type = 1;               // PT_LOAD
-    phdr.flags = 5;              // PF_X | PF_R (可执行|可读)
-    phdr.offset = 0;             // 从文件开始
-    phdr.vaddr = base_addr;      // 虚拟地址
-    phdr.paddr = base_addr;      // 物理地址
-    phdr.filesz = total_size;    // 文件大小
-    phdr.memsz = total_size;     // 内存大小
-    phdr.align = page_size;      // 页对齐
-    
-    // 写入ELF头
-    fwrite(&ehdr, sizeof(ehdr), 1, f);
-    
-    // 写入程序头
-    fwrite(&phdr, sizeof(phdr), 1, f);
-    
-    // 写入代码
-    fwrite(code, code_size, 1, f);
-    
-    fclose(f);
-    
-    // 设置可执行权限
-    if (chmod(filename, 0755) != 0) {
-        perror("无法设置可执行权限");
-        return -1;
+    // 生成函数体
+    if (node->data.function.body) {
+        gen_statement(gen, node->data.function.body);
     }
     
-    return 0;
+    // 函数结尾标签
+    add_label(gen, ".L_func_epilogue");
+    
+    // 函数尾声
+    // MOV RSP, RBP
+    emit_byte(gen, 0x48);
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0xEC);
+    
+    emit_pop(gen, RBP);
+    emit_ret(gen);
+    
+    // 回填栈空间大小
+    int32_t stack_size = (gen->max_stack_size + 15) & ~15; // 16字节对齐
+    memcpy(gen->code + stack_adjustment_pos + 3, &stack_size, 4);
 }
+
+// ====================================
+// 顶层代码生成
+// ====================================
+
+static void gen_translation_unit(CodeGen *gen, ASTNode *node) {
+    for (int i = 0; i < node->data.generic.child_count; i++) {
+        ASTNode *decl = node->data.generic.children[i];
+        
+        if (decl->type == AST_FUNCTION_DEF) {
+            gen_function(gen, decl);
+        } else {
+            fprintf(stderr, "忽略非函数定义的顶层声明\n");
+        }
+    }
+    
+    // 解析重定位
+    resolve_relocations(gen);
+}
+
+// ====================================
+// 公共接口
+// ====================================
+
+static uint8_t* generate_code(ASTNode *ast, size_t *code_size) {
+    CodeGen gen;
+    init_codegen(&gen);
+    
+    gen_translation_unit(&gen, ast);
+    
+    *code_size = gen.size;
+    uint8_t *code = (uint8_t*)malloc(gen.size);
+    memcpy(code, gen.code, gen.size);
+    
+    free_codegen(&gen);
+    
+    return code;
+}
+
+// ====================================
+// 调试辅助
+// ====================================
+
+static void disassemble_code(const uint8_t *code, size_t size) {
+    printf("=== 生成的机器码 ===\n");
+    printf("大小: %zu 字节\n", size);
+    
+    for (size_t i = 0; i < size; i++) {
+        if (i % 16 == 0) {
+            if (i > 0) printf("\n");
+            printf("%04zx: ", i);
+        }
+        printf("%02x ", code[i]);
+    }
+    printf("\n");
+    printf("==================\n");
+}
+
+#endif // EVOLVER0_CODEGEN_INC_C
