@@ -6,6 +6,8 @@
 #define EVOLVER0_AST_H
 
 // AST节点类型
+#ifndef EVOLVER0_AST_NODE_TYPE_DEFINED
+#define EVOLVER0_AST_NODE_TYPE_DEFINED
 typedef enum {
     // 基础节点
     AST_TRANSLATION_UNIT,
@@ -67,6 +69,7 @@ typedef enum {
     AST_BREAK,
     AST_CONTINUE
 } ASTNodeType;
+#endif
 
 // AST创建和释放函数声明
 struct ASTNode;

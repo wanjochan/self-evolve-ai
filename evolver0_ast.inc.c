@@ -10,6 +10,8 @@
 // AST 节点类型定义
 // ====================================
 
+#ifndef EVOLVER0_AST_NODE_TYPE_DEFINED
+#define EVOLVER0_AST_NODE_TYPE_DEFINED
 typedef enum {
     // 顶层节点
     AST_TRANSLATION_UNIT,
@@ -75,13 +77,38 @@ typedef enum {
     AST_INIT_LIST,
     AST_FIELD,
     AST_ENUMERATOR,
-    AST_ERROR
+    AST_ERROR,
+    
+    // 旧的兼容类型
+    AST_PROGRAM,
+    AST_FUNCTION,
+    AST_PARAMETER,
+    AST_RETURN,
+    AST_INTEGER,
+    AST_BINARY_OP,
+    AST_UNARY_OP,
+    AST_COMPOUND,
+    AST_DECLARATION,
+    AST_ASSIGNMENT,
+    AST_IF,
+    AST_WHILE,
+    AST_FOR,
+    AST_CALL,
+    AST_ARRAY_ACCESS,
+    AST_CAST,
+    AST_SIZEOF,
+    AST_TYPE,
+    AST_BREAK,
+    AST_CONTINUE
 } ASTNodeType;
+#endif
 
 // ====================================
 // 运算符定义
 // ====================================
 
+#ifndef EVOLVER0_OPERATOR_TYPE_DEFINED
+#define EVOLVER0_OPERATOR_TYPE_DEFINED
 typedef enum {
     // 算术运算符
     OP_ADD,
@@ -139,11 +166,14 @@ typedef enum {
     OP_DOT,
     OP_COMMA
 } OperatorType;
+#endif
 
 // ====================================
 // 类型信息
 // ====================================
 
+#ifndef EVOLVER0_TYPE_KIND_DEFINED
+#define EVOLVER0_TYPE_KIND_DEFINED
 typedef enum {
     TYPE_VOID,
     TYPE_CHAR,
@@ -160,6 +190,7 @@ typedef enum {
     TYPE_ENUM,
     TYPE_TYPEDEF
 } TypeKind;
+#endif
 
 typedef struct TypeInfo {
     TypeKind kind;

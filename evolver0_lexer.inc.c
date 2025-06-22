@@ -6,66 +6,8 @@
 #ifndef EVOLVER0_LEXER_INC_C
 #define EVOLVER0_LEXER_INC_C
 
-// ====================================
-// Token 定义
-// ====================================
-
-// 使用evolver0.c中已有的TokenType定义
-// 如果没有定义，使用简化版本
-#ifndef TOKEN_EOF
-typedef enum {
-    TOKEN_EOF = 0,
-    TOKEN_IDENTIFIER,
-    TOKEN_NUMBER,
-    TOKEN_STRING,
-    TOKEN_CHAR_LITERAL,
-    
-    // 关键字
-    TOKEN_INT, TOKEN_CHAR, TOKEN_VOID, TOKEN_RETURN, 
-    TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR, TOKEN_DO, 
-    TOKEN_BREAK, TOKEN_CONTINUE, TOKEN_SWITCH, TOKEN_CASE, TOKEN_DEFAULT,
-    TOKEN_STRUCT, TOKEN_UNION, TOKEN_ENUM, TOKEN_TYPEDEF,
-    TOKEN_STATIC, TOKEN_EXTERN, TOKEN_CONST, TOKEN_VOLATILE,
-    TOKEN_SIZEOF, TOKEN_GOTO,
-    
-    // 操作符
-    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MULTIPLY, TOKEN_DIVIDE, TOKEN_MOD,
-    TOKEN_ASSIGN, TOKEN_ADD_ASSIGN, TOKEN_SUB_ASSIGN, TOKEN_MUL_ASSIGN,
-    TOKEN_DIV_ASSIGN, TOKEN_MOD_ASSIGN,
-    TOKEN_EQUAL, TOKEN_NOT_EQUAL,
-    TOKEN_LESS, TOKEN_GREATER, TOKEN_LESS_EQUAL, TOKEN_GREATER_EQUAL,
-    TOKEN_LOGICAL_AND, TOKEN_LOGICAL_OR, TOKEN_LOGICAL_NOT,
-    TOKEN_BIT_AND, TOKEN_BIT_OR, TOKEN_BIT_XOR, TOKEN_BIT_NOT,
-    TOKEN_LEFT_SHIFT, TOKEN_RIGHT_SHIFT,
-    TOKEN_INCREMENT, TOKEN_DECREMENT,
-    TOKEN_ARROW, TOKEN_DOT,
-    TOKEN_QUESTION, TOKEN_COLON,
-    
-    // 标点
-    TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE,
-    TOKEN_LBRACKET, TOKEN_RBRACKET, TOKEN_SEMICOLON, TOKEN_COMMA,
-    TOKEN_ELLIPSIS,
-    
-    // 预处理
-    TOKEN_HASH, TOKEN_INCLUDE, TOKEN_DEFINE, TOKEN_IFDEF, TOKEN_IFNDEF,
-    TOKEN_ENDIF, TOKEN_UNDEF, TOKEN_PRAGMA,
-    
-    // 特殊
-    TOKEN_UNKNOWN
-} TokenType;
-#endif
-
-// Token 结构体
-#ifndef TOKEN_STRUCT_DEFINED
-#define TOKEN_STRUCT_DEFINED
-typedef struct {
-    TokenType type;
-    char *value;
-    int line;
-    int column;
-    const char *filename;
-} Token;
-#endif
+// 包含Token定义
+#include "evolver0_token.h"
 
 // ====================================
 // 词法分析器状态
@@ -105,22 +47,22 @@ static void init_lexer(Lexer *lexer, const char *source, const char *filename) {
     lexer->in_include = 0;
 }
 
-static int is_at_end(Lexer *lexer) {
+static int lexer_is_at_end(Lexer *lexer) {
     return lexer->pos >= lexer->length;
 }
 
-static char peek(Lexer *lexer) {
-    if (is_at_end(lexer)) return '\0';
+static char lexer_peek(Lexer *lexer) {
+    if (lexer_is_at_end(lexer)) return '\0';
     return lexer->source[lexer->pos];
 }
 
-static char peek_next(Lexer *lexer) {
+static char lexer_peek_next(Lexer *lexer) {
     if (lexer->pos + 1 >= lexer->length) return '\0';
     return lexer->source[lexer->pos + 1];
 }
 
-static char advance(Lexer *lexer) {
-    if (is_at_end(lexer)) return '\0';
+static char lexer_advance(Lexer *lexer) {
+    if (lexer_is_at_end(lexer)) return '\0';
     
     char c = lexer->source[lexer->pos++];
     if (c == '\n') {
@@ -132,10 +74,10 @@ static char advance(Lexer *lexer) {
     return c;
 }
 
-static int match(Lexer *lexer, char expected) {
-    if (is_at_end(lexer)) return 0;
+static int lexer_match(Lexer *lexer, char expected) {
+    if (lexer_is_at_end(lexer)) return 0;
     if (lexer->source[lexer->pos] != expected) return 0;
-    advance(lexer);
+    lexer_advance(lexer);
     return 1;
 }
 
@@ -143,20 +85,20 @@ static int match(Lexer *lexer, char expected) {
 // 字符分类函数
 // ====================================
 
-static int is_digit(char c) {
+static int lexer_is_digit(char c) {
     return c >= '0' && c <= '9';
 }
 
-static int is_hex_digit(char c) {
-    return is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+static int lexer_is_hex_digit(char c) {
+    return lexer_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-static int is_alpha(char c) {
+static int lexer_is_alpha(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-static int is_alnum(char c) {
-    return is_alpha(c) || is_digit(c);
+static int lexer_is_alnum(char c) {
+    return lexer_is_alpha(c) || lexer_is_digit(c);
 }
 
 // ====================================
@@ -164,42 +106,42 @@ static int is_alnum(char c) {
 // ====================================
 
 static void skip_whitespace(Lexer *lexer) {
-    while (!is_at_end(lexer)) {
-        char c = peek(lexer);
+    while (!lexer_is_at_end(lexer)) {
+        char c = lexer_peek(lexer);
         
         switch (c) {
             case ' ':
             case '\r':
             case '\t':
-                advance(lexer);
+                lexer_advance(lexer);
                 break;
                 
             case '\n':
                 if (lexer->in_preprocessor) {
                     return; // 预处理指令在换行处结束
                 }
-                advance(lexer);
+                lexer_advance(lexer);
                 break;
                 
             case '/':
-                if (peek_next(lexer) == '/') {
+                if (lexer_peek_next(lexer) == '/') {
                     // 单行注释
-                    advance(lexer); // /
-                    advance(lexer); // /
-                    while (!is_at_end(lexer) && peek(lexer) != '\n') {
-                        advance(lexer);
+                    lexer_advance(lexer); // /
+                    lexer_advance(lexer); // /
+                    while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != '\n') {
+                        lexer_advance(lexer);
                     }
-                } else if (peek_next(lexer) == '*') {
+                } else if (lexer_peek_next(lexer) == '*') {
                     // 多行注释
-                    advance(lexer); // /
-                    advance(lexer); // *
-                    while (!is_at_end(lexer)) {
-                        if (peek(lexer) == '*' && peek_next(lexer) == '/') {
-                            advance(lexer); // *
-                            advance(lexer); // /
+                    lexer_advance(lexer); // /
+                    lexer_advance(lexer); // *
+                    while (!lexer_is_at_end(lexer)) {
+                        if (lexer_peek(lexer) == '*' && lexer_peek_next(lexer) == '/') {
+                            lexer_advance(lexer); // *
+                            lexer_advance(lexer); // /
                             break;
                         }
-                        advance(lexer);
+                        lexer_advance(lexer);
                     }
                 } else {
                     return;
@@ -249,44 +191,44 @@ static Token* scan_number(Lexer *lexer) {
     const char *start = lexer->source + lexer->pos;
     
     // 检查十六进制
-    if (peek(lexer) == '0' && (peek_next(lexer) == 'x' || peek_next(lexer) == 'X')) {
-        advance(lexer); // 0
-        advance(lexer); // x
+    if (lexer_peek(lexer) == '0' && (lexer_peek_next(lexer) == 'x' || lexer_peek_next(lexer) == 'X')) {
+        lexer_advance(lexer); // 0
+        lexer_advance(lexer); // x
         
-        while (is_hex_digit(peek(lexer))) {
-            advance(lexer);
+        while (lexer_is_hex_digit(lexer_peek(lexer))) {
+            lexer_advance(lexer);
         }
     } else {
         // 十进制
-        while (is_digit(peek(lexer))) {
-            advance(lexer);
+        while (lexer_is_digit(lexer_peek(lexer))) {
+            lexer_advance(lexer);
         }
         
         // 浮点数支持
-        if (peek(lexer) == '.' && is_digit(peek_next(lexer))) {
-            advance(lexer); // .
-            while (is_digit(peek(lexer))) {
-                advance(lexer);
+        if (lexer_peek(lexer) == '.' && lexer_is_digit(lexer_peek_next(lexer))) {
+            lexer_advance(lexer); // .
+            while (lexer_is_digit(lexer_peek(lexer))) {
+                lexer_advance(lexer);
             }
         }
         
         // 科学计数法
-        if (peek(lexer) == 'e' || peek(lexer) == 'E') {
-            advance(lexer);
-            if (peek(lexer) == '+' || peek(lexer) == '-') {
-                advance(lexer);
+        if (lexer_peek(lexer) == 'e' || lexer_peek(lexer) == 'E') {
+            lexer_advance(lexer);
+            if (lexer_peek(lexer) == '+' || lexer_peek(lexer) == '-') {
+                lexer_advance(lexer);
             }
-            while (is_digit(peek(lexer))) {
-                advance(lexer);
+            while (lexer_is_digit(lexer_peek(lexer))) {
+                lexer_advance(lexer);
             }
         }
     }
     
     // 后缀
-    while (peek(lexer) == 'u' || peek(lexer) == 'U' || 
-           peek(lexer) == 'l' || peek(lexer) == 'L' ||
-           peek(lexer) == 'f' || peek(lexer) == 'F') {
-        advance(lexer);
+    while (lexer_peek(lexer) == 'u' || lexer_peek(lexer) == 'U' || 
+           lexer_peek(lexer) == 'l' || lexer_peek(lexer) == 'L' ||
+           lexer_peek(lexer) == 'f' || lexer_peek(lexer) == 'F') {
+        lexer_advance(lexer);
     }
     
     size_t length = (lexer->source + lexer->pos) - start;
@@ -301,21 +243,25 @@ static Token* scan_string(Lexer *lexer) {
     const char *start = lexer->source + lexer->pos - 1; // 包含引号
     char quote = lexer->source[lexer->pos - 1];
     
-    while (!is_at_end(lexer) && peek(lexer) != quote) {
-        if (peek(lexer) == '\\' && !is_at_end(lexer)) {
-            advance(lexer); // 跳过转义字符
+    while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != quote) {
+        if (lexer_peek(lexer) == '\\' && !lexer_is_at_end(lexer)) {
+            lexer_advance(lexer); // 跳过转义字符
         }
-        advance(lexer);
+    while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != quote) {
+        if (lexer_peek(lexer) == '\\' && !lexer_is_at_end(lexer)) {
+            lexer_advance(lexer); // 跳过转义字符
+        }
+        lexer_advance(lexer);
     }
     
-    if (is_at_end(lexer)) {
+    if (lexer_is_at_end(lexer)) {
         lexer->error_count++;
         snprintf(lexer->error_msg, sizeof(lexer->error_msg), 
                  "未结束的字符串字面量");
         return NULL;
     }
     
-    advance(lexer); // 结束引号
+    lexer_advance(lexer); // 结束引号
     
     size_t length = (lexer->source + lexer->pos) - start;
     TokenType type = (quote == '"') ? TOKEN_STRING : TOKEN_CHAR_LITERAL;
@@ -329,7 +275,7 @@ static Token* scan_string(Lexer *lexer) {
 static struct {
     const char *keyword;
     TokenType type;
-} keywords[] = {
+} lexer_keywords[] = {
     {"int", TOKEN_INT},
     {"char", TOKEN_CHAR},
     {"void", TOKEN_VOID},
@@ -360,17 +306,17 @@ static struct {
 static Token* scan_identifier(Lexer *lexer) {
     const char *start = lexer->source + lexer->pos;
     
-    while (is_alnum(peek(lexer))) {
-        advance(lexer);
+    while (lexer_is_alnum(lexer_peek(lexer))) {
+        lexer_advance(lexer);
     }
     
     size_t length = (lexer->source + lexer->pos) - start;
     
     // 检查是否是关键字
-    for (int i = 0; keywords[i].keyword != NULL; i++) {
-        if (length == strlen(keywords[i].keyword) &&
-            strncmp(start, keywords[i].keyword, length) == 0) {
-            return create_token(lexer, keywords[i].type, start, length);
+    for (int i = 0; lexer_keywords[i].keyword != NULL; i++) {
+        if (length == strlen(lexer_keywords[i].keyword) &&
+            strncmp(start, lexer_keywords[i].keyword, length) == 0) {
+            return create_token(lexer, lexer_keywords[i].type, start, length);
         }
     }
     
@@ -384,19 +330,19 @@ static Token* scan_identifier(Lexer *lexer) {
 
 static Token* scan_preprocessor(Lexer *lexer) {
     // 跳过 #
-    advance(lexer);
+    lexer_advance(lexer);
     lexer->in_preprocessor = 1;
     
     // 跳过空格
-    while (peek(lexer) == ' ' || peek(lexer) == '\t') {
-        advance(lexer);
+    while (lexer_peek(lexer) == ' ' || lexer_peek(lexer) == '\t') {
+        lexer_advance(lexer);
     }
     
     const char *start = lexer->source + lexer->pos;
     
     // 读取预处理指令名
-    while (is_alpha(peek(lexer))) {
-        advance(lexer);
+    while (lexer_is_alpha(lexer_peek(lexer))) {
+        lexer_advance(lexer);
     }
     
     size_t length = (lexer->source + lexer->pos) - start;
@@ -429,21 +375,21 @@ static Token* scan_preprocessor(Lexer *lexer) {
 static Token* scan_token(Lexer *lexer) {
     skip_whitespace(lexer);
     
-    if (is_at_end(lexer)) {
+    if (lexer_is_at_end(lexer)) {
         return create_simple_token(lexer, TOKEN_EOF, "");
     }
     
-    char c = advance(lexer);
+    char c = lexer_advance(lexer);
     
     // 数字
-    if (is_digit(c)) {
+    if (lexer_is_digit(c)) {
         lexer->pos--; // 回退
         lexer->column--;
         return scan_number(lexer);
     }
     
     // 标识符
-    if (is_alpha(c)) {
+    if (lexer_is_alpha(c)) {
         lexer->pos--; // 回退
         lexer->column--;
         return scan_identifier(lexer);
@@ -478,61 +424,61 @@ static Token* scan_token(Lexer *lexer) {
         
         // 可能是多字符标记
         case '+':
-            if (match(lexer, '+')) return create_simple_token(lexer, TOKEN_INCREMENT, "++");
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_ADD_ASSIGN, "+=");
+            if (lexer_match(lexer, '+')) return create_simple_token(lexer, TOKEN_INCREMENT, "++");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_ADD_ASSIGN, "+=");
             return create_simple_token(lexer, TOKEN_PLUS, "+");
             
         case '-':
-            if (match(lexer, '-')) return create_simple_token(lexer, TOKEN_DECREMENT, "--");
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_SUB_ASSIGN, "-=");
-            if (match(lexer, '>')) return create_simple_token(lexer, TOKEN_ARROW, "->");
+            if (lexer_match(lexer, '-')) return create_simple_token(lexer, TOKEN_DECREMENT, "--");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_SUB_ASSIGN, "-=");
+            if (lexer_match(lexer, '>')) return create_simple_token(lexer, TOKEN_ARROW, "->");
             return create_simple_token(lexer, TOKEN_MINUS, "-");
             
         case '*':
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_MUL_ASSIGN, "*=");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_MUL_ASSIGN, "*=");
             return create_simple_token(lexer, TOKEN_MULTIPLY, "*");
             
         case '/':
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_DIV_ASSIGN, "/=");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_DIV_ASSIGN, "/=");
             return create_simple_token(lexer, TOKEN_DIVIDE, "/");
             
         case '%':
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_MOD_ASSIGN, "%=");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_MOD_ASSIGN, "%=");
             return create_simple_token(lexer, TOKEN_MOD, "%");
             
         case '=':
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_EQUAL, "==");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_EQUAL, "==");
             return create_simple_token(lexer, TOKEN_ASSIGN, "=");
             
         case '!':
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_NOT_EQUAL, "!=");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_NOT_EQUAL, "!=");
             return create_simple_token(lexer, TOKEN_LOGICAL_NOT, "!");
             
         case '<':
-            if (match(lexer, '<')) return create_simple_token(lexer, TOKEN_LEFT_SHIFT, "<<");
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_LESS_EQUAL, "<=");
+            if (lexer_match(lexer, '<')) return create_simple_token(lexer, TOKEN_LEFT_SHIFT, "<<");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_LESS_EQUAL, "<=");
             return create_simple_token(lexer, TOKEN_LESS, "<");
             
         case '>':
-            if (match(lexer, '>')) return create_simple_token(lexer, TOKEN_RIGHT_SHIFT, ">>");
-            if (match(lexer, '=')) return create_simple_token(lexer, TOKEN_GREATER_EQUAL, ">=");
+            if (lexer_match(lexer, '>')) return create_simple_token(lexer, TOKEN_RIGHT_SHIFT, ">>");
+            if (lexer_match(lexer, '=')) return create_simple_token(lexer, TOKEN_GREATER_EQUAL, ">=");
             return create_simple_token(lexer, TOKEN_GREATER, ">");
             
         case '&':
-            if (match(lexer, '&')) return create_simple_token(lexer, TOKEN_LOGICAL_AND, "&&");
+            if (lexer_match(lexer, '&')) return create_simple_token(lexer, TOKEN_LOGICAL_AND, "&&");
             return create_simple_token(lexer, TOKEN_BIT_AND, "&");
             
         case '|':
-            if (match(lexer, '|')) return create_simple_token(lexer, TOKEN_LOGICAL_OR, "||");
+            if (lexer_match(lexer, '|')) return create_simple_token(lexer, TOKEN_LOGICAL_OR, "||");
             return create_simple_token(lexer, TOKEN_BIT_OR, "|");
             
         case '^':
             return create_simple_token(lexer, TOKEN_BIT_XOR, "^");
             
         case '.':
-            if (peek(lexer) == '.' && peek_next(lexer) == '.') {
-                advance(lexer);
-                advance(lexer);
+            if (lexer_peek(lexer) == '.' && lexer_peek_next(lexer) == '.') {
+                lexer_advance(lexer);
+                lexer_advance(lexer);
                 return create_simple_token(lexer, TOKEN_ELLIPSIS, "...");
             }
             return create_simple_token(lexer, TOKEN_DOT, ".");
