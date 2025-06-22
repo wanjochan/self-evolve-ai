@@ -477,491 +477,434 @@ static void lexer_skip_whitespace(Lexer *lexer) {
 }
 
 static Token* lexer_tokenize(const char *source, const char *filename, int *token_count) {
-    Lexer lexer;
-    lexer_init(&lexer, source, filename);
+    int line = 1;
+    int column = 1;
+    const char *p = source;
     
     Token *tokens = malloc(sizeof(Token) * MAX_TOKENS);
     int count = 0;
     
-    while (lexer.pos < lexer.length && count < MAX_TOKENS - 1) {
-        lexer_skip_whitespace(&lexer);
-        if (lexer.pos >= lexer.length) break;
+    while (*p && count < MAX_TOKENS - 1) {
+        // 跳过空白字符
+        if (isspace(*p)) {
+            if (*p == '\n') {
+                line++;
+                column = 1;
+            } else {
+                column++;
+            }
+            p++;
+            continue;
+        }
+        
+        // 跳过单行注释
+        if (*p == '/' && *(p + 1) == '/') {
+            p += 2;
+            while (*p && *p != '\n') {
+                p++;
+                column++;
+            }
+            continue;
+        }
+        
+        // 跳过多行注释
+        if (*p == '/' && *(p + 1) == '*') {
+            p += 2;
+            column += 2;
+            while (*p && !(*p == '*' && *(p + 1) == '/')) {
+                if (*p == '\n') {
+                    line++;
+                    column = 1;
+                } else {
+                    column++;
+                }
+                p++;
+            }
+            if (*p) {
+                p += 2;
+                column += 2;
+            }
+            continue;
+        }
         
         Token *token = &tokens[count];
-        token->line = lexer.line;
-        token->column = lexer.column;
+        token->line = line;
+        token->column = column;
         token->filename = filename;
         
-        char c = lexer.source[lexer.pos];
-        
         // 标识符或关键字
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
-            size_t start = lexer.pos;
-            while (lexer.pos < lexer.length) {
-                c = lexer.source[lexer.pos];
-                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || 
-                    (c >= '0' && c <= '9') || c == '_') {
-                    lexer.pos++;
-                    lexer.column++;
-                } else {
-                    break;
-                }
+        if (isalpha(*p) || *p == '_') {
+            const char *start = p;
+            int start_col = column;
+            while (isalnum(*p) || *p == '_') {
+                p++;
+                column++;
             }
             
-            size_t len = lexer.pos - start;
-            char *value = malloc(len + 1);
-            memcpy(value, lexer.source + start, len);
-            value[len] = '\0';
+            size_t len = p - start;
+            char *str = malloc(len + 1);
+            memcpy(str, start, len);
+            str[len] = '\0';
             
             // 检查关键字
-            if (strcmp(value, "int") == 0) token->type = TOKEN_INT;
-            else if (strcmp(value, "char") == 0) token->type = TOKEN_CHAR;
-            else if (strcmp(value, "void") == 0) token->type = TOKEN_VOID;
-            else if (strcmp(value, "return") == 0) token->type = TOKEN_RETURN;
-            else if (strcmp(value, "if") == 0) token->type = TOKEN_IF;
-            else if (strcmp(value, "else") == 0) token->type = TOKEN_ELSE;
-            else if (strcmp(value, "while") == 0) token->type = TOKEN_WHILE;
-            else if (strcmp(value, "for") == 0) token->type = TOKEN_FOR;
-            else if (strcmp(value, "do") == 0) token->type = TOKEN_DO;
-            else if (strcmp(value, "break") == 0) token->type = TOKEN_BREAK;
-            else if (strcmp(value, "continue") == 0) token->type = TOKEN_CONTINUE;
-            else if (strcmp(value, "struct") == 0) token->type = TOKEN_STRUCT;
-            else if (strcmp(value, "typedef") == 0) token->type = TOKEN_TYPEDEF;
-            else if (strcmp(value, "static") == 0) token->type = TOKEN_STATIC;
-            else if (strcmp(value, "extern") == 0) token->type = TOKEN_EXTERN;
-            else if (strcmp(value, "const") == 0) token->type = TOKEN_CONST;
-            else if (strcmp(value, "sizeof") == 0) token->type = TOKEN_SIZEOF;
-            else if (strcmp(value, "goto") == 0) token->type = TOKEN_GOTO;
-            else if (strcmp(value, "switch") == 0) token->type = TOKEN_SWITCH;
-            else if (strcmp(value, "case") == 0) token->type = TOKEN_CASE;
-            else if (strcmp(value, "default") == 0) token->type = TOKEN_DEFAULT;
+            if (strcmp(str, "int") == 0) token->type = TOKEN_INT;
+            else if (strcmp(str, "char") == 0) token->type = TOKEN_CHAR;
+            else if (strcmp(str, "void") == 0) token->type = TOKEN_VOID;
+            else if (strcmp(str, "return") == 0) token->type = TOKEN_RETURN;
+            else if (strcmp(str, "if") == 0) token->type = TOKEN_IF;
+            else if (strcmp(str, "else") == 0) token->type = TOKEN_ELSE;
+            else if (strcmp(str, "while") == 0) token->type = TOKEN_WHILE;
+            else if (strcmp(str, "for") == 0) token->type = TOKEN_FOR;
+            else if (strcmp(str, "do") == 0) token->type = TOKEN_DO;
+            else if (strcmp(str, "break") == 0) token->type = TOKEN_BREAK;
+            else if (strcmp(str, "continue") == 0) token->type = TOKEN_CONTINUE;
+            else if (strcmp(str, "struct") == 0) token->type = TOKEN_STRUCT;
+            else if (strcmp(str, "typedef") == 0) token->type = TOKEN_TYPEDEF;
+            else if (strcmp(str, "static") == 0) token->type = TOKEN_STATIC;
+            else if (strcmp(str, "extern") == 0) token->type = TOKEN_EXTERN;
+            else if (strcmp(str, "const") == 0) token->type = TOKEN_CONST;
+            else if (strcmp(str, "sizeof") == 0) token->type = TOKEN_SIZEOF;
+            else if (strcmp(str, "goto") == 0) token->type = TOKEN_GOTO;
+            else if (strcmp(str, "switch") == 0) token->type = TOKEN_SWITCH;
+            else if (strcmp(str, "case") == 0) token->type = TOKEN_CASE;
+            else if (strcmp(str, "default") == 0) token->type = TOKEN_DEFAULT;
             else token->type = TOKEN_IDENTIFIER;
             
-            token->value = value;
+            token->value = str;
             count++;
+            continue;
         }
+        
         // 数字
-        else if (c >= '0' && c <= '9') {
-            size_t start = lexer.pos;
+        if (isdigit(*p)) {
+            const char *start = p;
+            int start_col = column;
             
             // 十六进制
-            if (c == '0' && lexer.pos + 1 < lexer.length && 
-                (lexer.source[lexer.pos + 1] == 'x' || lexer.source[lexer.pos + 1] == 'X')) {
-                lexer.pos += 2;
-                lexer.column += 2;
-                while (lexer.pos < lexer.length && 
-                       ((lexer.source[lexer.pos] >= '0' && lexer.source[lexer.pos] <= '9') ||
-                        (lexer.source[lexer.pos] >= 'a' && lexer.source[lexer.pos] <= 'f') ||
-                        (lexer.source[lexer.pos] >= 'A' && lexer.source[lexer.pos] <= 'F'))) {
-                    lexer.pos++;
-                    lexer.column++;
+            if (*p == '0' && (*(p + 1) == 'x' || *(p + 1) == 'X')) {
+                p += 2;
+                column += 2;
+                while (isxdigit(*p)) {
+                    p++;
+                    column++;
                 }
             } else {
                 // 十进制
-                while (lexer.pos < lexer.length && lexer.source[lexer.pos] >= '0' && lexer.source[lexer.pos] <= '9') {
-                    lexer.pos++;
-                    lexer.column++;
+                while (isdigit(*p)) {
+                    p++;
+                    column++;
                 }
             }
             
-            size_t len = lexer.pos - start;
-            char *value = malloc(len + 1);
-            memcpy(value, lexer.source + start, len);
-            value[len] = '\0';
+            size_t len = p - start;
+            char *str = malloc(len + 1);
+            memcpy(str, start, len);
+            str[len] = '\0';
             
             token->type = TOKEN_NUMBER;
-            token->value = value;
+            token->value = str;
             count++;
+            continue;
         }
+        
         // 字符串
-        else if (c == '"') {
-            lexer.pos++; // 跳过开始的引号
-            lexer.column++;
-            size_t start = lexer.pos;
+        if (*p == '"') {
+            const char *start = p + 1;
+            int start_col = column;
+            p++;
+            column++;
             
-            while (lexer.pos < lexer.length && lexer.source[lexer.pos] != '"') {
-                if (lexer.source[lexer.pos] == '\\' && lexer.pos + 1 < lexer.length) {
-                    lexer.pos += 2; // 跳过转义字符
-                    lexer.column += 2;
+            while (*p && *p != '"') {
+                if (*p == '\\' && *(p + 1)) {
+                    p += 2;
+                    column += 2;
                 } else {
-                    if (lexer.source[lexer.pos] == '\n') {
-                        lexer.line++;
-                        lexer.column = 1;
+                    if (*p == '\n') {
+                        line++;
+                        column = 1;
                     } else {
-                        lexer.column++;
+                        column++;
                     }
-                    lexer.pos++;
+                    p++;
                 }
             }
             
-            size_t len = lexer.pos - start;
-            char *value = malloc(len + 1);
-            memcpy(value, lexer.source + start, len);
-            value[len] = '\0';
-            
-            if (lexer.pos < lexer.length) {
-                lexer.pos++; // 跳过结束的引号
-                lexer.column++;
+            if (*p == '"') {
+                size_t len = p - start;
+                char *str = malloc(len + 1);
+                memcpy(str, start, len);
+                str[len] = '\0';
+                
+                token->type = TOKEN_STRING;
+                token->value = str;
+                count++;
+                p++;
+                column++;
             }
-            
-            token->type = TOKEN_STRING;
-            token->value = value;
-            count++;
+            continue;
         }
+        
         // 字符字面量
-        else if (c == '\'') {
-            lexer.pos++; // 跳过开始的引号
-            lexer.column++;
-            size_t start = lexer.pos;
+        if (*p == '\'') {
+            const char *start = p + 1;
+            int start_col = column;
+            p++;
+            column++;
             
-            if (lexer.pos < lexer.length && lexer.source[lexer.pos] == '\\') {
-                lexer.pos += 2; // 转义字符
-                lexer.column += 2;
-            } else if (lexer.pos < lexer.length) {
-                lexer.pos++;
-                lexer.column++;
+            if (*p == '\\' && *(p + 1)) {
+                p += 2;
+                column += 2;
+            } else if (*p) {
+                p++;
+                column++;
             }
             
-            size_t len = lexer.pos - start;
-            char *value = malloc(len + 1);
-            memcpy(value, lexer.source + start, len);
-            value[len] = '\0';
-            
-            if (lexer.pos < lexer.length && lexer.source[lexer.pos] == '\'') {
-                lexer.pos++;
-                lexer.column++;
+            if (*p == '\'') {
+                size_t len = p - start;
+                char *str = malloc(len + 1);
+                memcpy(str, start, len);
+                str[len] = '\0';
+                
+                token->type = TOKEN_CHAR_LITERAL;
+                token->value = str;
+                count++;
+                p++;
+                column++;
             }
-            
-            token->type = TOKEN_CHAR_LITERAL;
-            token->value = value;
-            count++;
+            continue;
         }
-        // 操作符和标点
-        else {
-            char next = (lexer.pos + 1 < lexer.length) ? lexer.source[lexer.pos + 1] : '\0';
-            
-            switch (c) {
-                case '+':
-                    if (next == '+') {
-                        token->type = TOKEN_INCREMENT;
-                        token->value = strdup("++");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else if (next == '=') {
-                        token->type = TOKEN_PLUS_ASSIGN;
-                        token->value = strdup("+=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_PLUS;
-                        token->value = strdup("+");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '-':
-                    if (next == '-') {
-                        token->type = TOKEN_DECREMENT;
-                        token->value = strdup("--");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else if (next == '=') {
-                        token->type = TOKEN_MINUS_ASSIGN;
-                        token->value = strdup("-=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else if (next == '>') {
-                        token->type = TOKEN_ARROW;
-                        token->value = strdup("->");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_MINUS;
-                        token->value = strdup("-");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '*':
-                    if (next == '=') {
-                        token->type = TOKEN_MUL_ASSIGN;
-                        token->value = strdup("*=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_MULTIPLY;
-                        token->value = strdup("*");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '/':
-                    if (next == '=') {
-                        token->type = TOKEN_DIV_ASSIGN;
-                        token->value = strdup("/=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_DIVIDE;
-                        token->value = strdup("/");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '%':
-                    if (next == '=') {
-                        token->type = TOKEN_MOD_ASSIGN;
-                        token->value = strdup("%=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_MOD;
-                        token->value = strdup("%");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '=':
-                    if (next == '=') {
-                        token->type = TOKEN_EQUAL;
-                        token->value = strdup("==");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_ASSIGN;
-                        token->value = strdup("=");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '!':
-                    if (next == '=') {
-                        token->type = TOKEN_NOT_EQUAL;
-                        token->value = strdup("!=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_LOGICAL_NOT;
-                        token->value = strdup("!");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '<':
-                    if (next == '=') {
-                        token->type = TOKEN_LESS_EQUAL;
-                        token->value = strdup("<=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else if (next == '<') {
-                        token->type = TOKEN_LEFT_SHIFT;
-                        token->value = strdup("<<");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_LESS;
-                        token->value = strdup("<");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '>':
-                    if (next == '=') {
-                        token->type = TOKEN_GREATER_EQUAL;
-                        token->value = strdup(">=");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else if (next == '>') {
-                        token->type = TOKEN_RIGHT_SHIFT;
-                        token->value = strdup(">>");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_GREATER;
-                        token->value = strdup(">");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '&':
-                    if (next == '&') {
-                        token->type = TOKEN_LOGICAL_AND;
-                        token->value = strdup("&&");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_BIT_AND;
-                        token->value = strdup("&");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '|':
-                    if (next == '|') {
-                        token->type = TOKEN_LOGICAL_OR;
-                        token->value = strdup("||");
-                        lexer.pos += 2;
-                        lexer.column += 2;
-                    } else {
-                        token->type = TOKEN_BIT_OR;
-                        token->value = strdup("|");
-                        lexer.pos++;
-                        lexer.column++;
-                    }
-                    count++;
-                    break;
-                    
-                case '^':
-                    token->type = TOKEN_BIT_XOR;
-                    token->value = strdup("^");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '~':
-                    token->type = TOKEN_BIT_NOT;
-                    token->value = strdup("~");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '(':
-                    token->type = TOKEN_LPAREN;
-                    token->value = strdup("(");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case ')':
-                    token->type = TOKEN_RPAREN;
-                    token->value = strdup(")");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '{':
-                    token->type = TOKEN_LBRACE;
-                    token->value = strdup("{");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '}':
-                    token->type = TOKEN_RBRACE;
-                    token->value = strdup("}");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '[':
-                    token->type = TOKEN_LBRACKET;
-                    token->value = strdup("[");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case ']':
-                    token->type = TOKEN_RBRACKET;
-                    token->value = strdup("]");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case ';':
-                    token->type = TOKEN_SEMICOLON;
-                    token->value = strdup(";");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case ',':
-                    token->type = TOKEN_COMMA;
-                    token->value = strdup(",");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '.':
-                    token->type = TOKEN_DOT;
-                    token->value = strdup(".");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case ':':
-                    token->type = TOKEN_COLON;
-                    token->value = strdup(":");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '?':
-                    token->type = TOKEN_QUESTION;
-                    token->value = strdup("?");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                case '#':
-                    token->type = TOKEN_HASH;
-                    token->value = strdup("#");
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-                    
-                default:
-                    token->type = TOKEN_UNKNOWN;
-                    char buf[2] = {c, '\0'};
-                    token->value = strdup(buf);
-                    lexer.pos++;
-                    lexer.column++;
-                    count++;
-                    break;
-            }
+        
+        // 操作符和分隔符
+        int start_col = column;
+        switch (*p) {
+            case '+':
+                if (*(p + 1) == '+') {
+                    token->type = TOKEN_INCREMENT;
+                    token->value = strdup("++");
+                    p += 2; column += 2;
+                } else if (*(p + 1) == '=') {
+                    token->type = TOKEN_PLUS_ASSIGN;
+                    token->value = strdup("+=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_PLUS;
+                    token->value = strdup("+");
+                    p++; column++;
+                }
+                break;
+            case '-':
+                if (*(p + 1) == '-') {
+                    token->type = TOKEN_DECREMENT;
+                    token->value = strdup("--");
+                    p += 2; column += 2;
+                } else if (*(p + 1) == '=') {
+                    token->type = TOKEN_MINUS_ASSIGN;
+                    token->value = strdup("-=");
+                    p += 2; column += 2;
+                } else if (*(p + 1) == '>') {
+                    token->type = TOKEN_ARROW;
+                    token->value = strdup("->");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_MINUS;
+                    token->value = strdup("-");
+                    p++; column++;
+                }
+                break;
+            case '*':
+                if (*(p + 1) == '=') {
+                    token->type = TOKEN_MUL_ASSIGN;
+                    token->value = strdup("*=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_MULTIPLY;
+                    token->value = strdup("*");
+                    p++; column++;
+                }
+                break;
+            case '/':
+                if (*(p + 1) == '=') {
+                    token->type = TOKEN_DIV_ASSIGN;
+                    token->value = strdup("/=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_DIVIDE;
+                    token->value = strdup("/");
+                    p++; column++;
+                }
+                break;
+            case '%':
+                if (*(p + 1) == '=') {
+                    token->type = TOKEN_MOD_ASSIGN;
+                    token->value = strdup("%=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_MOD;
+                    token->value = strdup("%");
+                    p++; column++;
+                }
+                break;
+            case '=':
+                if (*(p + 1) == '=') {
+                    token->type = TOKEN_EQUAL;
+                    token->value = strdup("==");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_ASSIGN;
+                    token->value = strdup("=");
+                    p++; column++;
+                }
+                break;
+            case '!':
+                if (*(p + 1) == '=') {
+                    token->type = TOKEN_NOT_EQUAL;
+                    token->value = strdup("!=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_LOGICAL_NOT;
+                    token->value = strdup("!");
+                    p++; column++;
+                }
+                break;
+            case '<':
+                if (*(p + 1) == '<') {
+                    token->type = TOKEN_LEFT_SHIFT;
+                    token->value = strdup("<<");
+                    p += 2; column += 2;
+                } else if (*(p + 1) == '=') {
+                    token->type = TOKEN_LESS_EQUAL;
+                    token->value = strdup("<=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_LESS;
+                    token->value = strdup("<");
+                    p++; column++;
+                }
+                break;
+            case '>':
+                if (*(p + 1) == '>') {
+                    token->type = TOKEN_RIGHT_SHIFT;
+                    token->value = strdup(">>");
+                    p += 2; column += 2;
+                } else if (*(p + 1) == '=') {
+                    token->type = TOKEN_GREATER_EQUAL;
+                    token->value = strdup(">=");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_GREATER;
+                    token->value = strdup(">");
+                    p++; column++;
+                }
+                break;
+            case '&':
+                if (*(p + 1) == '&') {
+                    token->type = TOKEN_LOGICAL_AND;
+                    token->value = strdup("&&");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_BIT_AND;
+                    token->value = strdup("&");
+                    p++; column++;
+                }
+                break;
+            case '|':
+                if (*(p + 1) == '|') {
+                    token->type = TOKEN_LOGICAL_OR;
+                    token->value = strdup("||");
+                    p += 2; column += 2;
+                } else {
+                    token->type = TOKEN_BIT_OR;
+                    token->value = strdup("|");
+                    p++; column++;
+                }
+                break;
+            case '^':
+                token->type = TOKEN_BIT_XOR;
+                token->value = strdup("^");
+                p++; column++;
+                break;
+            case '~':
+                token->type = TOKEN_BIT_NOT;
+                token->value = strdup("~");
+                p++; column++;
+                break;
+            case '(':
+                token->type = TOKEN_LPAREN;
+                token->value = strdup("(");
+                p++; column++;
+                break;
+            case ')':
+                token->type = TOKEN_RPAREN;
+                token->value = strdup(")");
+                p++; column++;
+                break;
+            case '{':
+                token->type = TOKEN_LBRACE;
+                token->value = strdup("{");
+                p++; column++;
+                break;
+            case '}':
+                token->type = TOKEN_RBRACE;
+                token->value = strdup("}");
+                p++; column++;
+                break;
+            case '[':
+                token->type = TOKEN_LBRACKET;
+                token->value = strdup("[");
+                p++; column++;
+                break;
+            case ']':
+                token->type = TOKEN_RBRACKET;
+                token->value = strdup("]");
+                p++; column++;
+                break;
+            case ';':
+                token->type = TOKEN_SEMICOLON;
+                token->value = strdup(";");
+                p++; column++;
+                break;
+            case ',':
+                token->type = TOKEN_COMMA;
+                token->value = strdup(",");
+                p++; column++;
+                break;
+            case ':':
+                token->type = TOKEN_COLON;
+                token->value = strdup(":");
+                p++; column++;
+                break;
+            case '?':
+                token->type = TOKEN_QUESTION;
+                token->value = strdup("?");
+                p++; column++;
+                break;
+            case '.':
+                token->type = TOKEN_DOT;
+                token->value = strdup(".");
+                p++; column++;
+                break;
+            case '#':
+                token->type = TOKEN_HASH;
+                token->value = strdup("#");
+                p++; column++;
+                break;
+            default:
+                fprintf(stderr, "未知字符: %c (行 %d, 列 %d)\n", *p, line, column);
+                p++; column++;
+                break;
         }
+        count++;
     }
     
-    // 添加EOF标记
-    tokens[count].type = TOKEN_EOF;
-    tokens[count].value = strdup("");
-    tokens[count].line = lexer.line;
-    tokens[count].column = lexer.column;
-    tokens[count].filename = filename;
-    count++;
+    // 添加EOF token
+    if (count < MAX_TOKENS) {
+        tokens[count].type = TOKEN_EOF;
+        tokens[count].value = NULL;
+        tokens[count].line = line;
+        tokens[count].column = column;
+        tokens[count].filename = filename;
+        count++;
+    }
     
     *token_count = count;
     return tokens;
@@ -1594,7 +1537,7 @@ int main(int argc, char *argv[]) {
     }
     
     if (!options.input_file || !options.output_file) {
-        fprintf(stderr, "Error: Input and output files are required\n");
+        fprintf(stderr, "错误：需要指定输入文件和输出文件\n");
         print_usage(argv[0]);
         return 1;
     }
@@ -1602,7 +1545,7 @@ int main(int argc, char *argv[]) {
     // 读取源文件
     char *source = read_file(options.input_file);
     if (!source) {
-        fprintf(stderr, "Error: Cannot read file %s\n", options.input_file);
+        fprintf(stderr, "错误：无法读取文件 %s\n", options.input_file);
         return 1;
     }
     
