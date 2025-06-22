@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#include "tcc-win/tcc/include/compat.h"
+#endif
+
 /**
  * evolver0.c - 第零代自举编译器
  * 目标：能够编译自身的最小C编译器
@@ -10,8 +14,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <ctype.h>
-#include <sys/stat.h>
+#ifdef _WIN32
+/* Windows环境 */
+#include "tcc-win/tcc/include/unistd.h"
+#include <windows.h>
+#else
+/* Unix/Linux环境 */
 #include <unistd.h>
+#include <sys/stat.h>
+#endif
 #include <stdarg.h>
 
 // ====================================
@@ -137,68 +148,8 @@ typedef enum {
     OP_PLUS, OP_MINUS
 } OperatorType;
 
-// AST节点类型
-typedef enum {
-    // 基础节点
-    AST_TRANSLATION_UNIT,
-    AST_FUNCTION_DEF,
-    AST_FUNCTION_DECL,
-    AST_PARAM_DECL,
-    AST_VAR_DECL,
-    AST_TYPE_NAME,
-    
-    // 语句
-    AST_COMPOUND_STMT,
-    AST_EXPRESSION_STMT,
-    AST_IF_STMT,
-    AST_WHILE_STMT,
-    AST_DO_WHILE_STMT,
-    AST_FOR_STMT,
-    AST_RETURN_STMT,
-    AST_BREAK_STMT,
-    AST_CONTINUE_STMT,
-    AST_GOTO_STMT,
-    AST_LABEL_STMT,
-    
-    // 表达式
-    AST_INTEGER_LITERAL,
-    AST_STRING_LITERAL,
-    AST_CHAR_LITERAL,
-    AST_IDENTIFIER,
-    AST_BINARY_EXPR,
-    AST_UNARY_EXPR,
-    AST_ASSIGNMENT_EXPR,
-    AST_CALL_EXPR,
-    AST_ARRAY_SUBSCRIPT_EXPR,
-    AST_MEMBER_EXPR,
-    AST_POST_INCREMENT_EXPR,
-    AST_POST_DECREMENT_EXPR,
-    AST_CAST_EXPR,
-    AST_SIZEOF_EXPR,
-    AST_CONDITIONAL_EXPR,
-    
-    // 旧的兼容类型
-    AST_PROGRAM,
-    AST_FUNCTION,
-    AST_PARAMETER,
-    AST_RETURN,
-    AST_INTEGER,
-    AST_BINARY_OP,
-    AST_UNARY_OP,
-    AST_COMPOUND,
-    AST_DECLARATION,
-    AST_ASSIGNMENT,
-    AST_IF,
-    AST_WHILE,
-    AST_FOR,
-    AST_CALL,
-    AST_ARRAY_ACCESS,
-    AST_CAST,
-    AST_SIZEOF,
-    AST_TYPE,
-    AST_BREAK,
-    AST_CONTINUE
-} ASTNodeType;
+// 包含AST节点定义
+#include "evolver0_ast.h"
 
 // AST节点结构
 typedef struct ASTNode {
@@ -696,10 +647,6 @@ static Token* lexer_tokenize(const char *source, const char *filename, int *toke
                 if (*(p + 1) == '-') {
                     token->type = TOKEN_DECREMENT;
                     token->value = strdup("--");
-                    p += 2; column += 2;
-                } else if (*(p + 1) == '=') {
-                    token->type = TOKEN_MINUS_ASSIGN;
-                    token->value = strdup("-=");
                     p += 2; column += 2;
                 } else if (*(p + 1) == '>') {
                     token->type = TOKEN_ARROW;
