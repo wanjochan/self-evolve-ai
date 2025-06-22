@@ -5317,6 +5317,10 @@ static int write_elf_executable(const char *filename, MachineCode *code) {
     return generate_elf_executable(filename, code->code, code->size, code->entry_point);
 }
 
+static int write_pe_executable(const char *filename, MachineCode *code) {
+    return generate_pe_executable(filename, code->code, code->size, code->entry_point);
+}
+
 static int generate_executable(const char *source, const char *output_file, const char *target_arch) {
     BootstrapCompiler compiler;
     memset(&compiler, 0, sizeof(compiler));
@@ -5329,6 +5333,7 @@ static int generate_executable(const char *source, const char *output_file, cons
     printf("开始词法分析...\n");
     if (tokenize(&compiler, source) == 0) {
         fprintf(stderr, "词法分析失败\n");
+        free(compiler.source_code);
         return 1;
     }
     printf("词法分析完成，生成 %d 个token\n", compiler.token_count);
@@ -5337,12 +5342,26 @@ static int generate_executable(const char *source, const char *output_file, cons
     printf("开始语法分析和代码生成...\n");
     if (parse_and_generate(&compiler) != 0) {
         fprintf(stderr, "语法分析或代码生成失败\n");
+        free(compiler.source_code);
         return 1;
     }
     
     // 生成可执行文件
     printf("生成可执行文件: %s\n", output_file);
-    if (write_elf_executable(output_file, &compiler.machine_code) != 0) {
+    
+    // 根据目标平台选择可执行文件格式
+    int result = -1;
+    if (strstr(target_arch, "windows") != NULL) {
+        // Windows平台使用PE格式
+        printf("使用PE格式生成Windows可执行文件\n");
+        result = write_pe_executable(output_file, &compiler.machine_code);
+    } else {
+        // 默认使用ELF格式
+        printf("使用ELF格式生成Linux可执行文件\n");
+        result = write_elf_executable(output_file, &compiler.machine_code);
+    }
+    
+    if (result != 0) {
         fprintf(stderr, "生成可执行文件失败\n");
         return 1;
     }
@@ -5583,3 +5602,8 @@ static int bootstrap_compile_real(const char *source, const CompilerConfig *conf
 // 包含解析器和代码生成模块
 #include "evolver0_parser.inc.c"
 #include "evolver0_codegen.inc.c" 
+
+// ====================================
+// PE文件格式支持 (Windows可执行文件)
+// ====================================
+

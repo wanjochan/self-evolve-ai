@@ -892,3 +892,256 @@ int generate_elf_executable(const char *filename, unsigned char *code, size_t co
     
     return 0;
 }
+
+// ====================================
+// PE文件生成 (Windows可执行文件)
+// ====================================
+
+// PE文件格式常量
+#define PE_DOS_HEADER_SIZE 64
+#define PE_SIGNATURE_SIZE 4
+#define PE_FILE_HEADER_SIZE 20
+#define PE_OPTIONAL_HEADER_SIZE 224  // PE32格式
+#define PE_SECTION_HEADER_SIZE 40
+
+// PE文件格式结构体
+typedef struct {
+    // DOS头
+    uint16_t e_magic;          // MZ签名
+    uint16_t e_cblp;
+    uint16_t e_cp;
+    uint16_t e_crlc;
+    uint16_t e_cparhdr;
+    uint16_t e_minalloc;
+    uint16_t e_maxalloc;
+    uint16_t e_ss;
+    uint16_t e_sp;
+    uint16_t e_csum;
+    uint16_t e_ip;
+    uint16_t e_cs;
+    uint16_t e_lfarlc;
+    uint16_t e_ovno;
+    uint16_t e_res[4];
+    uint16_t e_oemid;
+    uint16_t e_oeminfo;
+    uint16_t e_res2[10];
+    uint32_t e_lfanew;         // PE头偏移
+} DOS_HEADER;
+
+typedef struct {
+    uint16_t Machine;
+    uint16_t NumberOfSections;
+    uint32_t TimeDateStamp;
+    uint32_t PointerToSymbolTable;
+    uint32_t NumberOfSymbols;
+    uint16_t SizeOfOptionalHeader;
+    uint16_t Characteristics;
+} PE_FILE_HEADER;
+
+typedef struct {
+    uint16_t Magic;
+    uint8_t  MajorLinkerVersion;
+    uint8_t  MinorLinkerVersion;
+    uint32_t SizeOfCode;
+    uint32_t SizeOfInitializedData;
+    uint32_t SizeOfUninitializedData;
+    uint32_t AddressOfEntryPoint;
+    uint32_t BaseOfCode;
+    uint32_t BaseOfData;
+    uint32_t ImageBase;
+    uint32_t SectionAlignment;
+    uint32_t FileAlignment;
+    uint16_t MajorOperatingSystemVersion;
+    uint16_t MinorOperatingSystemVersion;
+    uint16_t MajorImageVersion;
+    uint16_t MinorImageVersion;
+    uint16_t MajorSubsystemVersion;
+    uint16_t MinorSubsystemVersion;
+    uint32_t Win32VersionValue;
+    uint32_t SizeOfImage;
+    uint32_t SizeOfHeaders;
+    uint32_t CheckSum;
+    uint16_t Subsystem;
+    uint16_t DllCharacteristics;
+    uint32_t SizeOfStackReserve;
+    uint32_t SizeOfStackCommit;
+    uint32_t SizeOfHeapReserve;
+    uint32_t SizeOfHeapCommit;
+    uint32_t LoaderFlags;
+    uint32_t NumberOfRvaAndSizes;
+} PE_OPTIONAL_HEADER;
+
+typedef struct {
+    uint32_t VirtualAddress;
+    uint32_t Size;
+} PE_DATA_DIRECTORY;
+
+typedef struct {
+    uint8_t  Name[8];
+    uint32_t VirtualSize;
+    uint32_t VirtualAddress;
+    uint32_t SizeOfRawData;
+    uint32_t PointerToRawData;
+    uint32_t PointerToRelocations;
+    uint32_t PointerToLinenumbers;
+    uint16_t NumberOfRelocations;
+    uint16_t NumberOfLinenumbers;
+    uint32_t Characteristics;
+} PE_SECTION_HEADER;
+
+// DOS存根程序
+static const unsigned char dos_stub[] = {
+    0x0E, 0x1F, 0xBA, 0x0E, 0x00, 0xB4, 0x09, 0xCD, 0x21, 0xB8, 0x01, 0x4C, 0xCD, 0x21, 0x54, 0x68,
+    0x69, 0x73, 0x20, 0x70, 0x72, 0x6F, 0x67, 0x72, 0x61, 0x6D, 0x20, 0x63, 0x61, 0x6E, 0x6E, 0x6F,
+    0x74, 0x20, 0x62, 0x65, 0x20, 0x72, 0x75, 0x6E, 0x20, 0x69, 0x6E, 0x20, 0x44, 0x4F, 0x53, 0x20,
+    0x6D, 0x6F, 0x64, 0x65, 0x2E, 0x0D, 0x0D, 0x0A, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+int generate_pe_executable(const char *filename, unsigned char *code, size_t code_size, int entry_offset) {
+    FILE *f = fopen(filename, "wb");
+    if (!f) {
+        perror("无法创建文件");
+        return -1;
+    }
+
+    // 基地址和对齐设置
+    const uint64_t image_base = 0x140000000;  // 64位Windows默认基址
+    const uint32_t section_alignment = 0x1000;  // 4KB
+    const uint32_t file_alignment = 0x200;      // 512字节
+    const uint32_t headers_size = 0x400;        // 头部大小1KB
+
+    // 计算代码段大小（文件对齐）
+    uint32_t code_size_aligned = (code_size + file_alignment - 1) & ~(file_alignment - 1);
+    
+    // 计算镜像大小（内存对齐）
+    uint32_t code_virtual_size = (code_size + section_alignment - 1) & ~(section_alignment - 1);
+    uint32_t image_size = section_alignment + code_virtual_size;
+
+    // 1. DOS头
+    DOS_HEADER dos_header = {0};
+    dos_header.e_magic = 0x5A4D;  // "MZ"
+    dos_header.e_lfanew = PE_DOS_HEADER_SIZE + sizeof(dos_stub);
+    fwrite(&dos_header, 1, sizeof(DOS_HEADER), f);
+
+    // 2. DOS存根
+    fwrite(dos_stub, 1, sizeof(dos_stub), f);
+
+    // 3. PE签名
+    uint32_t pe_signature = 0x00004550;  // "PE\0\0"
+    fwrite(&pe_signature, 1, sizeof(uint32_t), f);
+
+    // 4. PE文件头
+    PE_FILE_HEADER file_header = {0};
+    file_header.Machine = 0x8664;  // x86-64
+    file_header.NumberOfSections = 1;  // 只有一个代码段
+    file_header.TimeDateStamp = (uint32_t)time(NULL);
+    file_header.SizeOfOptionalHeader = sizeof(PE_OPTIONAL_HEADER) + 16 * sizeof(PE_DATA_DIRECTORY);
+    file_header.Characteristics = 0x0022;  // 可执行 + 大地址感知
+    fwrite(&file_header, 1, sizeof(PE_FILE_HEADER), f);
+
+    // 5. PE可选头 (64位版本)
+    PE_OPTIONAL_HEADER64 optional_header = {0};
+    optional_header.Magic = 0x20B;  // PE32+ (64位)
+    optional_header.MajorLinkerVersion = 1;
+    optional_header.MinorLinkerVersion = 0;
+    optional_header.SizeOfCode = code_size_aligned;
+    optional_header.SizeOfInitializedData = 0;
+    optional_header.SizeOfUninitializedData = 0;
+    optional_header.AddressOfEntryPoint = section_alignment + entry_offset;  // 代码入口点
+    optional_header.BaseOfCode = section_alignment;
+    optional_header.ImageBase = image_base;
+    optional_header.SectionAlignment = section_alignment;
+    optional_header.FileAlignment = file_alignment;
+    optional_header.MajorOperatingSystemVersion = 6;
+    optional_header.MinorOperatingSystemVersion = 0;
+    optional_header.MajorImageVersion = 0;
+    optional_header.MinorImageVersion = 0;
+    optional_header.MajorSubsystemVersion = 6;
+    optional_header.MinorSubsystemVersion = 0;
+    optional_header.Win32VersionValue = 0;
+    optional_header.SizeOfImage = image_size;
+    optional_header.SizeOfHeaders = headers_size;
+    optional_header.CheckSum = 0;
+    optional_header.Subsystem = 3;  // 控制台应用
+    optional_header.DllCharacteristics = 0x140;  // 动态基址 + NX兼容
+    optional_header.SizeOfStackReserve = 0x100000;  // 1MB
+    optional_header.SizeOfStackCommit = 0x1000;     // 4KB
+    optional_header.SizeOfHeapReserve = 0x100000;   // 1MB
+    optional_header.SizeOfHeapCommit = 0x1000;      // 4KB
+    optional_header.LoaderFlags = 0;
+    optional_header.NumberOfRvaAndSizes = 16;
+    fwrite(&optional_header, 1, sizeof(PE_OPTIONAL_HEADER64), f);
+
+    // 6. 数据目录
+    PE_DATA_DIRECTORY data_directories[16] = {0};
+    fwrite(data_directories, 1, 16 * sizeof(PE_DATA_DIRECTORY), f);
+
+    // 7. 节表
+    PE_SECTION_HEADER section_header = {0};
+    memcpy(section_header.Name, ".text\0\0\0", 8);  // 代码段名称
+    section_header.VirtualSize = code_size;
+    section_header.VirtualAddress = section_alignment;  // 第一个节从4KB开始
+    section_header.SizeOfRawData = code_size_aligned;
+    section_header.PointerToRawData = headers_size;
+    section_header.PointerToRelocations = 0;
+    section_header.PointerToLinenumbers = 0;
+    section_header.NumberOfRelocations = 0;
+    section_header.NumberOfLinenumbers = 0;
+    section_header.Characteristics = 0x60000020;  // 代码段，可执行，可读
+    fwrite(&section_header, 1, sizeof(PE_SECTION_HEADER), f);
+
+    // 8. 填充到头部结束
+    long current_pos = ftell(f);
+    while (current_pos < headers_size) {
+        fputc(0, f);
+        current_pos++;
+    }
+
+    // 9. 写入代码段
+    fwrite(code, 1, code_size, f);
+
+    // 10. 填充到文件对齐
+    current_pos = ftell(f);
+    uint32_t aligned_end = (current_pos + file_alignment - 1) & ~(file_alignment - 1);
+    while (current_pos < aligned_end) {
+        fputc(0, f);
+        current_pos++;
+    }
+
+    fclose(f);
+    printf("成功生成PE可执行文件: %s\n", filename);
+    return 0;
+}
+
+// 添加64位PE头结构定义
+typedef struct {
+    uint16_t Magic;
+    uint8_t  MajorLinkerVersion;
+    uint8_t  MinorLinkerVersion;
+    uint32_t SizeOfCode;
+    uint32_t SizeOfInitializedData;
+    uint32_t SizeOfUninitializedData;
+    uint32_t AddressOfEntryPoint;
+    uint32_t BaseOfCode;
+    uint64_t ImageBase;           // 注意：PE32+使用64位基址
+    uint32_t SectionAlignment;
+    uint32_t FileAlignment;
+    uint16_t MajorOperatingSystemVersion;
+    uint16_t MinorOperatingSystemVersion;
+    uint16_t MajorImageVersion;
+    uint16_t MinorImageVersion;
+    uint16_t MajorSubsystemVersion;
+    uint16_t MinorSubsystemVersion;
+    uint32_t Win32VersionValue;
+    uint32_t SizeOfImage;
+    uint32_t SizeOfHeaders;
+    uint32_t CheckSum;
+    uint16_t Subsystem;
+    uint16_t DllCharacteristics;
+    uint64_t SizeOfStackReserve;  // 注意：PE32+使用64位大小
+    uint64_t SizeOfStackCommit;   // 注意：PE32+使用64位大小
+    uint64_t SizeOfHeapReserve;   // 注意：PE32+使用64位大小
+    uint64_t SizeOfHeapCommit;    // 注意：PE32+使用64位大小
+    uint32_t LoaderFlags;
+    uint32_t NumberOfRvaAndSizes;
+} PE_OPTIONAL_HEADER64;
