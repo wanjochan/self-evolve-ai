@@ -84,15 +84,7 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size);
  */
 struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size);
 
-/**
- * 将ASTC表示转换为WASM二进制格式
- * 
- * @param node ASTC根节点
- * @param options 转换配置选项
- * @param out_size 输出的WASM二进制大小
- * @return WASM二进制数据，调用者负责释放内存
- */
-unsigned char* c2astc_to_wasm(struct ASTNode *node, const C2AstcOptions *options, size_t *out_size);
+unsigned char* c2astc(struct ASTNode *node, const C2AstcOptions *options, size_t *out_size);
 
 /**
  * 释放由库分配的内存

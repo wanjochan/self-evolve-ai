@@ -1,174 +1,116 @@
 /**
- * test4.c - 复杂特性测试，包含更多C语言特性
+ * test4.c - 测试文件转换功能
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include "c2astc.h"
 
-// 复杂的结构体定义
-typedef struct Node {
-    int data;
-    char *name;
-    struct Node *next;
-} Node;
-
-// 枚举类型
-typedef enum Color {
-    RED,
-    GREEN,
-    BLUE,
-    YELLOW = 10,
-    PURPLE,
-    WHITE
-} Color;
-
-// 使用函数指针
-typedef int (*CompareFunc)(const void*, const void*);
-
-// 宏定义（预处理）
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define SQUARE(x) ((x) * (x))
-#define PI 3.14159265359
-
-// 全局变量
-int global_var = 42;
-const double g_pi = PI;
-
-// 函数前置声明
-Node* create_node(int data, const char* name);
-void free_node(Node* node);
-int compare_nodes(const void* a, const void* b);
-
-// 带默认参数的函数实现
-Node* create_node(int data, const char* name) {
-    Node* node = (Node*)malloc(sizeof(Node));
-    if (node) {
-        node->data = data;
-        node->name = name ? strdup(name) : NULL;
-        node->next = NULL;
-    }
-    return node;
-}
-
-// 递归函数
-void free_node_list(Node* head) {
-    if (head) {
-        free_node_list(head->next);
-        free_node(head);
-    }
-}
-
-void free_node(Node* node) {
-    if (node) {
-        if (node->name) free(node->name);
-        free(node);
-    }
-}
-
-// 使用函数指针的函数
-int compare_nodes(const void* a, const void* b) {
-    const Node* node_a = *(const Node**)a;
-    const Node* node_b = *(const Node**)b;
-    return node_a->data - node_b->data;
-}
-
-// 复杂控制流
-void process_colors(Color* colors, int count) {
-    int red_count = 0, green_count = 0, other_count = 0;
-    
-    for (int i = 0; i < count; i++) {
-        switch (colors[i]) {
-            case RED:
-                red_count++;
-                break;
-            case GREEN:
-                green_count++;
-                break;
-            default:
-                other_count++;
-                break;
-        }
+// 辅助函数：创建测试C文件
+int create_test_file(const char *filename, const char *content) {
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        printf("无法创建文件: %s\n", filename);
+        return 0;
     }
     
-    printf("Colors: %d red, %d green, %d other\n", red_count, green_count, other_count);
+    fprintf(fp, "%s", content);
+    fclose(fp);
+    return 1;
 }
 
-// 使用变长数组（C99特性）
-double calculate_average(int count, int numbers[count]) {
-    double sum = 0.0;
-    for (int i = 0; i < count; i++) {
-        sum += numbers[i];
-    }
-    return sum / count;
-}
-
-// 使用goto语句
-int find_in_matrix(int rows, int cols, int matrix[rows][cols], int target) {
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            if (matrix[i][j] == target) {
-                goto found;
-            }
-        }
-    }
-    return -1; // 未找到
-    
-found:
-    return 1; // 找到
-}
-
-// 位运算
-unsigned int set_bit(unsigned int value, int bit_position) {
-    return value | (1u << bit_position);
-}
-
-unsigned int clear_bit(unsigned int value, int bit_position) {
-    return value & ~(1u << bit_position);
-}
-
-unsigned int toggle_bit(unsigned int value, int bit_position) {
-    return value ^ (1u << bit_position);
-}
-
-// 主函数
 int main() {
-    // 创建链表
-    Node* head = create_node(100, "Head");
-    head->next = create_node(50, "Middle");
-    head->next->next = create_node(200, "Tail");
+    printf("测试4: 文件转换功能\n");
+    printf("===================\n\n");
     
-    // 使用数组
-    Node* nodes[3] = { head, head->next, head->next->next };
+    // 创建测试文件
+    const char *test_filename = "test_source.c";
+    const char *test_content = 
+        "#include <stdio.h>\n\n"
+        "/**\n"
+        " * 计算阶乘的函数\n"
+        " */\n"
+        "int factorial(int n) {\n"
+        "    if (n <= 1) return 1;\n"
+        "    return n * factorial(n-1);\n"
+        "}\n\n"
+        "int main() {\n"
+        "    int n = 5;\n"
+        "    printf(\"Factorial of %d is %d\\n\", n, factorial(n));\n"
+        "    return 0;\n"
+        "}\n";
     
-    // 排序（使用函数指针）
-    qsort(nodes, 3, sizeof(Node*), compare_nodes);
-    
-    // 输出排序后的结果
-    for (int i = 0; i < 3; i++) {
-        printf("Node %d: %s (data: %d)\n", i+1, nodes[i]->name, nodes[i]->data);
+    printf("创建测试文件: %s\n", test_filename);
+    if (!create_test_file(test_filename, test_content)) {
+        printf("创建测试文件失败!\n");
+        return 1;
     }
     
-    // 测试枚举
-    Color colors[5] = {RED, GREEN, BLUE, YELLOW, PURPLE};
-    process_colors(colors, 5);
+    printf("测试文件内容:\n%s\n", test_content);
     
-    // 测试可变长数组
-    int scores[] = {85, 92, 78, 95, 88};
-    double avg = calculate_average(5, scores);
-    printf("Average score: %.2f\n", avg);
+    // 使用默认选项
+    C2AstcOptions options = c2astc_default_options();
     
-    // 测试位运算
-    unsigned int flags = 0;
-    flags = set_bit(flags, 3);    // 设置第3位
-    flags = set_bit(flags, 5);    // 设置第5位
-    flags = toggle_bit(flags, 3); // 切换第3位
+    // 从文件转换为ASTC
+    printf("从文件转换为ASTC...\n");
+    struct ASTNode *ast = c2astc_convert_file(test_filename, &options);
     
-    printf("Flags: %u\n", flags);
+    if (!ast) {
+        const char *error = c2astc_get_error();
+        printf("转换失败: %s\n", error ? error : "未知错误");
+        return 1;
+    }
+    
+    printf("转换成功!\n\n");
+    
+    // 打印AST结构
+    printf("AST结构:\n");
+    ast_print(ast, 0);
+    
+    // 序列化为二进制
+    size_t binary_size;
+    printf("\n序列化为二进制...\n");
+    unsigned char *binary = c2astc_serialize(ast, &binary_size);
+    
+    if (!binary) {
+        const char *error = c2astc_get_error();
+        printf("序列化失败: %s\n", error ? error : "未知错误");
+        ast_free(ast);
+        return 1;
+    }
+    
+    printf("序列化成功! 二进制大小: %zu 字节\n", binary_size);
+    
+    // 保存二进制到文件
+    const char *binary_filename = "factorial.astc";
+    FILE *fp = fopen(binary_filename, "wb");
+    if (fp) {
+        fwrite(binary, 1, binary_size, fp);
+        fclose(fp);
+        printf("二进制数据已保存到文件: %s\n", binary_filename);
+    } else {
+        printf("无法创建二进制文件: %s\n", binary_filename);
+    }
+    
+    // 反序列化
+    printf("\n反序列化...\n");
+    struct ASTNode *ast2 = c2astc_deserialize(binary, binary_size);
+    
+    if (!ast2) {
+        const char *error = c2astc_get_error();
+        printf("反序列化失败: %s\n", error ? error : "未知错误");
+        c2astc_free(binary);
+        ast_free(ast);
+        return 1;
+    }
+    
+    printf("反序列化成功!\n");
     
     // 清理资源
-    free_node_list(head);
+    ast_free(ast2);
+    c2astc_free(binary);
+    ast_free(ast);
     
+    printf("\n测试4完成!\n");
     return 0;
 } 

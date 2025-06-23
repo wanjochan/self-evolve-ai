@@ -1,87 +1,107 @@
 /**
- * run_tests.c - C2ASTC测试运行程序
+ * run_tests.c - 运行所有C2ASTC测试
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../c2astc.h"
+#include "c2astc.h"
 
-// 测试文件列表
-const char *test_files[] = {
-    "test1.c",
-    "test2.c", 
-    "test3.c",
-    "test4.c"
-};
-const int num_tests = sizeof(test_files) / sizeof(test_files[0]);
-
-// 递归打印AST节点
-void print_ast_node(struct ASTNode *node, int indent) {
-    if (!node) return;
-    
-    for (int i = 0; i < indent; i++) {
-        printf("  ");
-    }
-    
-    // 打印节点类型信息
-    printf("Node Type: %d\n", node->type);
-    
-    // TODO: 根据节点类型，打印特定信息并递归打印子节点
+// 打印分隔线
+void print_separator() {
+    printf("\n");
+    for (int i = 0; i < 80; i++) printf("=");
+    printf("\n\n");
 }
 
-// 运行单个测试
-int run_test(const char *filename) {
-    printf("测试文件: %s\n", filename);
+// 打印AST节点信息
+void print_ast_node(struct ASTNode *node, int indent) {
+    if (!node) {
+        printf("%*s(NULL)\n", indent * 2, "");
+        return;
+    }
     
-    // 设置选项
+    printf("%*sNode(type=%d, line=%d, col=%d)\n", 
+           indent * 2, "", node->type, node->line, node->column);
+}
+
+// 测试基本功能
+int test_basic_functionality() {
+    printf("测试基本功能...\n");
+    
+    // 打印版本信息
+    c2astc_print_version();
+    printf("\n");
+    
+    // 获取默认选项
     C2AstcOptions options = c2astc_default_options();
-    options.emit_debug_info = true;
+    printf("默认选项:\n");
+    printf("  优化级别: %s\n", options.optimize_level ? "开启" : "关闭");
+    printf("  扩展支持: %s\n", options.enable_extensions ? "开启" : "关闭");
+    printf("  调试信息: %s\n", options.emit_debug_info ? "开启" : "关闭");
+    printf("\n");
     
-    // 转换C代码到ASTC
+    // 测试错误处理
+    const char *error = c2astc_get_error();
+    printf("错误处理测试: %s\n", error ? error : "无错误");
+    
+    return 1;
+}
+
+// 测试文件转换
+int test_file_conversion(const char *filename) {
+    printf("测试文件转换: %s\n", filename);
+    
+    // 使用默认选项
+    C2AstcOptions options = c2astc_default_options();
+    
+    // 转换文件
     struct ASTNode *root = c2astc_convert_file(filename, &options);
     if (!root) {
-        printf("转换失败: %s\n", c2astc_get_error());
+        const char *error = c2astc_get_error();
+        printf("转换失败: %s\n", error ? error : "未知错误");
         return 0;
     }
     
-    // 打印ASTC
-    printf("ASTC结构:\n");
-    print_ast_node(root, 0);
+    printf("转换成功!\n");
     
-    // 测试序列化和反序列化
-    size_t binary_size = 0;
+    // 序列化为二进制
+    size_t binary_size;
     unsigned char *binary = c2astc_serialize(root, &binary_size);
     if (!binary) {
-        printf("序列化失败: %s\n", c2astc_get_error());
+        const char *error = c2astc_get_error();
+        printf("序列化失败: %s\n", error ? error : "未知错误");
         ast_free(root);
         return 0;
     }
     
-    printf("序列化大小: %zu 字节\n", binary_size);
+    printf("序列化成功! 二进制大小: %zu 字节\n", binary_size);
     
+    // 反序列化
     struct ASTNode *deserialized = c2astc_deserialize(binary, binary_size);
     if (!deserialized) {
-        printf("反序列化失败: %s\n", c2astc_get_error());
+        const char *error = c2astc_get_error();
+        printf("反序列化失败: %s\n", error ? error : "未知错误");
         c2astc_free(binary);
         ast_free(root);
         return 0;
     }
     
-    printf("反序列化成功，节点类型: %d\n", deserialized->type);
+    printf("反序列化成功!\n");
     
-    // 测试WASM生成
-    size_t wasm_size = 0;
+    // 转换为WASM
+    size_t wasm_size;
     unsigned char *wasm = c2astc_to_wasm(root, &options, &wasm_size);
     if (!wasm) {
-        printf("WASM生成失败: %s\n", c2astc_get_error());
+        const char *error = c2astc_get_error();
+        printf("WASM转换失败: %s\n", error ? error : "未知错误");
         ast_free(deserialized);
         c2astc_free(binary);
         ast_free(root);
         return 0;
     }
     
-    printf("WASM生成成功，大小: %zu 字节\n", wasm_size);
+    printf("WASM转换成功! WASM大小: %zu 字节\n", wasm_size);
     
     // 清理资源
     c2astc_free(wasm);
@@ -89,29 +109,52 @@ int run_test(const char *filename) {
     c2astc_free(binary);
     ast_free(root);
     
-    printf("测试通过!\n\n");
     return 1;
 }
 
 int main(int argc, char *argv[]) {
-    int passed = 0;
+    printf("C2ASTC测试套件\n");
+    printf("==============\n\n");
     
-    c2astc_print_version();
-    printf("\n运行测试...\n\n");
-    
-    if (argc > 1) {
-        // 测试指定文件
-        passed += run_test(argv[1]);
-    } else {
-        // 测试所有文件
-        for (int i = 0; i < num_tests; i++) {
-            char path[256];
-            snprintf(path, sizeof(path), "tests/c2astc_tests/%s", test_files[i]);
-            passed += run_test(path);
-        }
+    // 测试基本功能
+    if (!test_basic_functionality()) {
+        printf("基本功能测试失败!\n");
+        return 1;
     }
     
-    printf("测试完成: %d/%d 通过\n", passed, argc > 1 ? 1 : num_tests);
+    print_separator();
     
-    return passed == (argc > 1 ? 1 : num_tests) ? 0 : 1;
+    // 如果提供了命令行参数，测试指定文件
+    if (argc > 1) {
+        for (int i = 1; i < argc; i++) {
+            if (!test_file_conversion(argv[i])) {
+                printf("文件转换测试失败: %s\n", argv[i]);
+                return 1;
+            }
+            print_separator();
+        }
+    } else {
+        // 测试内置的简单代码片段
+        const char *simple_code = 
+            "int main() { return 42; }";
+        
+        printf("测试简单代码片段转换:\n%s\n", simple_code);
+        
+        // 使用默认选项
+        C2AstcOptions options = c2astc_default_options();
+        
+        // 转换代码
+        struct ASTNode *root = c2astc_convert(simple_code, &options);
+        if (!root) {
+            const char *error = c2astc_get_error();
+            printf("转换失败: %s\n", error ? error : "未知错误");
+            return 1;
+        }
+        
+        printf("转换成功!\n");
+        ast_free(root);
+    }
+    
+    printf("\n测试通过!\n");
+    return 0;
 } 

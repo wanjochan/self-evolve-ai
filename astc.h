@@ -1,9 +1,10 @@
 #ifndef ASTC_H
 #define ASTC_H
 
-// AST节点类型
-#ifndef EVOLVER0_AST_NODE_TYPE_DEFINED
-#define EVOLVER0_AST_NODE_TYPE_DEFINED
+/**
+以 WASM为蓝图，加入c99元素，设计ASTC数据结构
+以后考虑加入更多，比如兼容LLVM IR
+ */
 
 //IMPORTANT
 typedef enum {
@@ -435,9 +436,61 @@ typedef enum {
     ASTC_TYPE_TYPEDEF_NAME,       // 类型定义名
     ASTC_TYPE_VOIDPTR             // void*
 } ASTNodeType;
-#endif
 
-struct ASTNode;
+// ASTC节点结构
+typedef struct ASTNode {
+    ASTNodeType type;
+    int line;
+    int column;
+    
+    // 节点数据
+    union {
+        // 标识符
+        struct {
+            char *name;
+        } identifier;
+        
+        // 常量
+        struct {
+            ASTNodeType type;  // 常量类型
+            union {
+                int64_t int_val;
+                double float_val;
+            };
+        } constant;
+        
+        // 字符串字面量
+        struct {
+            char *value;
+        } string_literal;
+        
+        // 二元操作
+        struct {
+            ASTNodeType op;
+            struct ASTNode *left;
+            struct ASTNode *right;
+        } binary_op;
+        
+        // 一元操作
+        struct {
+            ASTNodeType op;
+            struct ASTNode *operand;
+        } unary_op;
+        
+        // 函数调用
+        struct {
+            struct ASTNode *callee;
+            struct ASTNode **args;
+            int arg_count;
+        } call_expr;
+        
+        // 翻译单元
+        struct {
+            struct ASTNode **declarations;
+            int decl_count;
+        } translation_unit;
+    } data;
+} ASTNode;
 struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);
 void ast_free(struct ASTNode *node);
 void ast_print(struct ASTNode *node, int indent);
