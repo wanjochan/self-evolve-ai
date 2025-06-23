@@ -6,7 +6,7 @@
 #define C2ASTC_H
 
 #include <stdbool.h>
-#include "evolver0_ast.h"
+#include "astc.h"
 
 #ifdef __cplusplus
 extern "C" {

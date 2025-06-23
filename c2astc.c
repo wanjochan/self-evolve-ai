@@ -10,7 +10,7 @@
 #include <stdarg.h>
 
 // 包含AST定义
-#include "evolver0_ast.h"
+#include "astc.h"
 #include "evolver0_token.h"
 
 // ===============================================

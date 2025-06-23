@@ -1,9 +1,5 @@
-/**
- * evolver0_ast.h - AST节点定义
- */
-
-#ifndef EVOLVER0_AST_H
-#define EVOLVER0_AST_H
+#ifndef ASTC_H
+#define ASTC_H
 
 // AST节点类型
 #ifndef EVOLVER0_AST_NODE_TYPE_DEFINED
@@ -441,10 +437,9 @@ typedef enum {
 } ASTNodeType;
 #endif
 
-// AST创建和释放函数声明
 struct ASTNode;
 struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);
 void ast_free(struct ASTNode *node);
 void ast_print(struct ASTNode *node, int indent);
 
-#endif // EVOLVER0_AST_H
+#endif // ASTC_H
