@@ -1,5 +1,6 @@
 /**
  * c2astc.c - C语言到ASTC的转换库
+ * 整合了evolver0_lexer.inc.c、evolver0_parser.inc.c和evolver0_ast.inc.c的有用代码
  */
 
 #include <stdio.h>
@@ -8,9 +9,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <ctype.h>
 
 // 包含AST定义
 #include "astc.h"
+#include "c2astc.h"
 #include "evolver0_token.h"
 
 // ===============================================
@@ -68,12 +71,7 @@ static const TypeMapping type_map[] = {
     {ASTC_TYPE_POINTER, WASM_TYPE_I32, 4, false}  // 默认32位指针
 };
 
-// 转换配置选项
-typedef struct {
-    bool optimize_level;        // 优化级别
-    bool enable_extensions;     // 启用WASX扩展
-    bool emit_debug_info;       // 生成调试信息
-} C2AstcOptions;
+// WASM类型到C类型的映射
 
 // ===============================================
 // 初始化和清理
@@ -348,8 +346,8 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
  * 打印C到ASTC转换库版本信息
  */
 void c2astc_print_version(void) {
-    printf("C to ASTC Converter v0.1.0\n");
-    printf("Part of self-evolve-ai project\n");
+    printf("C to ASTC Converter v0.1\n");
+    printf("Part of Self-Evolve AI System\n");
 }
 
 // ===============================================
@@ -400,9 +398,9 @@ struct ASTNode* c2astc_convert_file(const char *filename, const C2AstcOptions *o
  */
 C2AstcOptions c2astc_default_options(void) {
     C2AstcOptions options;
-    options.optimize_level = 0;
+    options.optimize_level = false;
     options.enable_extensions = true;
-    options.emit_debug_info = false;
+    options.emit_debug_info = true;
     return options;
 }
 

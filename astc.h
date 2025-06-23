@@ -166,7 +166,7 @@ typedef enum {
     AST_TABLE_COPY = 0xFC0E,     // 表复制
     AST_TABLE_GROW = 0xFC0F,     // 表增长
     AST_TABLE_SIZE = 0xFC10,     // 表大小
-    AST_TABLE_FILL = 0xFC11      // 表填充
+    AST_TABLE_FILL = 0xFC11,     // 表填充
     
     // ===== 扩展节点 (AST-C) =====
     // 声明和定义
