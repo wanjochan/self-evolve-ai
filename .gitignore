@@ -1,3 +1,4 @@
 __pycache__/
 tcc/build/
 tcc/cross/temp/
+*.swp

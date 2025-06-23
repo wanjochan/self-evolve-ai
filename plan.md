@@ -10,13 +10,14 @@
 
 本项目自进化范式：先用Loader+Runtime+Program的结构，通过多代自举和AI驱动的进化，逐步构建出完整的自进化计算机软件系统
 
-- Loader-{arch}.exe 负责加载Runtime-{arch} + Program.wasm，目前主要是操作系统内引导，未来不排除继续演化出操作系统。（注意，第零代的是tinycc编译的C程序loader0.c，之后进化出可执行程序后不再使用）
-- Runtime 是架构依赖二进制，封装硬件架构和ABI等，实现WASM虚拟机。特别注意那些PE/MachO/ELF头不在Runtime而是在Loader上的了
-- Program 是平台无关程序（WASM格式的二进制模块）
+核心是一种ASTC的数据结构，整合了WASM/IR/AST的概念，它也是Loader/Runtime/Program的底层逻辑。后面发展高级语言也要由解析器转成它。不过它的压缩率不大，后面可以制作binx二进制码，在执行时才动态把它转ASTC再执行
 
-开始的规范是 WASM和WASX（在WASM上自己扩展指令集）
+- c2astc.c 把c语言编译成astc的库
+- Loader-{arch}.exe 负责加载Runtime-{arch} + Program.astc，目前主要是操作系统内引导，未来不排除继续演化出操作系统。（注意，第零代的是tinycc编译的C程序loader0.c，之后进化出可执行程序后不再使用）
+- Runtime 是架构依赖二进制，封装硬件架构和ABI等，实现ASTC虚拟机。特别注意那些PE/MachO/ELF头不在Runtime而是在Loader上的了
+- Program 是平台无关程序（ASTC格式的二进制模块）
 
-注意：Runtime和Program两种编译的二进制是不一样的。Program编译的是.wasm（WebAssembly标准格式，以及自己的强化指令WASX），Runtime编译的是平台适配的二进制（由WASM/WASX再次编译成机器码，且不需要PE/ELF/MACHO头）
+注意：Runtime和Program两种编译的二进制是不一样的。Program编译的是ASTC，Runtime编译的是平台适配的二进制（由ASTC再编译成机器码，且不需要PE/ELF/MACHO头）
 
 其中 Loader+Runtime 或 Loader+Runtime+Program 可以根据需要，分开打包或合成打包
 
@@ -33,15 +34,15 @@
 - 目标：进化出原生可执行程序替代C语言依赖
 
 **Layer 2: Runtime-{arch}**
-- 架构依赖的运行时二进制，实现WASM/WASX虚拟机
+- 架构依赖的运行时二进制，实现ASTC虚拟机
 - 封装硬件架构和ABI接口
-- 从.wasm标准格式二次编译生成
+- 从.ASTC 格式二次编译生成
 - 不包含PE/ELF/MACHO头
 
 **Layer 3: Program**
 - 平台无关的程序逻辑
-- 编译为.wasm（WebAssembly标准格式和自己的扩展指令WASX）
-- 支持C/C++/Rust等高级语言编译到WASM
+- 编译为.ASTC
+- 支持C/C++/Rust等高级语言编译到 ASTC
 - 当前实现：evolver系列自进化程序
 
 ## 3. 进化路径规划
@@ -54,20 +55,20 @@ evolver0是第零代自举编译器，使用C语言编写，由标准C编译器(
 
 ### 3.2 evolver1 (规划阶段)
 
-evolver1是第一代自举编译器，将由evolver0编译生成。它将扩展evolver0的功能，并开始支持WASM格式输出。
+evolver1是第一代自举编译器，将由evolver0编译生成。它将扩展evolver0的功能，并开始支持 ASTC 格式输出。
 
 **计划功能**:
 - 支持更完整的C语言子集
 - 添加优化器模块
-- 实现WASM格式输出
+- 实现 ASTC 格式输出
 - 支持跨平台交叉编译
 
 ### 3.3 Runtime开发 (规划阶段)
 
-Runtime模块是连接Loader和Program的关键组件，负责执行WASM格式的Program。
+Runtime模块是连接Loader和Program的关键组件，负责执行 ASTC 格式的Program。
 
 **计划功能**:
-- 实现基本的WASM虚拟机
+- 实现基本的 ASTC 虚拟机
 - 提供操作系统API封装
 - 支持JIT编译优化
 - 实现跨平台兼容层
@@ -79,7 +80,7 @@ Runtime模块是连接Loader和Program的关键组件，负责执行WASM格式�
 
 ### 3.4 Program层开发 (规划阶段)
 
-Program层是平台无关的程序逻辑，将使用WASM格式实现。
+Program层是平台无关的程序逻辑，将使用 ASTC 格式实现。
 
 **计划功能**:
 - 实现自我修改和优化的核心逻辑
