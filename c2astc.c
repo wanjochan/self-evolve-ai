@@ -46,6 +46,36 @@ void c2astc_free(void *ptr) {
 // 词法分析器
 // ===============================================
 
+// Token结构定义
+typedef struct Token {
+    TokenType type;
+    char *value;
+    int line;
+    int column;
+    const char *filename;
+} Token;
+
+// 创建Token
+static Token* create_token(TokenType type, const char *value, int line, int column, const char *filename) {
+    Token *token = (Token*)malloc(sizeof(Token));
+    if (token) {
+        token->type = type;
+        token->value = value ? strdup(value) : NULL;
+        token->line = line;
+        token->column = column;
+        token->filename = filename;
+    }
+    return token;
+}
+
+// 释放Token
+static void free_token(Token *token) {
+    if (token) {
+        if (token->value) free(token->value);
+        free(token);
+    }
+}
+
 // 词法分析器上下文
 typedef struct {
     const char *source;
@@ -178,6 +208,394 @@ static void skip_whitespace(Lexer *lexer) {
     }
 }
 
+// 关键字查找表
+static struct {
+    const char *keyword;
+    TokenType type;
+} keywords[] = {
+    {"auto", TOKEN_AUTO},
+    {"break", TOKEN_BREAK},
+    {"case", TOKEN_CASE},
+    {"char", TOKEN_CHAR},
+    {"const", TOKEN_CONST},
+    {"continue", TOKEN_CONTINUE},
+    {"default", TOKEN_DEFAULT},
+    {"do", TOKEN_DO},
+    {"double", TOKEN_DOUBLE},
+    {"else", TOKEN_ELSE},
+    {"enum", TOKEN_ENUM},
+    {"extern", TOKEN_EXTERN},
+    {"float", TOKEN_FLOAT},
+    {"for", TOKEN_FOR},
+    {"goto", TOKEN_GOTO},
+    {"if", TOKEN_IF},
+    {"int", TOKEN_INT},
+    {"long", TOKEN_LONG},
+    {"register", TOKEN_REGISTER},
+    {"return", TOKEN_RETURN},
+    {"short", TOKEN_SHORT},
+    {"signed", TOKEN_SIGNED},
+    {"sizeof", TOKEN_SIZEOF},
+    {"static", TOKEN_STATIC},
+    {"struct", TOKEN_STRUCT},
+    {"switch", TOKEN_SWITCH},
+    {"typedef", TOKEN_TYPEDEF},
+    {"union", TOKEN_UNION},
+    {"unsigned", TOKEN_UNSIGNED},
+    {"void", TOKEN_VOID},
+    {"volatile", TOKEN_VOLATILE},
+    {"while", TOKEN_WHILE},
+    {NULL, TOKEN_EOF}
+};
+
+// 检查标识符是否为关键字
+static TokenType check_keyword(const char *identifier) {
+    for (int i = 0; keywords[i].keyword != NULL; i++) {
+        if (strcmp(identifier, keywords[i].keyword) == 0) {
+            return keywords[i].type;
+        }
+    }
+    return TOKEN_IDENTIFIER;
+}
+
+// 扫描标识符
+static Token* scan_identifier(Lexer *lexer) {
+    size_t start = lexer->pos;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    
+    while (!lexer_is_at_end(lexer) && lexer_is_alnum(lexer_peek(lexer))) {
+        lexer_advance(lexer);
+    }
+    
+    size_t length = lexer->pos - start;
+    char *value = (char*)malloc(length + 1);
+    if (!value) return NULL;
+    
+    strncpy(value, lexer->source + start, length);
+    value[length] = '\0';
+    
+    TokenType type = check_keyword(value);
+    Token *token = create_token(type, value, start_line, start_column, lexer->filename);
+    free(value); // create_token已经复制了value
+    return token;
+}
+
+// 扫描数字
+static Token* scan_number(Lexer *lexer) {
+    size_t start = lexer->pos;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    int is_float = 0;
+    
+    // 整数部分
+    while (!lexer_is_at_end(lexer) && lexer_is_digit(lexer_peek(lexer))) {
+        lexer_advance(lexer);
+    }
+    
+    // 小数部分
+    if (lexer_peek(lexer) == '.' && lexer_is_digit(lexer_peek_next(lexer))) {
+        is_float = 1;
+        lexer_advance(lexer); // .
+        
+        while (!lexer_is_at_end(lexer) && lexer_is_digit(lexer_peek(lexer))) {
+            lexer_advance(lexer);
+        }
+    }
+    
+    // 指数部分
+    if ((lexer_peek(lexer) == 'e' || lexer_peek(lexer) == 'E')) {
+        is_float = 1;
+        lexer_advance(lexer); // e/E
+        
+        if (lexer_peek(lexer) == '+' || lexer_peek(lexer) == '-') {
+            lexer_advance(lexer); // +/-
+        }
+        
+        if (!lexer_is_digit(lexer_peek(lexer))) {
+            // 错误：指数部分缺少数字
+            return NULL;
+        }
+        
+        while (!lexer_is_at_end(lexer) && lexer_is_digit(lexer_peek(lexer))) {
+            lexer_advance(lexer);
+        }
+    }
+    
+    // 后缀
+    if (lexer_peek(lexer) == 'f' || lexer_peek(lexer) == 'F' ||
+        lexer_peek(lexer) == 'l' || lexer_peek(lexer) == 'L') {
+        lexer_advance(lexer);
+    }
+    
+    size_t length = lexer->pos - start;
+    char *value = (char*)malloc(length + 1);
+    if (!value) return NULL;
+    
+    strncpy(value, lexer->source + start, length);
+    value[length] = '\0';
+    
+    Token *token = create_token(TOKEN_NUMBER, value, start_line, start_column, lexer->filename);
+    free(value); // create_token已经复制了value
+    return token;
+}
+
+// 扫描字符串字面量
+static Token* scan_string(Lexer *lexer) {
+    size_t start = lexer->pos;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    
+    lexer_advance(lexer); // "
+    
+    while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != '"') {
+        if (lexer_peek(lexer) == '\\') {
+            lexer_advance(lexer); // 转义字符
+            if (lexer_is_at_end(lexer)) break;
+        }
+        lexer_advance(lexer);
+    }
+    
+    if (lexer_is_at_end(lexer)) {
+        // 错误：未闭合的字符串
+        return NULL;
+    }
+    
+    lexer_advance(lexer); // "
+    
+    size_t length = lexer->pos - start;
+    char *value = (char*)malloc(length + 1);
+    if (!value) return NULL;
+    
+    strncpy(value, lexer->source + start, length);
+    value[length] = '\0';
+    
+    Token *token = create_token(TOKEN_STRING_LITERAL, value, start_line, start_column, lexer->filename);
+    free(value); // create_token已经复制了value
+    return token;
+}
+
+// 扫描字符字面量
+static Token* scan_char(Lexer *lexer) {
+    size_t start = lexer->pos;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    
+    lexer_advance(lexer); // '
+    
+    while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != '\'') {
+        if (lexer_peek(lexer) == '\\') {
+            lexer_advance(lexer); // 转义字符
+            if (lexer_is_at_end(lexer)) break;
+        }
+        lexer_advance(lexer);
+    }
+    
+    if (lexer_is_at_end(lexer)) {
+        // 错误：未闭合的字符字面量
+        return NULL;
+    }
+    
+    lexer_advance(lexer); // '
+    
+    size_t length = lexer->pos - start;
+    char *value = (char*)malloc(length + 1);
+    if (!value) return NULL;
+    
+    strncpy(value, lexer->source + start, length);
+    value[length] = '\0';
+    
+    Token *token = create_token(TOKEN_CHAR_LITERAL, value, start_line, start_column, lexer->filename);
+    free(value); // create_token已经复制了value
+    return token;
+}
+
+// 扫描下一个Token
+static Token* scan_token(Lexer *lexer) {
+    skip_whitespace(lexer);
+    
+    if (lexer_is_at_end(lexer)) {
+        return create_token(TOKEN_EOF, NULL, lexer->line, lexer->column, lexer->filename);
+    }
+    
+    char c = lexer_peek(lexer);
+    
+    // 标识符或关键字
+    if (lexer_is_alpha(c)) {
+        return scan_identifier(lexer);
+    }
+    
+    // 数字
+    if (lexer_is_digit(c)) {
+        return scan_number(lexer);
+    }
+    
+    // 单字符Token
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    lexer_advance(lexer);
+    
+    switch (c) {
+        case '(': return create_token(TOKEN_LEFT_PAREN, "(", start_line, start_column, lexer->filename);
+        case ')': return create_token(TOKEN_RIGHT_PAREN, ")", start_line, start_column, lexer->filename);
+        case '{': return create_token(TOKEN_LEFT_BRACE, "{", start_line, start_column, lexer->filename);
+        case '}': return create_token(TOKEN_RIGHT_BRACE, "}", start_line, start_column, lexer->filename);
+        case '[': return create_token(TOKEN_LEFT_BRACKET, "[", start_line, start_column, lexer->filename);
+        case ']': return create_token(TOKEN_RIGHT_BRACKET, "]", start_line, start_column, lexer->filename);
+        case ',': return create_token(TOKEN_COMMA, ",", start_line, start_column, lexer->filename);
+        case '.': return create_token(TOKEN_DOT, ".", start_line, start_column, lexer->filename);
+        case ';': return create_token(TOKEN_SEMICOLON, ";", start_line, start_column, lexer->filename);
+        case ':': return create_token(TOKEN_COLON, ":", start_line, start_column, lexer->filename);
+        case '~': return create_token(TOKEN_TILDE, "~", start_line, start_column, lexer->filename);
+        
+        // 可能是双字符Token
+        case '!':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_BANG_EQUAL, "!=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_NOT, "!", start_line, start_column, lexer->filename);
+            }
+        case '=':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_EQUAL_EQUAL, "==", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_EQUAL, "=", start_line, start_column, lexer->filename);
+            }
+        case '<':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_LESS_EQUAL, "<=", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '<')) {
+                return create_token(TOKEN_LESS_LESS, "<<", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_LESS, "<", start_line, start_column, lexer->filename);
+            }
+        case '>':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_GREATER_EQUAL, ">=", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '>')) {
+                return create_token(TOKEN_GREATER_GREATER, ">>", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_GREATER, ">", start_line, start_column, lexer->filename);
+            }
+        case '+':
+            if (lexer_match(lexer, '+')) {
+                return create_token(TOKEN_PLUS_PLUS, "++", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_PLUS_EQUAL, "+=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_PLUS, "+", start_line, start_column, lexer->filename);
+            }
+        case '-':
+            if (lexer_match(lexer, '-')) {
+                return create_token(TOKEN_MINUS_MINUS, "--", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_MINUS_EQUAL, "-=", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '>')) {
+                return create_token(TOKEN_ARROW, "->", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_MINUS, "-", start_line, start_column, lexer->filename);
+            }
+        case '*':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_STAR_EQUAL, "*=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_STAR, "*", start_line, start_column, lexer->filename);
+            }
+        case '/':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_SLASH_EQUAL, "/=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_SLASH, "/", start_line, start_column, lexer->filename);
+            }
+        case '%':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_PERCENT_EQUAL, "%=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_PERCENT, "%", start_line, start_column, lexer->filename);
+            }
+        case '&':
+            if (lexer_match(lexer, '&')) {
+                return create_token(TOKEN_AND_AND, "&&", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_AND_EQUAL, "&=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_AND, "&", start_line, start_column, lexer->filename);
+            }
+        case '|':
+            if (lexer_match(lexer, '|')) {
+                return create_token(TOKEN_OR_OR, "||", start_line, start_column, lexer->filename);
+            } else if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_OR_EQUAL, "|=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_OR, "|", start_line, start_column, lexer->filename);
+            }
+        case '^':
+            if (lexer_match(lexer, '=')) {
+                return create_token(TOKEN_XOR_EQUAL, "^=", start_line, start_column, lexer->filename);
+            } else {
+                return create_token(TOKEN_XOR, "^", start_line, start_column, lexer->filename);
+            }
+            
+        // 字符串和字符字面量
+        case '"': return scan_string(lexer);
+        case '\'': return scan_char(lexer);
+            
+        // 预处理指令
+        case '#':
+            lexer->in_preprocessor = 1;
+            return create_token(TOKEN_HASH, "#", start_line, start_column, lexer->filename);
+    }
+    
+    // 未知字符
+    char unknown[2] = {c, '\0'};
+    return create_token(TOKEN_UNKNOWN, unknown, start_line, start_column, lexer->filename);
+}
+
+// 词法分析
+static Token** tokenize(Lexer *lexer, int *token_count) {
+    Token **tokens = NULL;
+    int capacity = 0;
+    *token_count = 0;
+    
+    while (1) {
+        Token *token = scan_token(lexer);
+        if (!token) break;
+        
+        // 动态扩展tokens数组
+        if (*token_count >= capacity) {
+            capacity = capacity == 0 ? 8 : capacity * 2;
+            Token **new_tokens = (Token**)realloc(tokens, capacity * sizeof(Token*));
+            if (!new_tokens) {
+                // 释放已分配的资源
+                for (int i = 0; i < *token_count; i++) {
+                    free_token(tokens[i]);
+                }
+                free(tokens);
+                free_token(token);
+                return NULL;
+            }
+            tokens = new_tokens;
+        }
+        
+        tokens[(*token_count)++] = token;
+        
+        if (token->type == TOKEN_EOF) break;
+    }
+    
+    return tokens;
+}
+
+// 释放tokens数组
+static void free_tokens(Token **tokens, int token_count) {
+    if (!tokens) return;
+    
+    for (int i = 0; i < token_count; i++) {
+        free_token(tokens[i]);
+    }
+    
+    free(tokens);
+}
+
 // ===============================================
 // ASTC节点创建和管理
 // ===============================================
@@ -223,7 +641,107 @@ void ast_free(struct ASTNode *node) {
             break;
         case ASTC_TRANSLATION_UNIT:
             // 释放翻译单元的子节点
-            // 这里需要根据实际ASTC结构实现
+            for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                ast_free(node->data.translation_unit.declarations[i]);
+            }
+            free(node->data.translation_unit.declarations);
+            break;
+        case ASTC_FUNC_DECL:
+            // 释放函数声明
+            if (node->data.func_decl.name) free(node->data.func_decl.name);
+            ast_free(node->data.func_decl.return_type);
+            for (int i = 0; i < node->data.func_decl.param_count; i++) {
+                ast_free(node->data.func_decl.params[i]);
+            }
+            free(node->data.func_decl.params);
+            ast_free(node->data.func_decl.body);
+            break;
+        case ASTC_VAR_DECL:
+            // 释放变量声明
+            if (node->data.var_decl.name) free(node->data.var_decl.name);
+            ast_free(node->data.var_decl.type);
+            ast_free(node->data.var_decl.initializer);
+            break;
+        case ASTC_TYPE_SPECIFIER:
+            // 释放类型说明符
+            // 复杂类型可能需要额外处理
+            break;
+        case ASTC_POINTER_TYPE:
+            // 释放指针类型
+            ast_free(node->data.pointer_type.base_type);
+            break;
+        case ASTC_ARRAY_TYPE:
+            // 释放数组类型
+            ast_free(node->data.array_type.element_type);
+            ast_free(node->data.array_type.size_expr);
+            if (node->data.array_type.dim_sizes) {
+                for (int i = 0; i < node->data.array_type.dimensions; i++) {
+                    ast_free(node->data.array_type.dim_sizes[i]);
+                }
+                free(node->data.array_type.dim_sizes);
+            }
+            break;
+        case ASTC_STRUCT_DECL:
+            // 释放结构体声明
+            if (node->data.struct_decl.name) free(node->data.struct_decl.name);
+            for (int i = 0; i < node->data.struct_decl.member_count; i++) {
+                ast_free(node->data.struct_decl.members[i]);
+            }
+            free(node->data.struct_decl.members);
+            break;
+        case ASTC_UNION_DECL:
+            // 释放联合体声明
+            if (node->data.union_decl.name) free(node->data.union_decl.name);
+            for (int i = 0; i < node->data.union_decl.member_count; i++) {
+                ast_free(node->data.union_decl.members[i]);
+            }
+            free(node->data.union_decl.members);
+            break;
+        case ASTC_ENUM_DECL:
+            // 释放枚举声明
+            if (node->data.enum_decl.name) free(node->data.enum_decl.name);
+            for (int i = 0; i < node->data.enum_decl.constant_count; i++) {
+                ast_free(node->data.enum_decl.constants[i]);
+            }
+            free(node->data.enum_decl.constants);
+            break;
+        case ASTC_ENUM_CONSTANT:
+            // 释放枚举常量
+            if (node->data.enum_constant.name) free(node->data.enum_constant.name);
+            ast_free(node->data.enum_constant.value);
+            break;
+        case ASTC_COMPOUND_STMT:
+            // 释放复合语句
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                ast_free(node->data.compound_stmt.statements[i]);
+            }
+            free(node->data.compound_stmt.statements);
+            break;
+        case ASTC_IF_STMT:
+            // 释放if语句
+            ast_free(node->data.if_stmt.condition);
+            ast_free(node->data.if_stmt.then_branch);
+            ast_free(node->data.if_stmt.else_branch);
+            break;
+        case ASTC_WHILE_STMT:
+            // 释放while语句
+            ast_free(node->data.while_stmt.condition);
+            ast_free(node->data.while_stmt.body);
+            break;
+        case ASTC_FOR_STMT:
+            // 释放for语句
+            ast_free(node->data.for_stmt.init);
+            ast_free(node->data.for_stmt.condition);
+            ast_free(node->data.for_stmt.increment);
+            ast_free(node->data.for_stmt.body);
+            break;
+        case ASTC_RETURN_STMT:
+            // 释放return语句
+            ast_free(node->data.return_stmt.value);
+            break;
+        case ASTC_EXPR_STMT:
+            // 释放表达式语句
+            ast_free(node->data.expr_stmt.expr);
             break;
         default:
             // 其他节点类型的释放逻辑
@@ -366,6 +884,12 @@ static Token* peek(Parser *parser) {
     return parser->tokens[parser->current];
 }
 
+// 获取前看n个Token
+static Token* peek_n(Parser *parser, int n) {
+    if (parser->current + n >= parser->token_count) return NULL;
+    return parser->tokens[parser->current + n];
+}
+
 // 匹配并消耗一个Token
 static int match(Parser *parser, TokenType type) {
     if (check(parser, type)) {
@@ -391,39 +915,445 @@ static void parser_error(Parser *parser, const char *message) {
 static struct ASTNode* parse_expression(Parser *parser);
 static struct ASTNode* parse_statement(Parser *parser);
 static struct ASTNode* parse_declaration(Parser *parser);
+static struct ASTNode* parse_primary(Parser *parser);
+static struct ASTNode* parse_unary(Parser *parser);
+static struct ASTNode* parse_multiplicative(Parser *parser);
+static struct ASTNode* parse_additive(Parser *parser);
+static struct ASTNode* parse_relational(Parser *parser);
+static struct ASTNode* parse_equality(Parser *parser);
+static struct ASTNode* parse_logical_and(Parser *parser);
+static struct ASTNode* parse_logical_or(Parser *parser);
+static struct ASTNode* parse_assignment(Parser *parser);
+static struct ASTNode* parse_compound_statement(Parser *parser);
+static struct ASTNode* parse_if_statement(Parser *parser);
+static struct ASTNode* parse_while_statement(Parser *parser);
+static struct ASTNode* parse_for_statement(Parser *parser);
+static struct ASTNode* parse_return_statement(Parser *parser);
+static struct ASTNode* parse_expression_statement(Parser *parser);
+static struct ASTNode* parse_struct_or_union(Parser *parser);
+static struct ASTNode* parse_enum(Parser *parser);
+static struct ASTNode* parse_pointer_type(Parser *parser, struct ASTNode *base_type);
+static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_type);
 
-// 解析表达式
-static struct ASTNode* parse_expression(Parser *parser) {
-    // 简单实现：仅支持标识符、常量和字符串字面量
-    Token *token = peek(parser);
-    if (!token) return NULL;
-    
-    if (token->type == TOKEN_IDENTIFIER) {
-        advance(parser);
-        return create_identifier_node(token->value, token->line, token->column);
-    } else if (token->type == TOKEN_NUMBER) {
-        advance(parser);
-        return create_number_node(token->value, token->line, token->column);
-    } else if (token->type == TOKEN_STRING_LITERAL) {
-        advance(parser);
-        return create_string_node(token->value, token->line, token->column);
+// 解析复合语句 { ... }
+static struct ASTNode* parse_compound_statement(Parser *parser) {
+    if (!match(parser, TOKEN_LEFT_BRACE)) {
+        parser_error(parser, "预期左花括号");
+        return NULL;
     }
     
-    parser_error(parser, "预期表达式");
-    return NULL;
+    struct ASTNode *compound = ast_create_node(ASTC_COMPOUND_STMT, peek(parser)->line, peek(parser)->column);
+    if (!compound) return NULL;
+    
+    // 初始化语句列表
+    compound->data.compound_stmt.statements = NULL;
+    compound->data.compound_stmt.statement_count = 0;
+    int capacity = 0;
+    
+    // 解析语句列表
+    while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+        struct ASTNode *stmt = NULL;
+        
+        // 检查是声明还是语句
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        switch (token->type) {
+            case TOKEN_VOID:
+            case TOKEN_CHAR:
+            case TOKEN_SHORT:
+            case TOKEN_INT:
+            case TOKEN_LONG:
+            case TOKEN_FLOAT:
+            case TOKEN_DOUBLE:
+            case TOKEN_SIGNED:
+            case TOKEN_UNSIGNED:
+            case TOKEN_STRUCT:
+            case TOKEN_UNION:
+            case TOKEN_ENUM:
+                // 声明
+                stmt = parse_declaration(parser);
+                break;
+                
+            default:
+                // 语句
+                stmt = parse_statement(parser);
+                break;
+        }
+        
+        if (!stmt) {
+            // 尝试跳过错误，继续解析
+            if (!check(parser, TOKEN_EOF)) {
+                advance(parser);
+                continue;
+            } else {
+                break;
+            }
+        }
+        
+        // 动态扩展语句数组
+        if (compound->data.compound_stmt.statement_count >= capacity) {
+            capacity = capacity == 0 ? 8 : capacity * 2;
+            struct ASTNode **new_statements = (struct ASTNode **)realloc(
+                compound->data.compound_stmt.statements, 
+                capacity * sizeof(struct ASTNode *)
+            );
+            
+            if (!new_statements) {
+                parser_error(parser, "内存分配失败");
+                // 释放已分配的资源
+                for (int i = 0; i < compound->data.compound_stmt.statement_count; i++) {
+                    ast_free(compound->data.compound_stmt.statements[i]);
+                }
+                free(compound->data.compound_stmt.statements);
+                ast_free(compound);
+                ast_free(stmt);
+                return NULL;
+            }
+            
+            compound->data.compound_stmt.statements = new_statements;
+        }
+        
+        // 添加语句到复合语句
+        compound->data.compound_stmt.statements[compound->data.compound_stmt.statement_count++] = stmt;
+    }
+    
+    if (!match(parser, TOKEN_RIGHT_BRACE)) {
+        parser_error(parser, "预期右花括号");
+        // 释放已分配的资源
+        for (int i = 0; i < compound->data.compound_stmt.statement_count; i++) {
+            ast_free(compound->data.compound_stmt.statements[i]);
+        }
+        free(compound->data.compound_stmt.statements);
+        ast_free(compound);
+        return NULL;
+    }
+    
+    return compound;
 }
 
-// 解析语句
-static struct ASTNode* parse_statement(Parser *parser) {
-    // 简单实现：仅支持表达式语句
+// 解析if语句
+static struct ASTNode* parse_if_statement(Parser *parser) {
+    if (!match(parser, TOKEN_IF)) {
+        parser_error(parser, "预期if关键字");
+        return NULL;
+    }
+    
+    Token *token = peek(parser);
+    struct ASTNode *if_stmt = ast_create_node(ASTC_IF_STMT, token->line, token->column);
+    if (!if_stmt) return NULL;
+    
+    // 解析条件表达式
+    if (!match(parser, TOKEN_LEFT_PAREN)) {
+        parser_error(parser, "预期左括号");
+        ast_free(if_stmt);
+        return NULL;
+    }
+    
+    struct ASTNode *condition = parse_expression(parser);
+    if (!condition) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+    
+    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+        parser_error(parser, "预期右括号");
+        ast_free(condition);
+        ast_free(if_stmt);
+        return NULL;
+    }
+    
+    // 解析then分支
+    struct ASTNode *then_branch = parse_statement(parser);
+    if (!then_branch) {
+        ast_free(condition);
+        ast_free(if_stmt);
+        return NULL;
+    }
+    
+    // 解析else分支（如果有）
+    struct ASTNode *else_branch = NULL;
+    if (match(parser, TOKEN_ELSE)) {
+        else_branch = parse_statement(parser);
+        if (!else_branch) {
+            ast_free(condition);
+            ast_free(then_branch);
+            ast_free(if_stmt);
+            return NULL;
+        }
+    }
+    
+    // 设置if语句的字段
+    if_stmt->data.if_stmt.condition = condition;
+    if_stmt->data.if_stmt.then_branch = then_branch;
+    if_stmt->data.if_stmt.else_branch = else_branch;
+    
+    return if_stmt;
+}
+
+// 解析while语句
+static struct ASTNode* parse_while_statement(Parser *parser) {
+    if (!match(parser, TOKEN_WHILE)) {
+        parser_error(parser, "预期while关键字");
+        return NULL;
+    }
+    
+    Token *token = peek(parser);
+    struct ASTNode *while_stmt = ast_create_node(ASTC_WHILE_STMT, token->line, token->column);
+    if (!while_stmt) return NULL;
+    
+    // 解析条件表达式
+    if (!match(parser, TOKEN_LEFT_PAREN)) {
+        parser_error(parser, "预期左括号");
+        ast_free(while_stmt);
+        return NULL;
+    }
+    
+    struct ASTNode *condition = parse_expression(parser);
+    if (!condition) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+    
+    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+        parser_error(parser, "预期右括号");
+        ast_free(condition);
+        ast_free(while_stmt);
+        return NULL;
+    }
+    
+    // 解析循环体
+    struct ASTNode *body = parse_statement(parser);
+    if (!body) {
+        ast_free(condition);
+        ast_free(while_stmt);
+        return NULL;
+    }
+    
+    // 设置while语句的字段
+    while_stmt->data.while_stmt.condition = condition;
+    while_stmt->data.while_stmt.body = body;
+    
+    return while_stmt;
+}
+
+// 解析for语句
+static struct ASTNode* parse_for_statement(Parser *parser) {
+    if (!match(parser, TOKEN_FOR)) {
+        parser_error(parser, "预期for关键字");
+        return NULL;
+    }
+    
+    Token *token = peek(parser);
+    struct ASTNode *for_stmt = ast_create_node(ASTC_FOR_STMT, token->line, token->column);
+    if (!for_stmt) return NULL;
+    
+    // 解析for语句的三个部分
+    if (!match(parser, TOKEN_LEFT_PAREN)) {
+        parser_error(parser, "预期左括号");
+        ast_free(for_stmt);
+        return NULL;
+    }
+    
+    // 初始化部分
+    struct ASTNode *init = NULL;
+    if (!check(parser, TOKEN_SEMICOLON)) {
+        // 检查是声明还是表达式
+        Token *token = peek(parser);
+        if (!token) {
+            ast_free(for_stmt);
+            return NULL;
+        }
+        
+        switch (token->type) {
+            case TOKEN_VOID:
+            case TOKEN_CHAR:
+            case TOKEN_SHORT:
+            case TOKEN_INT:
+            case TOKEN_LONG:
+            case TOKEN_FLOAT:
+            case TOKEN_DOUBLE:
+            case TOKEN_SIGNED:
+            case TOKEN_UNSIGNED:
+            case TOKEN_STRUCT:
+            case TOKEN_UNION:
+            case TOKEN_ENUM:
+                // 声明
+                init = parse_declaration(parser);
+                break;
+                
+            default:
+                // 表达式
+                init = parse_expression(parser);
+                if (init && !match(parser, TOKEN_SEMICOLON)) {
+                    parser_error(parser, "预期分号");
+                    ast_free(init);
+                    ast_free(for_stmt);
+                    return NULL;
+                }
+                break;
+        }
+        
+        if (!init) {
+            ast_free(for_stmt);
+            return NULL;
+        }
+    } else {
+        // 空初始化
+        match(parser, TOKEN_SEMICOLON);
+    }
+    
+    // 条件部分
+    struct ASTNode *condition = NULL;
+    if (!check(parser, TOKEN_SEMICOLON)) {
+        condition = parse_expression(parser);
+        if (!condition) {
+            ast_free(init);
+            ast_free(for_stmt);
+            return NULL;
+        }
+    }
+    
+    if (!match(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "预期分号");
+        ast_free(init);
+        ast_free(condition);
+        ast_free(for_stmt);
+        return NULL;
+    }
+    
+    // 递增部分
+    struct ASTNode *increment = NULL;
+    if (!check(parser, TOKEN_RIGHT_PAREN)) {
+        increment = parse_expression(parser);
+        if (!increment) {
+            ast_free(init);
+            ast_free(condition);
+            ast_free(for_stmt);
+            return NULL;
+        }
+    }
+    
+    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+        parser_error(parser, "预期右括号");
+        ast_free(init);
+        ast_free(condition);
+        ast_free(increment);
+        ast_free(for_stmt);
+        return NULL;
+    }
+    
+    // 解析循环体
+    struct ASTNode *body = parse_statement(parser);
+    if (!body) {
+        ast_free(init);
+        ast_free(condition);
+        ast_free(increment);
+        ast_free(for_stmt);
+        return NULL;
+    }
+    
+    // 设置for语句的字段
+    for_stmt->data.for_stmt.init = init;
+    for_stmt->data.for_stmt.condition = condition;
+    for_stmt->data.for_stmt.increment = increment;
+    for_stmt->data.for_stmt.body = body;
+    
+    return for_stmt;
+}
+
+// 解析表达式语句
+static struct ASTNode* parse_expression_statement(Parser *parser) {
     struct ASTNode *expr = parse_expression(parser);
     if (!expr) return NULL;
     
     if (!match(parser, TOKEN_SEMICOLON)) {
         parser_error(parser, "预期分号");
+        ast_free(expr);
+        return NULL;
     }
     
-    return expr;
+    struct ASTNode *expr_stmt = ast_create_node(ASTC_EXPR_STMT, expr->line, expr->column);
+    if (!expr_stmt) {
+        ast_free(expr);
+        return NULL;
+    }
+    
+    expr_stmt->data.expr_stmt.expr = expr;
+    
+    return expr_stmt;
+}
+
+// 解析return语句
+static struct ASTNode* parse_return_statement(Parser *parser) {
+    if (!match(parser, TOKEN_RETURN)) {
+        parser_error(parser, "预期return关键字");
+        return NULL;
+    }
+    
+    Token *token = peek(parser);
+    struct ASTNode *return_stmt = ast_create_node(ASTC_RETURN_STMT, token->line, token->column);
+    if (!return_stmt) return NULL;
+    
+    // 解析返回值（如果有）
+    if (!check(parser, TOKEN_SEMICOLON)) {
+        struct ASTNode *value = parse_expression(parser);
+        if (!value) {
+            ast_free(return_stmt);
+            return NULL;
+        }
+        
+        return_stmt->data.return_stmt.value = value;
+    } else {
+        return_stmt->data.return_stmt.value = NULL;
+    }
+    
+    if (!match(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "预期分号");
+        ast_free(return_stmt->data.return_stmt.value);
+        ast_free(return_stmt);
+        return NULL;
+    }
+    
+    return return_stmt;
+}
+
+// 解析语句
+static struct ASTNode* parse_statement(Parser *parser) {
+    Token *token = peek(parser);
+    if (!token) return NULL;
+    
+    switch (token->type) {
+        case TOKEN_LEFT_BRACE:
+            return parse_compound_statement(parser);
+        case TOKEN_IF:
+            return parse_if_statement(parser);
+        case TOKEN_WHILE:
+            return parse_while_statement(parser);
+        case TOKEN_FOR:
+            return parse_for_statement(parser);
+        case TOKEN_RETURN:
+            return parse_return_statement(parser);
+        case TOKEN_BREAK:
+            // 解析break语句
+            advance(parser);
+            if (!match(parser, TOKEN_SEMICOLON)) {
+                parser_error(parser, "预期分号");
+                return NULL;
+            }
+            return ast_create_node(ASTC_BREAK_STMT, token->line, token->column);
+        case TOKEN_CONTINUE:
+            // 解析continue语句
+            advance(parser);
+            if (!match(parser, TOKEN_SEMICOLON)) {
+                parser_error(parser, "预期分号");
+                return NULL;
+            }
+            return ast_create_node(ASTC_CONTINUE_STMT, token->line, token->column);
+        default:
+            // 表达式语句
+            return parse_expression_statement(parser);
+    }
 }
 
 // 解析翻译单元
@@ -431,27 +1361,557 @@ static struct ASTNode* parse_translation_unit(Parser *parser) {
     struct ASTNode *root = ast_create_node(ASTC_TRANSLATION_UNIT, 0, 0);
     if (!root) return NULL;
     
-    // 简单实现：仅支持顶层声明
+    // 初始化声明列表
+    root->data.translation_unit.declarations = NULL;
+    root->data.translation_unit.declaration_count = 0;
+    int capacity = 0;
+    
+    // 解析顶层声明
     while (parser->current < parser->token_count) {
         struct ASTNode *decl = parse_declaration(parser);
-        if (decl) {
-            // 添加到翻译单元
-            // 这里需要根据实际ASTC结构实现
-        } else {
-            break;
+        if (!decl) {
+            // 尝试跳过错误，继续解析
+            Token *token = peek(parser);
+            if (token && token->type != TOKEN_EOF) {
+                // 跳过当前Token，尝试继续解析
+                advance(parser);
+                continue;
+            } else {
+                break;
+            }
         }
+        
+        // 动态扩展声明数组
+        if (root->data.translation_unit.declaration_count >= capacity) {
+            capacity = capacity == 0 ? 8 : capacity * 2;
+            struct ASTNode **new_declarations = (struct ASTNode **)realloc(
+                root->data.translation_unit.declarations, 
+                capacity * sizeof(struct ASTNode *)
+            );
+            
+            if (!new_declarations) {
+                parser_error(parser, "内存分配失败");
+                // 释放已分配的资源
+                for (int i = 0; i < root->data.translation_unit.declaration_count; i++) {
+                    ast_free(root->data.translation_unit.declarations[i]);
+                }
+                free(root->data.translation_unit.declarations);
+                ast_free(root);
+                ast_free(decl);
+                return NULL;
+            }
+            
+            root->data.translation_unit.declarations = new_declarations;
+        }
+        
+        // 添加声明到翻译单元
+        root->data.translation_unit.declarations[root->data.translation_unit.declaration_count++] = decl;
     }
     
     return root;
 }
 
-// 解析声明
-static struct ASTNode* parse_declaration(Parser *parser) {
-    // 简单实现：仅支持变量声明
-    // 实际实现需要处理函数声明、类型声明等
+// 解析结构体或联合体声明
+static struct ASTNode* parse_struct_or_union(Parser *parser) {
+    // 检查是结构体还是联合体
+    ASTNodeType type;
+    Token *start_token = peek(parser);
+    if (!start_token) return NULL;
     
-    // 暂时返回NULL，表示不支持声明解析
-    return NULL;
+    if (match(parser, TOKEN_STRUCT)) {
+        type = ASTC_STRUCT_DECL;
+    } else if (match(parser, TOKEN_UNION)) {
+        type = ASTC_UNION_DECL;
+    } else {
+        parser_error(parser, "预期struct或union关键字");
+        return NULL;
+    }
+    
+    struct ASTNode *decl = ast_create_node(type, start_token->line, start_token->column);
+    if (!decl) return NULL;
+    
+    // 检查是否有标识符
+    if (check(parser, TOKEN_IDENTIFIER)) {
+        Token *token = advance(parser);
+        if (type == ASTC_STRUCT_DECL) {
+            decl->data.struct_decl.name = strdup(token->value);
+            if (!decl->data.struct_decl.name) {
+                parser_error(parser, "内存分配失败");
+                ast_free(decl);
+                return NULL;
+            }
+        } else { // ASTC_UNION_DECL
+            decl->data.union_decl.name = strdup(token->value);
+            if (!decl->data.union_decl.name) {
+                parser_error(parser, "内存分配失败");
+                ast_free(decl);
+                return NULL;
+            }
+        }
+    } else {
+        if (type == ASTC_STRUCT_DECL) {
+            decl->data.struct_decl.name = NULL;
+        } else { // ASTC_UNION_DECL
+            decl->data.union_decl.name = NULL;
+        }
+    }
+    
+    // 检查是否有定义体
+    if (match(parser, TOKEN_LEFT_BRACE)) {
+        // 初始化成员列表
+        if (type == ASTC_STRUCT_DECL) {
+            decl->data.struct_decl.members = NULL;
+            decl->data.struct_decl.member_count = 0;
+        } else { // ASTC_UNION_DECL
+            decl->data.union_decl.members = NULL;
+            decl->data.union_decl.member_count = 0;
+        }
+        int capacity = 0;
+        
+        // 解析成员列表
+        while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+            struct ASTNode *member = parse_declaration(parser);
+            if (!member) {
+                // 尝试跳过错误，继续解析
+                if (!check(parser, TOKEN_EOF)) {
+                    advance(parser);
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            
+            // 动态扩展成员数组
+            if ((type == ASTC_STRUCT_DECL && decl->data.struct_decl.member_count >= capacity) ||
+                (type == ASTC_UNION_DECL && decl->data.union_decl.member_count >= capacity)) {
+                capacity = capacity == 0 ? 8 : capacity * 2;
+                struct ASTNode **new_members = NULL;
+                
+                if (type == ASTC_STRUCT_DECL) {
+                    new_members = (struct ASTNode **)realloc(
+                        decl->data.struct_decl.members, 
+                        capacity * sizeof(struct ASTNode *)
+                    );
+                } else { // ASTC_UNION_DECL
+                    new_members = (struct ASTNode **)realloc(
+                        decl->data.union_decl.members, 
+                        capacity * sizeof(struct ASTNode *)
+                    );
+                }
+                
+                if (!new_members) {
+                    parser_error(parser, "内存分配失败");
+                    // 释放已分配的资源
+                    if (type == ASTC_STRUCT_DECL) {
+                        for (int i = 0; i < decl->data.struct_decl.member_count; i++) {
+                            ast_free(decl->data.struct_decl.members[i]);
+                        }
+                        free(decl->data.struct_decl.members);
+                    } else { // ASTC_UNION_DECL
+                        for (int i = 0; i < decl->data.union_decl.member_count; i++) {
+                            ast_free(decl->data.union_decl.members[i]);
+                        }
+                        free(decl->data.union_decl.members);
+                    }
+                    ast_free(decl);
+                    ast_free(member);
+                    return NULL;
+                }
+                
+                if (type == ASTC_STRUCT_DECL) {
+                    decl->data.struct_decl.members = new_members;
+                } else { // ASTC_UNION_DECL
+                    decl->data.union_decl.members = new_members;
+                }
+            }
+            
+            // 添加成员到结构体/联合体
+            if (type == ASTC_STRUCT_DECL) {
+                decl->data.struct_decl.members[decl->data.struct_decl.member_count++] = member;
+            } else { // ASTC_UNION_DECL
+                decl->data.union_decl.members[decl->data.union_decl.member_count++] = member;
+            }
+        }
+        
+        if (!match(parser, TOKEN_RIGHT_BRACE)) {
+            parser_error(parser, "预期右花括号");
+            // 释放已分配的资源
+            if (type == ASTC_STRUCT_DECL) {
+                for (int i = 0; i < decl->data.struct_decl.member_count; i++) {
+                    ast_free(decl->data.struct_decl.members[i]);
+                }
+                free(decl->data.struct_decl.members);
+            } else { // ASTC_UNION_DECL
+                for (int i = 0; i < decl->data.union_decl.member_count; i++) {
+                    ast_free(decl->data.union_decl.members[i]);
+                }
+                free(decl->data.union_decl.members);
+            }
+            ast_free(decl);
+            return NULL;
+        }
+    } else {
+        // 没有定义体
+        if (type == ASTC_STRUCT_DECL) {
+            decl->data.struct_decl.members = NULL;
+            decl->data.struct_decl.member_count = 0;
+        } else { // ASTC_UNION_DECL
+            decl->data.union_decl.members = NULL;
+            decl->data.union_decl.member_count = 0;
+        }
+    }
+    
+    return decl;
+}
+
+// 解析枚举声明
+static struct ASTNode* parse_enum(Parser *parser) {
+    if (!match(parser, TOKEN_ENUM)) {
+        parser_error(parser, "预期enum关键字");
+        return NULL;
+    }
+    
+    Token *token = peek(parser);
+    struct ASTNode *decl = ast_create_node(ASTC_ENUM_DECL, token->line, token->column);
+    if (!decl) return NULL;
+    
+    // 检查是否有标识符
+    if (check(parser, TOKEN_IDENTIFIER)) {
+        token = advance(parser);
+        decl->data.enum_decl.name = strdup(token->value);
+        if (!decl->data.enum_decl.name) {
+            parser_error(parser, "内存分配失败");
+            ast_free(decl);
+            return NULL;
+        }
+    } else {
+        decl->data.enum_decl.name = NULL;
+    }
+    
+    // 检查是否有定义体
+    if (match(parser, TOKEN_LEFT_BRACE)) {
+        // 解析枚举常量列表
+        decl->data.enum_decl.constants = NULL;
+        decl->data.enum_decl.constant_count = 0;
+        int capacity = 0;
+        
+        do {
+            if (check(parser, TOKEN_RIGHT_BRACE)) break;
+            
+            // 解析枚举常量
+            if (!check(parser, TOKEN_IDENTIFIER)) {
+                parser_error(parser, "预期标识符");
+                // 释放已分配的资源
+                for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                    ast_free(decl->data.enum_decl.constants[i]);
+                }
+                free(decl->data.enum_decl.constants);
+                ast_free(decl);
+                return NULL;
+            }
+            
+            token = advance(parser);
+            struct ASTNode *constant = ast_create_node(ASTC_ENUM_CONSTANT, token->line, token->column);
+            if (!constant) {
+                // 释放已分配的资源
+                for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                    ast_free(decl->data.enum_decl.constants[i]);
+                }
+                free(decl->data.enum_decl.constants);
+                ast_free(decl);
+                return NULL;
+            }
+            
+            constant->data.enum_constant.name = strdup(token->value);
+            if (!constant->data.enum_constant.name) {
+                parser_error(parser, "内存分配失败");
+                ast_free(constant);
+                // 释放已分配的资源
+                for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                    ast_free(decl->data.enum_decl.constants[i]);
+                }
+                free(decl->data.enum_decl.constants);
+                ast_free(decl);
+                return NULL;
+            }
+            
+            // 检查是否有初始化值
+            if (match(parser, TOKEN_EQUAL)) {
+                constant->data.enum_constant.has_value = 1;
+                struct ASTNode *value = parse_expression(parser);
+                if (!value) {
+                    ast_free(constant);
+                    // 释放已分配的资源
+                    for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                        ast_free(decl->data.enum_decl.constants[i]);
+                    }
+                    free(decl->data.enum_decl.constants);
+                    ast_free(decl);
+                    return NULL;
+                }
+                
+                constant->data.enum_constant.value = value;
+            } else {
+                constant->data.enum_constant.has_value = 0;
+                constant->data.enum_constant.value = NULL;
+            }
+            
+            // 动态扩展常量数组
+            if (decl->data.enum_decl.constant_count >= capacity) {
+                capacity = capacity == 0 ? 8 : capacity * 2;
+                struct ASTNode **new_constants = (struct ASTNode **)realloc(
+                    decl->data.enum_decl.constants, 
+                    capacity * sizeof(struct ASTNode *)
+                );
+                
+                if (!new_constants) {
+                    parser_error(parser, "内存分配失败");
+                    ast_free(constant);
+                    // 释放已分配的资源
+                    for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                        ast_free(decl->data.enum_decl.constants[i]);
+                    }
+                    free(decl->data.enum_decl.constants);
+                    ast_free(decl);
+                    return NULL;
+                }
+                
+                decl->data.enum_decl.constants = new_constants;
+            }
+            
+            // 添加常量到枚举
+            decl->data.enum_decl.constants[decl->data.enum_decl.constant_count++] = constant;
+            
+        } while (match(parser, TOKEN_COMMA));
+        
+        if (!match(parser, TOKEN_RIGHT_BRACE)) {
+            parser_error(parser, "预期右花括号");
+            // 释放已分配的资源
+            for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
+                ast_free(decl->data.enum_decl.constants[i]);
+            }
+            free(decl->data.enum_decl.constants);
+            ast_free(decl);
+            return NULL;
+        }
+    } else {
+        decl->data.enum_decl.constants = NULL;
+        decl->data.enum_decl.constant_count = 0;
+    }
+    
+    return decl;
+}
+
+// 更新解析声明函数
+static struct ASTNode* parse_declaration(Parser *parser) {
+    // 检查是否为结构体、联合体或枚举
+    Token *token = peek(parser);
+    if (!token) return NULL;
+    
+    if (token->type == TOKEN_STRUCT || token->type == TOKEN_UNION) {
+        return parse_struct_or_union(parser);
+    } else if (token->type == TOKEN_ENUM) {
+        return parse_enum(parser);
+    }
+    
+    // 解析类型说明符
+    struct ASTNode *type_node = NULL;
+    
+    // 检查是否为类型关键字
+    switch (token->type) {
+        case TOKEN_VOID:
+        case TOKEN_CHAR:
+        case TOKEN_SHORT:
+        case TOKEN_INT:
+        case TOKEN_LONG:
+        case TOKEN_FLOAT:
+        case TOKEN_DOUBLE:
+        case TOKEN_SIGNED:
+        case TOKEN_UNSIGNED:
+            // 创建类型节点
+            type_node = ast_create_node(ASTC_TYPE_SPECIFIER, token->line, token->column);
+            if (!type_node) return NULL;
+            
+            // 设置类型
+            switch (token->type) {
+                case TOKEN_VOID: type_node->data.type_specifier.type = ASTC_TYPE_VOID; break;
+                case TOKEN_CHAR: type_node->data.type_specifier.type = ASTC_TYPE_CHAR; break;
+                case TOKEN_SHORT: type_node->data.type_specifier.type = ASTC_TYPE_SHORT; break;
+                case TOKEN_INT: type_node->data.type_specifier.type = ASTC_TYPE_INT; break;
+                case TOKEN_LONG: type_node->data.type_specifier.type = ASTC_TYPE_LONG; break;
+                case TOKEN_FLOAT: type_node->data.type_specifier.type = ASTC_TYPE_FLOAT; break;
+                case TOKEN_DOUBLE: type_node->data.type_specifier.type = ASTC_TYPE_DOUBLE; break;
+                case TOKEN_SIGNED: type_node->data.type_specifier.type = ASTC_TYPE_SIGNED; break;
+                case TOKEN_UNSIGNED: type_node->data.type_specifier.type = ASTC_TYPE_UNSIGNED; break;
+                default:
+                    ast_free(type_node);
+                    return NULL;
+            }
+            
+            advance(parser); // 消耗类型关键字
+            break;
+            
+        default:
+            // 不是声明
+            return NULL;
+    }
+    
+    // 检查是否为指针类型
+    type_node = parse_pointer_type(parser, type_node);
+    if (!type_node) return NULL;
+    
+    // 解析声明符
+    token = peek(parser);
+    if (!token || token->type != TOKEN_IDENTIFIER) {
+        parser_error(parser, "预期标识符");
+        ast_free(type_node);
+        return NULL;
+    }
+    
+    char *name = strdup(token->value);
+    if (!name) {
+        parser_error(parser, "内存分配失败");
+        ast_free(type_node);
+        return NULL;
+    }
+    
+    advance(parser); // 消耗标识符
+    
+    // 检查是否为数组类型
+    if (check(parser, TOKEN_LEFT_BRACKET)) {
+        type_node = parse_array_type(parser, type_node);
+        if (!type_node) {
+            free(name);
+            return NULL;
+        }
+    }
+    
+    // 检查是变量声明还是函数声明
+    if (match(parser, TOKEN_LEFT_PAREN)) {
+        // 函数声明
+        struct ASTNode *func_decl = ast_create_node(ASTC_FUNC_DECL, token->line, token->column);
+        if (!func_decl) {
+            free(name);
+            ast_free(type_node);
+            return NULL;
+        }
+        
+        func_decl->data.func_decl.name = name;
+        func_decl->data.func_decl.return_type = type_node;
+        
+        // 解析参数列表
+        func_decl->data.func_decl.params = NULL;
+        func_decl->data.func_decl.param_count = 0;
+        
+        if (!check(parser, TOKEN_RIGHT_PAREN)) {
+            // 有参数
+            struct ASTNode **params = NULL;
+            int param_count = 0;
+            int capacity = 0;
+            
+            do {
+                // 解析参数声明
+                struct ASTNode *param = parse_declaration(parser);
+                if (!param) {
+                    // 释放已分配的资源
+                    for (int i = 0; i < param_count; i++) {
+                        ast_free(params[i]);
+                    }
+                    free(params);
+                    ast_free(func_decl);
+                    return NULL;
+                }
+                
+                // 动态扩展参数数组
+                if (param_count >= capacity) {
+                    capacity = capacity == 0 ? 4 : capacity * 2;
+                    struct ASTNode **new_params = (struct ASTNode **)realloc(params, capacity * sizeof(struct ASTNode *));
+                    if (!new_params) {
+                        parser_error(parser, "内存分配失败");
+                        // 释放已分配的资源
+                        for (int i = 0; i < param_count; i++) {
+                            ast_free(params[i]);
+                        }
+                        free(params);
+                        ast_free(func_decl);
+                        return NULL;
+                    }
+                    params = new_params;
+                }
+                
+                params[param_count++] = param;
+            } while (match(parser, TOKEN_COMMA));
+            
+            func_decl->data.func_decl.params = params;
+            func_decl->data.func_decl.param_count = param_count;
+        }
+        
+        if (!match(parser, TOKEN_RIGHT_PAREN)) {
+            parser_error(parser, "预期右括号");
+            ast_free(func_decl);
+            return NULL;
+        }
+        
+        // 检查是函数定义还是声明
+        if (check(parser, TOKEN_LEFT_BRACE)) {
+            // 函数定义
+            func_decl->data.func_decl.has_body = 1;
+            
+            // 解析函数体
+            struct ASTNode *body = parse_compound_statement(parser);
+            if (!body) {
+                ast_free(func_decl);
+                return NULL;
+            }
+            
+            func_decl->data.func_decl.body = body;
+        } else {
+            // 函数声明
+            func_decl->data.func_decl.has_body = 0;
+            func_decl->data.func_decl.body = NULL;
+            
+            if (!match(parser, TOKEN_SEMICOLON)) {
+                parser_error(parser, "预期分号");
+                ast_free(func_decl);
+                return NULL;
+            }
+        }
+        
+        return func_decl;
+    } else {
+        // 变量声明
+        struct ASTNode *var_decl = ast_create_node(ASTC_VAR_DECL, token->line, token->column);
+        if (!var_decl) {
+            free(name);
+            ast_free(type_node);
+            return NULL;
+        }
+        
+        var_decl->data.var_decl.name = name;
+        var_decl->data.var_decl.type = type_node;
+        
+        // 检查是否有初始化器
+        if (match(parser, TOKEN_EQUAL)) {
+            // 解析初始化表达式
+            struct ASTNode *init = parse_expression(parser);
+            if (!init) {
+                ast_free(var_decl);
+                return NULL;
+            }
+            
+            var_decl->data.var_decl.initializer = init;
+        } else {
+            var_decl->data.var_decl.initializer = NULL;
+        }
+        
+        if (!match(parser, TOKEN_SEMICOLON)) {
+            parser_error(parser, "预期分号");
+            ast_free(var_decl);
+            return NULL;
+        }
+        
+        return var_decl;
+    }
 }
 
 // ===============================================
@@ -529,18 +1989,35 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
     C2AstcOptions default_options = c2astc_default_options();
     if (!options) options = &default_options;
     
-    // 创建一个简单的翻译单元节点
-    struct ASTNode *root = ast_create_node(ASTC_TRANSLATION_UNIT, 1, 1);
-    if (!root) {
-        set_error("内存分配失败");
+    // 1. 词法分析
+    Lexer lexer;
+    init_lexer(&lexer, source, NULL);
+    
+    int token_count = 0;
+    Token **tokens = tokenize(&lexer, &token_count);
+    if (!tokens) {
+        set_error("词法分析失败: %s", lexer.error_msg);
         return NULL;
     }
     
-    // TODO: 实现完整的C到ASTC转换
-    // 1. 词法分析
     // 2. 语法分析
-    // 3. 语义分析
-    // 4. ASTC生成
+    Parser parser;
+    init_parser(&parser, tokens, token_count);
+    
+    struct ASTNode *root = parse_translation_unit(&parser);
+    if (!root) {
+        set_error("语法分析失败: %s", parser.error_msg);
+        free_tokens(tokens, token_count);
+        return NULL;
+    }
+    
+    // 释放tokens
+    free_tokens(tokens, token_count);
+    
+    // 3. 语义分析和优化
+    if (options->optimize_level) {
+        // TODO: 实现优化
+    }
     
     return root;
 }
@@ -619,6 +2096,9 @@ void ast_print(struct ASTNode *node, int indent) {
     switch (node->type) {
         case ASTC_TRANSLATION_UNIT:
             printf("TranslationUnit\n");
+            for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                ast_print(node->data.translation_unit.declarations[i], indent + 1);
+            }
             break;
         case ASTC_EXPR_IDENTIFIER:
             printf("Identifier: %s\n", node->data.identifier.name);
@@ -633,28 +2113,336 @@ void ast_print(struct ASTNode *node, int indent) {
         case ASTC_EXPR_STRING_LITERAL:
             printf("String: \"%s\"\n", node->data.string_literal.value);
             break;
-        default:
-            printf("Node(type=%d)\n", node->type);
-            break;
-    }
-    
-    // 递归打印子节点
-    switch (node->type) {
         case ASTC_BINARY_OP:
+            printf("BinaryOp: ");
+            switch (node->data.binary_op.op) {
+                case ASTC_OP_ADD: printf("+\n"); break;
+                case ASTC_OP_SUB: printf("-\n"); break;
+                case ASTC_OP_MUL: printf("*\n"); break;
+                case ASTC_OP_DIV: printf("/\n"); break;
+                case ASTC_OP_MOD: printf("%%\n"); break;
+                case ASTC_OP_EQ: printf("==\n"); break;
+                case ASTC_OP_NE: printf("!=\n"); break;
+                case ASTC_OP_LT: printf("<\n"); break;
+                case ASTC_OP_LE: printf("<=\n"); break;
+                case ASTC_OP_GT: printf(">\n"); break;
+                case ASTC_OP_GE: printf(">=\n"); break;
+                case ASTC_OP_AND: printf("&\n"); break;
+                case ASTC_OP_OR: printf("|\n"); break;
+                case ASTC_OP_XOR: printf("^\n"); break;
+                case ASTC_OP_LOGICAL_AND: printf("&&\n"); break;
+                case ASTC_OP_LOGICAL_OR: printf("||\n"); break;
+                case ASTC_OP_ASSIGN: printf("=\n"); break;
+                default: printf("Unknown\n"); break;
+            }
             ast_print(node->data.binary_op.left, indent + 1);
             ast_print(node->data.binary_op.right, indent + 1);
             break;
         case ASTC_UNARY_OP:
+            printf("UnaryOp: ");
+            switch (node->data.unary_op.op) {
+                case ASTC_OP_NEG: printf("-\n"); break;
+                case ASTC_OP_POS: printf("+\n"); break;
+                case ASTC_OP_NOT: printf("!\n"); break;
+                case ASTC_OP_BITWISE_NOT: printf("~\n"); break;
+                default: printf("Unknown\n"); break;
+            }
             ast_print(node->data.unary_op.operand, indent + 1);
             break;
         case ASTC_CALL_EXPR:
+            printf("CallExpr\n");
             ast_print(node->data.call_expr.callee, indent + 1);
             for (int i = 0; i < node->data.call_expr.arg_count; i++) {
                 ast_print(node->data.call_expr.args[i], indent + 1);
             }
             break;
+        case ASTC_FUNC_DECL:
+            printf("FunctionDecl: %s\n", node->data.func_decl.name);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("ReturnType:\n");
+            ast_print(node->data.func_decl.return_type, indent + 2);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Parameters:\n");
+            for (int i = 0; i < node->data.func_decl.param_count; i++) {
+                ast_print(node->data.func_decl.params[i], indent + 2);
+            }
+            if (node->data.func_decl.has_body) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Body:\n");
+                ast_print(node->data.func_decl.body, indent + 2);
+            }
+            break;
+        case ASTC_VAR_DECL:
+            printf("VarDecl: %s\n", node->data.var_decl.name);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Type:\n");
+            ast_print(node->data.var_decl.type, indent + 2);
+            if (node->data.var_decl.initializer) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Initializer:\n");
+                ast_print(node->data.var_decl.initializer, indent + 2);
+            }
+            break;
+        case ASTC_TYPE_SPECIFIER:
+            printf("TypeSpecifier: ");
+            switch (node->data.type_specifier.type) {
+                case ASTC_TYPE_VOID: printf("void\n"); break;
+                case ASTC_TYPE_CHAR: printf("char\n"); break;
+                case ASTC_TYPE_SHORT: printf("short\n"); break;
+                case ASTC_TYPE_INT: printf("int\n"); break;
+                case ASTC_TYPE_LONG: printf("long\n"); break;
+                case ASTC_TYPE_FLOAT: printf("float\n"); break;
+                case ASTC_TYPE_DOUBLE: printf("double\n"); break;
+                case ASTC_TYPE_SIGNED: printf("signed\n"); break;
+                case ASTC_TYPE_UNSIGNED: printf("unsigned\n"); break;
+                default: printf("Unknown\n"); break;
+            }
+            break;
+        case ASTC_STRUCT_DECL:
+            printf("StructDecl: %s\n", node->data.struct_decl.name ? node->data.struct_decl.name : "<anonymous>");
+            for (int i = 0; i < node->data.struct_decl.member_count; i++) {
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("Member %d:\n", i);
+                ast_print(node->data.struct_decl.members[i], indent + 2);
+            }
+            break;
+        case ASTC_UNION_DECL:
+            printf("UnionDecl: %s\n", node->data.union_decl.name ? node->data.union_decl.name : "<anonymous>");
+            for (int i = 0; i < node->data.union_decl.member_count; i++) {
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("Member %d:\n", i);
+                ast_print(node->data.union_decl.members[i], indent + 2);
+            }
+            break;
+        case ASTC_ENUM_DECL:
+            printf("EnumDecl: %s\n", node->data.enum_decl.name ? node->data.enum_decl.name : "<anonymous>");
+            for (int i = 0; i < node->data.enum_decl.constant_count; i++) {
+                ast_print(node->data.enum_decl.constants[i], indent + 1);
+            }
+            break;
+        case ASTC_ENUM_CONSTANT:
+            printf("EnumConstant: %s\n", node->data.enum_constant.name);
+            if (node->data.enum_constant.has_value) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Value:\n");
+                ast_print(node->data.enum_constant.value, indent + 2);
+            }
+            break;
+        case ASTC_COMPOUND_STMT:
+            printf("CompoundStmt\n");
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                ast_print(node->data.compound_stmt.statements[i], indent + 1);
+            }
+            break;
+        case ASTC_IF_STMT:
+            printf("IfStmt\n");
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Condition:\n");
+            ast_print(node->data.if_stmt.condition, indent + 2);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Then:\n");
+            ast_print(node->data.if_stmt.then_branch, indent + 2);
+            if (node->data.if_stmt.else_branch) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Else:\n");
+                ast_print(node->data.if_stmt.else_branch, indent + 2);
+            }
+            break;
+        case ASTC_WHILE_STMT:
+            printf("WhileStmt\n");
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Condition:\n");
+            ast_print(node->data.while_stmt.condition, indent + 2);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Body:\n");
+            ast_print(node->data.while_stmt.body, indent + 2);
+            break;
+        case ASTC_FOR_STMT:
+            printf("ForStmt\n");
+            if (node->data.for_stmt.init) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Init:\n");
+                ast_print(node->data.for_stmt.init, indent + 2);
+            }
+            if (node->data.for_stmt.condition) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Condition:\n");
+                ast_print(node->data.for_stmt.condition, indent + 2);
+            }
+            if (node->data.for_stmt.increment) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Increment:\n");
+                ast_print(node->data.for_stmt.increment, indent + 2);
+            }
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Body:\n");
+            ast_print(node->data.for_stmt.body, indent + 2);
+            break;
+        case ASTC_RETURN_STMT:
+            printf("ReturnStmt\n");
+            if (node->data.return_stmt.value) {
+                ast_print(node->data.return_stmt.value, indent + 1);
+            }
+            break;
+        case ASTC_BREAK_STMT:
+            printf("BreakStmt\n");
+            break;
+        case ASTC_CONTINUE_STMT:
+            printf("ContinueStmt\n");
+            break;
+        case ASTC_EXPR_STMT:
+            printf("ExprStmt\n");
+            ast_print(node->data.expr_stmt.expr, indent + 1);
+            break;
+        case ASTC_TYPE_SPECIFIER:
+            printf("TypeSpecifier: ");
+            switch (node->data.type_specifier.type) {
+                case ASTC_TYPE_VOID: printf("void\n"); break;
+                case ASTC_TYPE_CHAR: printf("char\n"); break;
+                case ASTC_TYPE_SHORT: printf("short\n"); break;
+                case ASTC_TYPE_INT: printf("int\n"); break;
+                case ASTC_TYPE_LONG: printf("long\n"); break;
+                case ASTC_TYPE_FLOAT: printf("float\n"); break;
+                case ASTC_TYPE_DOUBLE: printf("double\n"); break;
+                case ASTC_TYPE_SIGNED: printf("signed\n"); break;
+                case ASTC_TYPE_UNSIGNED: printf("unsigned\n"); break;
+                default: printf("Unknown\n"); break;
+            }
+            break;
+        case ASTC_POINTER_TYPE:
+            printf("PointerType (level: %d)\n", node->data.pointer_type.pointer_level);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("BaseType:\n");
+            ast_print(node->data.pointer_type.base_type, indent + 2);
+            break;
+        case ASTC_ARRAY_TYPE:
+            printf("ArrayType (dimensions: %d)\n", node->data.array_type.dimensions);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("ElementType:\n");
+            ast_print(node->data.array_type.element_type, indent + 2);
+            
+            if (node->data.array_type.size_expr) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Size:\n");
+                ast_print(node->data.array_type.size_expr, indent + 2);
+            }
+            
+            if (node->data.array_type.dim_sizes) {
+                for (int i = 0; i < node->data.array_type.dimensions; i++) {
+                    if (node->data.array_type.dim_sizes[i]) {
+                        for (int j = 0; j < indent + 1; j++) printf("  ");
+                        printf("Dimension %d Size:\n", i);
+                        ast_print(node->data.array_type.dim_sizes[i], indent + 2);
+                    }
+                }
+            }
+            break;
         default:
-            // 其他节点类型的子节点打印
+            printf("Node(type=%d)\n", node->type);
             break;
     }
 } 
+
+// 解析指针类型
+static struct ASTNode* parse_pointer_type(Parser *parser, struct ASTNode *base_type) {
+    int pointer_level = 0;
+    
+    // 计算指针层级
+    while (match(parser, TOKEN_STAR)) {
+        pointer_level++;
+    }
+    
+    if (pointer_level == 0) {
+        return base_type; // 不是指针类型，直接返回基本类型
+    }
+    
+    // 创建指针类型节点
+    struct ASTNode *pointer_type = ast_create_node(ASTC_POINTER_TYPE, base_type->line, base_type->column);
+    if (!pointer_type) {
+        ast_free(base_type);
+        return NULL;
+    }
+    
+    pointer_type->data.pointer_type.base_type = base_type;
+    pointer_type->data.pointer_type.pointer_level = pointer_level;
+    
+    return pointer_type;
+}
+
+// 解析数组类型
+static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_type) {
+    // 检查是否为数组类型
+    if (!match(parser, TOKEN_LEFT_BRACKET)) {
+        return element_type; // 不是数组类型，直接返回元素类型
+    }
+    
+    // 创建数组类型节点
+    struct ASTNode *array_type = ast_create_node(ASTC_ARRAY_TYPE, element_type->line, element_type->column);
+    if (!array_type) {
+        ast_free(element_type);
+        return NULL;
+    }
+    
+    array_type->data.array_type.element_type = element_type;
+    array_type->data.array_type.dimensions = 1;
+    array_type->data.array_type.dim_sizes = NULL;
+    
+    // 解析数组大小表达式（如果有）
+    if (!check(parser, TOKEN_RIGHT_BRACKET)) {
+        array_type->data.array_type.size_expr = parse_expression(parser);
+        if (!array_type->data.array_type.size_expr) {
+            ast_free(array_type);
+            return NULL;
+        }
+    } else {
+        // 未指定大小的数组
+        array_type->data.array_type.size_expr = NULL;
+    }
+    
+    if (!match(parser, TOKEN_RIGHT_BRACKET)) {
+        parser_error(parser, "预期右方括号");
+        ast_free(array_type);
+        return NULL;
+    }
+    
+    // 处理多维数组
+    if (check(parser, TOKEN_LEFT_BRACKET)) {
+        // 递归解析多维数组
+        struct ASTNode *multi_array = parse_array_type(parser, array_type);
+        if (!multi_array) {
+            return NULL;
+        }
+        
+        // 更新维度信息
+        if (multi_array->type == ASTC_ARRAY_TYPE) {
+            multi_array->data.array_type.dimensions = array_type->data.array_type.dimensions + 1;
+            
+            // 分配维度大小数组
+            multi_array->data.array_type.dim_sizes = (struct ASTNode **)malloc(
+                multi_array->data.array_type.dimensions * sizeof(struct ASTNode *)
+            );
+            
+            if (!multi_array->data.array_type.dim_sizes) {
+                parser_error(parser, "内存分配失败");
+                ast_free(multi_array);
+                return NULL;
+            }
+            
+            // 第一维度的大小
+            multi_array->data.array_type.dim_sizes[0] = array_type->data.array_type.size_expr;
+            
+            // 复制其他维度的大小
+            for (int i = 1; i < multi_array->data.array_type.dimensions; i++) {
+                if (i < array_type->data.array_type.dimensions && array_type->data.array_type.dim_sizes) {
+                    multi_array->data.array_type.dim_sizes[i] = array_type->data.array_type.dim_sizes[i-1];
+                } else {
+                    multi_array->data.array_type.dim_sizes[i] = NULL;
+                }
+            }
+        }
+        
+        return multi_array;
+    }
+    
+    return array_type;
+}

@@ -172,10 +172,52 @@ typedef enum {
     // ===== 扩展节点 (AST-C) =====
     // 声明和定义
     ASTC_TRANSLATION_UNIT,  // 翻译单元
-    ASTC_FUNCTION_DEF,      // 函数定义
-    ASTC_FUNCTION_DECL,     // 函数声明
-    ASTC_VAR_DECL,         // 变量声明
-    ASTC_PARAM_DECL,       // 参数声明
+    ASTC_FUNC_DECL,         // 函数声明
+    ASTC_VAR_DECL,          // 变量声明
+    ASTC_PARAM_DECL,        // 参数声明
+    ASTC_TYPE_SPECIFIER,    // 类型说明符
+    
+    // 语句
+    ASTC_COMPOUND_STMT,     // 复合语句
+    ASTC_IF_STMT,           // if语句
+    ASTC_WHILE_STMT,        // while语句
+    ASTC_FOR_STMT,          // for语句
+    ASTC_RETURN_STMT,       // return语句
+    ASTC_BREAK_STMT,        // break语句
+    ASTC_CONTINUE_STMT,     // continue语句
+    ASTC_EXPR_STMT,         // 表达式语句
+    
+    // 表达式
+    ASTC_EXPR_IDENTIFIER,   // 标识符表达式
+    ASTC_EXPR_CONSTANT,     // 常量表达式
+    ASTC_EXPR_STRING_LITERAL, // 字符串字面量
+    ASTC_UNARY_OP,          // 一元操作
+    ASTC_BINARY_OP,         // 二元操作
+    ASTC_CALL_EXPR,         // 函数调用
+    
+    // 操作符
+    ASTC_OP_UNKNOWN,        // 未知操作符
+    ASTC_OP_ADD,            // 加法 +
+    ASTC_OP_SUB,            // 减法 -
+    ASTC_OP_MUL,            // 乘法 *
+    ASTC_OP_DIV,            // 除法 /
+    ASTC_OP_MOD,            // 取模 %
+    ASTC_OP_EQ,             // 等于 ==
+    ASTC_OP_NE,             // 不等于 !=
+    ASTC_OP_LT,             // 小于 <
+    ASTC_OP_LE,             // 小于等于 <=
+    ASTC_OP_GT,             // 大于 >
+    ASTC_OP_GE,             // 大于等于 >=
+    ASTC_OP_AND,            // 按位与 &
+    ASTC_OP_OR,             // 按位或 |
+    ASTC_OP_XOR,            // 按位异或 ^
+    ASTC_OP_NOT,            // 逻辑非 !
+    ASTC_OP_BITWISE_NOT,    // 按位取反 ~
+    ASTC_OP_LOGICAL_AND,    // 逻辑与 &&
+    ASTC_OP_LOGICAL_OR,     // 逻辑或 ||
+    ASTC_OP_ASSIGN,         // 赋值 =
+    ASTC_OP_NEG,            // 负号 -
+    ASTC_OP_POS,            // 正号 +
     
     // 复合类型
     ASTC_STRUCT_DECL,      // 结构体声明
@@ -190,31 +232,19 @@ typedef enum {
     ASTC_FUNCTION_TYPE,    // 函数类型
     
     // 控制流
-    ASTC_IF_STMT,          // if 语句
-    ASTC_SWITCH_STMT,      // switch 语句
     ASTC_CASE_STMT,        // case 语句
     ASTC_DEFAULT_STMT,     // default 语句
-    ASTC_WHILE_STMT,       // while 循环
-    ASTC_DO_STMT,          // do-while 循环
-    ASTC_FOR_STMT,         // for 循环
     ASTC_GOTO_STMT,        // goto 语句
     ASTC_LABEL_STMT,       // 标签语句
-    ASTC_CONTINUE_STMT,    // continue 语句
-    ASTC_BREAK_STMT,       // break 语句
-    ASTC_RETURN_STMT,      // return 语句
+    ASTC_SWITCH_STMT,      // switch 语句
     
-    // 表达式
-    ASTC_IDENTIFIER,       // 标识符
-    ASTC_CONSTANT,         // 常量
-    ASTC_STRING_LITERAL,   // 字符串字面量
-    ASTC_UNARY_OP,         // 一元操作
-    ASTC_BINARY_OP,        // 二元操作
-    ASTC_TERNARY_OP,       // 三元操作
-    ASTC_CALL_EXPR,        // 函数调用
-    ASTC_ARRAY_SUBSCRIPT,  // 数组下标
-    ASTC_MEMBER_ACCESS,    // 成员访问
-    ASTC_PTR_MEMBER_ACCESS,// 指针成员访问
-    ASTC_CAST_EXPR,        // 类型转换
+    // 表达式类型
+    ASTC_EXPR_COMPOUND_LITERAL,  // 复合字面量 (C99)
+    ASTC_EXPR_FUNC_CALL,         // 函数调用
+    ASTC_EXPR_ARRAY_SUBSCRIPT,   // 数组下标
+    ASTC_EXPR_MEMBER_ACCESS,     // 成员访问
+    ASTC_EXPR_PTR_MEMBER_ACCESS, // 指针成员访问
+    ASTC_EXPR_CAST_EXPR,        // 类型转换
     
     // 表达式类型
     ASTC_EXPR_IDENTIFIER,        // 标识符
@@ -487,12 +517,126 @@ typedef struct ASTNode {
         // 翻译单元
         struct {
             struct ASTNode **declarations;
-            int decl_count;
+            int declaration_count;
         } translation_unit;
+        
+        // 函数声明
+        struct {
+            char *name;
+            struct ASTNode *return_type;
+            struct ASTNode **params;
+            int param_count;
+            int has_body;
+            struct ASTNode *body;
+        } func_decl;
+        
+        // 变量声明
+        struct {
+            char *name;
+            struct ASTNode *type;
+            struct ASTNode *initializer;
+        } var_decl;
+        
+        // 类型说明符
+        struct {
+            ASTNodeType type;
+        } type_specifier;
+        
+        // 结构体声明
+        struct {
+            char *name;
+            struct ASTNode **members;
+            int member_count;
+        } struct_decl;
+        
+        // 联合体声明
+        struct {
+            char *name;
+            struct ASTNode **members;
+            int member_count;
+        } union_decl;
+        
+        // 枚举声明
+        struct {
+            char *name;
+            struct ASTNode **constants;
+            int constant_count;
+        } enum_decl;
+        
+        // 枚举常量
+        struct {
+            char *name;
+            int has_value;
+            struct ASTNode *value;
+        } enum_constant;
+        
+        // 复合语句
+        struct {
+            struct ASTNode **statements;
+            int statement_count;
+        } compound_stmt;
+        
+        // if语句
+        struct {
+            struct ASTNode *condition;
+            struct ASTNode *then_branch;
+            struct ASTNode *else_branch;
+        } if_stmt;
+        
+        // while语句
+        struct {
+            struct ASTNode *condition;
+            struct ASTNode *body;
+        } while_stmt;
+        
+        // for语句
+        struct {
+            struct ASTNode *init;
+            struct ASTNode *condition;
+            struct ASTNode *increment;
+            struct ASTNode *body;
+        } for_stmt;
+        
+        // return语句
+        struct {
+            struct ASTNode *value;
+        } return_stmt;
+        
+        // 表达式语句
+        struct {
+            struct ASTNode *expr;
+        } expr_stmt;
+        
+        // 指针类型
+        struct {
+            struct ASTNode *base_type;
+            int pointer_level; // 指针层级，如 int* 为1，int** 为2
+        } pointer_type;
+        
+        // 数组类型
+        struct {
+            struct ASTNode *element_type;  // 数组元素类型
+            struct ASTNode *size_expr;     // 数组大小表达式，可以为NULL表示未指定大小
+            int dimensions;                // 数组维度，如int[10]为1，int[5][10]为2
+            struct ASTNode **dim_sizes;    // 多维数组的各维度大小表达式
+        } array_type;
     } data;
 } ASTNode;
 struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);
 void ast_free(struct ASTNode *node);
 void ast_print(struct ASTNode *node, int indent);
+
+// 类型说明符
+struct {
+    ASTNodeType type;
+} type_specifier;
+
+// 指针类型
+struct {
+    struct ASTNode *base_type;
+    int pointer_level; // 指针层级，如 int* 为1，int** 为2
+} pointer_type;
+
+// 结构体声明
 
 #endif // ASTC_H
