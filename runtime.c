@@ -39,6 +39,12 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
 // 销毁调用帧
 static void runtime_destroy_call_frame(RuntimeVM* vm, RuntimeCallFrame* frame);
 
+// 添加局部变量到映射表
+static bool runtime_add_local_variable(RuntimeVM* vm, const char* name, RuntimeValue value);
+
+// 查找局部变量
+static RuntimeValue* runtime_find_local_variable(RuntimeVM* vm, const char* name);
+
 // ===============================================
 // 公共函数实现
 // ===============================================
@@ -416,6 +422,17 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
     frame->bp = vm->memory.stack_pointer;
     frame->ip = 0;
     frame->prev = vm->current_frame;
+
+    // 初始化局部变量映射
+    frame->local_map_capacity = 16;
+    frame->local_map_count = 0;
+    frame->local_map = (RuntimeLocalEntry*)malloc(frame->local_map_capacity * sizeof(RuntimeLocalEntry));
+    if (!frame->local_map) {
+        free(frame->locals);
+        free(frame);
+        runtime_set_error(vm, "无法分配局部变量映射");
+        return NULL;
+    }
     
     // 分配局部变量（至少分配一个用于返回值）
     size_t local_count = func->data.func_decl.param_count;
@@ -445,13 +462,86 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
 // 销毁调用帧
 static void runtime_destroy_call_frame(RuntimeVM* vm, RuntimeCallFrame* frame) {
     if (!vm || !frame) return;
-    
+
     // 释放局部变量
     if (frame->locals) {
         free(frame->locals);
     }
-    
+
+    // 释放局部变量映射
+    if (frame->local_map) {
+        for (size_t i = 0; i < frame->local_map_count; i++) {
+            if (frame->local_map[i].name) {
+                free((void*)frame->local_map[i].name);
+            }
+        }
+        free(frame->local_map);
+    }
+
     free(frame);
+}
+
+// 添加局部变量到映射表
+static bool runtime_add_local_variable(RuntimeVM* vm, const char* name, RuntimeValue value) {
+    if (!vm || !vm->current_frame || !name) return false;
+
+    RuntimeCallFrame* frame = vm->current_frame;
+
+    // 检查映射表容量
+    if (frame->local_map_count >= frame->local_map_capacity) {
+        size_t new_capacity = frame->local_map_capacity * 2;
+        RuntimeLocalEntry* new_map = (RuntimeLocalEntry*)realloc(
+            frame->local_map,
+            new_capacity * sizeof(RuntimeLocalEntry)
+        );
+        if (!new_map) {
+            runtime_set_error(vm, "无法扩展局部变量映射表");
+            return false;
+        }
+        frame->local_map = new_map;
+        frame->local_map_capacity = new_capacity;
+    }
+
+    // 扩展局部变量数组
+    size_t new_count = frame->local_count + 1;
+    RuntimeValue* new_locals = (RuntimeValue*)realloc(frame->locals,
+                                                      new_count * sizeof(RuntimeValue));
+    if (!new_locals) {
+        runtime_set_error(vm, "无法分配局部变量内存");
+        return false;
+    }
+
+    frame->locals = new_locals;
+    frame->locals[frame->local_count] = value;
+
+    // 添加到映射表
+    RuntimeLocalEntry* entry = &frame->local_map[frame->local_map_count];
+    entry->name = strdup(name);
+    entry->index = frame->local_count;
+
+    frame->local_count = new_count;
+    frame->local_map_count++;
+
+    return true;
+}
+
+// 查找局部变量
+static RuntimeValue* runtime_find_local_variable(RuntimeVM* vm, const char* name) {
+    if (!vm || !vm->current_frame || !name) return NULL;
+
+    RuntimeCallFrame* frame = vm->current_frame;
+
+    // 在映射表中查找变量名
+    for (size_t i = 0; i < frame->local_map_count; i++) {
+        if (frame->local_map[i].name && strcmp(frame->local_map[i].name, name) == 0) {
+            size_t index = frame->local_map[i].index;
+            if (index < frame->local_count) {
+                return &frame->locals[index];
+            }
+        }
+    }
+
+    return NULL;
 }
 
 // 执行函数
@@ -600,20 +690,9 @@ static bool runtime_execute_statement(RuntimeVM* vm, struct ASTNode* stmt) {
 
             // 如果在函数内，添加到局部变量
             if (vm->current_frame) {
-                // 简化实现：扩展局部变量数组
-                size_t new_count = vm->current_frame->local_count + 1;
-                RuntimeValue* new_locals = (RuntimeValue*)realloc(vm->current_frame->locals,
-                                                                  new_count * sizeof(RuntimeValue));
-                if (!new_locals) {
-                    runtime_set_error(vm, "无法分配局部变量内存");
+                if (!runtime_add_local_variable(vm, var_name, init_value)) {
                     return false;
                 }
-
-                vm->current_frame->locals = new_locals;
-                vm->current_frame->locals[vm->current_frame->local_count] = init_value;
-                vm->current_frame->local_count = new_count;
-
-                // TODO: 需要维护变量名到索引的映射
             } else {
                 // 添加到全局变量
                 // 检查全局变量表容量
@@ -703,16 +782,17 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
     switch (expr->type) {
         case ASTC_EXPR_IDENTIFIER: {
             // 查找局部变量
-            if (vm->current_frame && vm->current_frame->locals) {
-                // TODO: 实现局部变量查找
+            RuntimeValue* local = runtime_find_local_variable(vm, expr->data.identifier.name);
+            if (local) {
+                return *local;
             }
-            
+
             // 查找全局变量
             RuntimeGlobalEntry* global = runtime_find_global(vm, expr->data.identifier.name);
             if (global) {
                 return global->value;
             }
-            
+
             runtime_set_error(vm, "未定义的标识符: %s", expr->data.identifier.name);
             return runtime_value_i32(0);
         }

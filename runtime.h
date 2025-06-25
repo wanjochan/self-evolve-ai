@@ -92,11 +92,20 @@ typedef struct {
     size_t capacity;                // 全局变量表容量
 } RuntimeGlobalTable;
 
+// 局部变量映射项
+typedef struct {
+    const char* name;               // 变量名
+    size_t index;                   // 在locals数组中的索引
+} RuntimeLocalEntry;
+
 // 调用帧
 typedef struct RuntimeCallFrame {
     struct ASTNode* func;           // 当前执行的函数
     RuntimeValue* locals;           // 局部变量
     size_t local_count;             // 局部变量数量
+    RuntimeLocalEntry* local_map;   // 局部变量名到索引的映射
+    size_t local_map_count;         // 映射项数量
+    size_t local_map_capacity;      // 映射表容量
     size_t bp;                      // 基址指针
     size_t ip;                      // 指令指针
     struct RuntimeCallFrame* prev;  // 前一帧
