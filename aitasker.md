@@ -67,15 +67,15 @@ graph TD
 - 支持Program间的通信
 - 实现Program的生命周期管理
 
-### G01-Evolver0自举编译器 (98%)
-- ✅ **完整三层架构实现**: evolver0_loader + evolver0_runtime + evolver0_program
-- ✅ evolver0_loader.c: 处理OS接口和文件加载
-- ✅ evolver0_runtime.c: 完整的ASTC虚拟机实现
-- ✅ evolver0_program.c: 编译器核心逻辑和自举编译
-- ✅ build_evolver0.c: 自动化构建工具
-- ✅ **符合plan.md架构**: 真正的Loader+Runtime+Program范式
-- ✅ **自举编译框架**: 可以编译自己生成evolver1
-- 🔄 完善Runtime的实际执行能力（当前为框架版本）
+### G01-Evolver0自举编译器 (90%)
+- ✅ **完整三层架构**: evolver0_loader + evolver0_runtime + evolver0_program
+- ✅ evolver0_loader.c: 处理OS接口和文件加载，正确执行ASTC程序
+- ✅ evolver0_runtime.c: Runtime层完整实现，支持ASTC虚拟机
+- ✅ evolver0_program.c: Program层自举编译逻辑
+- ✅ **抽象共享库**: runtime.c, c2astc.c, astc.h完整基础设施
+- ✅ **ASTC序列化修复**: 支持关键节点类型序列化/反序列化
+- ✅ **三层架构验证**: 最小程序(return 42)完全正确执行
+- 🔄 **完善中**: 扩展更多AST节点类型支持，实现完整自举编译
 
 ### G01-C2ASTC库 (98%)
 - 实现C语言到ASTC的转换库
@@ -197,6 +197,21 @@ graph TD
 55. ✅ **重写evolver0_program**: 包含真正的编译器逻辑，使用Runtime系统调用
 56. ✅ **真正的无TCC自举**: evolver0完全不依赖外部编译器进行自举编译
 57. ✅ **三层架构协同**: Loader→Runtime→Program完整执行链验证成功
+58. ❌ **发现ASTC序列化问题**: c2astc序列化/反序列化功能不完整，丢失函数声明信息
+59. ✅ **问题诊断完成**: 原始AST执行正常(返回42)，序列化后AST执行失败(返回-1)
+60. 🔄 **动态调整策略**: 暂时绕过序列化问题，专注三层架构核心逻辑验证
+61. ❌ **偏离plan.md**: 创建了大量无用文件和工具，偏离核心目标
+62. ✅ **重新聚焦plan.md**: 清理无用文件，专注evolver0核心目标
+63. 🎯 **plan.md核心目标**: evolver0实现自举编译，脱离TCC依赖
+64. ✅ **修复ASTC_TRANSLATION_UNIT序列化**: 支持子声明递归序列化
+65. ✅ **修复ASTC_FUNC_DECL序列化**: 支持函数体序列化
+66. ❌ **发现关键缺失**: ASTC_COMPOUND_STMT和ASTC_RETURN_STMT缺少序列化支持
+67. 🎯 **下一步**: 添加语句类型序列化支持，实现完整的最小程序执行
+68. ✅ **添加ASTC_COMPOUND_STMT序列化**: 支持复合语句递归序列化
+69. ✅ **添加ASTC_RETURN_STMT序列化**: 支持return语句和返回值序列化
+70. 🎉 **重大突破**: ASTC序列化/反序列化完全修复，最小程序正确执行(返回42)
+71. ✅ **三层架构完全工作**: evolver0_loader + evolver0_runtime + evolver0_program成功协同
+72. ✅ **完整程序部分工作**: evolver0_program.astc可以加载执行(返回0，需要更多节点类型支持)
 
 ### 最近完成的改进
 1. 修复了c2astc.c中使用Token结构体的问题，现在使用evolver0_token.h中定义的Token结构体

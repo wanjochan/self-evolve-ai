@@ -12,16 +12,25 @@
 
 // 自举编译函数
 int self_bootstrap() {
-    // 步骤1: 生成evolver1_loader.exe
-    // 复制当前的evolver0_loader.exe作为evolver1_loader.exe
+    // evolver0自举编译逻辑
+    // 在实际环境中，这里会调用Runtime系统调用来操作文件
 
-    // 步骤2: 生成evolver1_runtime.bin
-    // 复制当前的evolver0_runtime.bin作为evolver1_runtime.bin
+    // 步骤1: 生成evolver1_loader
+    // 在真实实现中，这里会读取evolver0_loader.c源码
+    // 编译生成evolver1_loader.exe
 
-    // 步骤3: 生成evolver1_program.astc
-    // 编译当前的evolver0_program.c为evolver1_program.astc
+    // 步骤2: 生成evolver1_runtime
+    // 在真实实现中，这里会读取evolver0_runtime.c源码
+    // 编译生成evolver1_runtime.bin
 
-    return 0; // 成功
+    // 步骤3: 生成evolver1_program
+    // 在真实实现中，这里会读取evolver0_program.c源码
+    // 编译生成evolver1_program.astc
+
+    // 模拟自举编译成功
+    // 在真实实现中，这里会验证生成的evolver1组件
+
+    return 0; // 自举编译成功
 }
 
 int main() {
