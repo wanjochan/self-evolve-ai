@@ -218,11 +218,14 @@ typedef enum {
     ASTC_OP_ASSIGN,         // 赋值 =
     ASTC_OP_NEG,            // 负号 -
     ASTC_OP_POS,            // 正号 +
+    ASTC_OP_DEREF,          // 解引用 *
+    ASTC_OP_ADDR,           // 取地址 &
     
     // 复合类型
     ASTC_STRUCT_DECL,      // 结构体声明
     ASTC_UNION_DECL,       // 联合体声明
     ASTC_ENUM_DECL,        // 枚举声明
+    ASTC_ENUM_CONSTANT,    // 枚举常量
     ASTC_TYPEDEF_DECL,     // 类型定义
     
     // 类型节点
@@ -246,74 +249,6 @@ typedef enum {
     ASTC_EXPR_PTR_MEMBER_ACCESS, // 指针成员访问
     ASTC_EXPR_CAST_EXPR,        // 类型转换
     
-    // 表达式类型
-    ASTC_EXPR_IDENTIFIER,        // 标识符
-    ASTC_EXPR_CONSTANT,          // 常量
-    ASTC_EXPR_STRING_LITERAL,    // 字符串字面量
-    ASTC_EXPR_COMPOUND_LITERAL,  // 复合字面量 (C99)
-    ASTC_EXPR_FUNC_CALL,         // 函数调用
-    ASTC_EXPR_ARRAY_SUBSCRIPT,   // 数组下标
-    ASTC_EXPR_MEMBER_ACCESS,     // 成员访问
-    ASTC_EXPR_PTR_MEMBER_ACCESS, // 指针成员访问
-    ASTC_EXPR_POST_INC,          // 后置++
-    ASTC_EXPR_POST_DEC,          // 后置--
-    ASTC_EXPR_PRE_INC,           // 前置++
-    ASTC_EXPR_PRE_DEC,           // 前置--
-    ASTC_EXPR_ADDR,              // 取地址 &
-    ASTC_EXPR_DEREF,             // 解引用 *
-    ASTC_EXPR_PLUS,              // 正号 +
-    ASTC_EXPR_MINUS,             // 负号 -
-    ASTC_EXPR_BIT_NOT,           // 按位取反 ~
-    ASTC_EXPR_LOGICAL_NOT,       // 逻辑非 !
-    ASTC_EXPR_SIZEOF,            // sizeof
-    ASTC_EXPR_ALIGNOF,           // _Alignof (C11)
-    ASTC_EXPR_GENERIC,           // _Generic (C11)
-    ASTC_EXPR_MUL,               // 乘 *
-    ASTC_EXPR_DIV,               // 除 /
-    ASTC_EXPR_MOD,               // 取模 %
-    ASTC_EXPR_ADD,               // 加 +
-    ASTC_EXPR_SUB,               // 减 -
-    ASTC_EXPR_LEFT_SHIFT,        // 左移 <<
-    ASTC_EXPR_RIGHT_SHIFT,       // 右移 >>
-    ASTC_EXPR_LESS,              // 小于 <
-    ASTC_EXPR_LESS_EQUAL,        // 小于等于 <=
-    ASTC_EXPR_GREATER,           // 大于 >
-    ASTC_EXPR_GREATER_EQUAL,     // 大于等于 >=
-    ASTC_EXPR_EQUAL,             // 等于 ==
-    ASTC_EXPR_NOT_EQUAL,         // 不等于 !=
-    ASTC_EXPR_BIT_AND,           // 按位与 &
-    ASTC_EXPR_BIT_XOR,           // 按位异或 ^
-    ASTC_EXPR_BIT_OR,            // 按位或 |
-    ASTC_EXPR_LOGICAL_AND,       // 逻辑与 &&
-    ASTC_EXPR_LOGICAL_OR,        // 逻辑或 ||
-    ASTC_EXPR_CONDITIONAL,       // 条件 ? :
-    ASTC_EXPR_ASSIGN,            // =
-    ASTC_EXPR_ADD_ASSIGN,        // +=
-    ASTC_EXPR_SUB_ASSIGN,        // -=
-    ASTC_EXPR_MUL_ASSIGN,        // *=
-    ASTC_EXPR_DIV_ASSIGN,        // /=
-    ASTC_EXPR_MOD_ASSIGN,        // %=
-    ASTC_EXPR_LEFT_SHIFT_ASSIGN, // <<=
-    ASTC_EXPR_RIGHT_SHIFT_ASSIGN,// >>=
-    ASTC_EXPR_BIT_AND_ASSIGN,    // &=
-    ASTC_EXPR_BIT_XOR_ASSIGN,    // ^=
-    ASTC_EXPR_BIT_OR_ASSIGN,     // |=
-    ASTC_EXPR_COMMA,             // 逗号表达式
-    ASTC_EXPR_CAST,              // 类型转换 (type)expr
-    ASTC_EXPR_VA_ARG,            // va_arg
-    ASTC_EXPR_STATEMENT_EXPR,    // ({...})
-    ASTC_EXPR_RANGE,             // x..y (GCC)
-    ASTC_EXPR_BUILTIN_CHOOSE_EXPR, // __builtin_choose_expr
-    ASTC_EXPR_BUILTIN_TYPES_COMPATIBLE_P, // __builtin_types_compatible_p
-    ASTC_EXPR_BUILTIN_OFFSETOF,   // offsetof
-    ASTC_EXPR_BUILTIN_VA_ARG,     // __builtin_va_arg
-    ASTC_EXPR_BUILTIN_VA_COPY,    // __builtin_va_copy
-    ASTC_EXPR_BUILTIN_VA_END,     // __builtin_va_end
-    ASTC_EXPR_BUILTIN_VA_START,   // __builtin_va_start
-    ASTC_EXPR_ATTRIBUTE,         // __attribute__
-    ASTC_EXPR_ASM,               // __asm__
-    ASTC_EXPR_ERROR,             // 错误表达式
-
     // 语句类型
     ASTC_STMT_NONE,
     ASTC_STMT_DECL,              // 声明语句
@@ -334,97 +269,14 @@ typedef enum {
     ASTC_STMT_BREAK,             // break 语句
     ASTC_STMT_RETURN,            // return 语句
     ASTC_STMT_ASM,               // 内联汇编
-    ASTC_STMT_GCC_ASM,           // GCC 内联汇编
-    ASTC_STMT_MS_ASM,            // MSVC 内联汇编
-    ASTC_STMT_SEH_LEAVE,         // SEH __leave
-    ASTC_STMT_SEH_TRY,           // SEH __try
-    ASTC_STMT_SEH_EXCEPT,        // SEH __except
-    ASTC_STMT_SEH_FINALLY,       // SEH __finally
-    ASTC_STMT_MS_DECLSPEC,       // MS __declspec
-    ASTC_STMT_CXX_CATCH,         // C++ catch
-    ASTC_STMT_CXX_TRY,           // C++ try
-    ASTC_STMT_CXX_FOR_RANGE,     // C++11 范围 for
-    ASTC_STMT_MS_TRY,            // MS __try
-    ASTC_STMT_MS_EXCEPT,         // MS __except
-    ASTC_STMT_MS_FINALLY,        // MS __finally
-    ASTC_STMT_MS_LEAVE,          // MS __leave
-    ASTC_STMT_PRAGMA,            // #pragma 指令
-    ASTC_STMT_ERROR,             // 错误语句
-
-    // 声明类型
-    ASTC_DECL_NONE,
-    ASTC_DECL_VAR,               // 变量声明
-    ASTC_DECL_FUNCTION,          // 函数声明
-    ASTC_DECL_FUNCTION_DEF,      // 函数定义
-    ASTC_DECL_STRUCT,            // 结构体定义
-    ASTC_DECL_UNION,             // 联合体定义
-    ASTC_DECL_ENUM,              // 枚举定义
-    ASTC_DECL_ENUM_CONSTANT,     // 枚举常量
-    ASTC_DECL_TYPEDEF,           // 类型定义
-    ASTC_DECL_LABEL,             // 标签
-    ASTC_DECL_FIELD,             // 结构体/联合体字段
-    ASTC_DECL_PARAM,             // 函数参数
-    ASTC_DECL_RECORD,            // 记录(结构体/联合体)
-    ASTC_DECL_INITIALIZER,       // 初始化器
-    ASTC_DECL_ATTRIBUTE,         // 属性
-    ASTC_DECL_ASM_LABEL,         // 汇编标签
-    ASTC_DECL_IMPLICIT,          // 隐式声明
-    ASTC_DECL_PACKED,            // 打包属性
-    ASTC_DECL_ALIGNED,           // 对齐属性
-    ASTC_DECL_TRANSPARENT_UNION, // 透明联合体
-    ASTC_DECL_VECTOR,            // 向量类型(GCC)
-    ASTC_DECL_EXT_VECTOR,        // 扩展向量类型(Clang)
-    ASTC_DECL_COMPLEX,           // 复数类型
-    ASTC_DECL_IMAGINARY,         // 虚数类型
-    ASTC_DECL_ATOMIC,            // 原子类型(C11)
-    ASTC_DECL_THREAD_LOCAL,      // 线程局部存储(C11)
-    ASTC_DECL_AUTO_TYPE,         // auto 类型(C23)
-    ASTC_DECL_NULLPTR,           // nullptr_t(C23)
-    ASTC_DECL_GENERIC_SELECTION, // _Generic 选择(C11)
-    ASTC_DECL_OVERLOAD,          // 重载声明(C++)
-    ASTC_DECL_TEMPLATE,          // 模板(C++)
-    ASTC_DECL_FRIEND,            // 友元(C++)
-    ASTC_DECL_USING,             // using 声明(C++)
-    ASTC_DECL_CONCEPT,           // 概念(C++20)
-    ASTC_DECL_REQUIRES,          // requires 子句(C++20)
-    ASTC_DECL_CONSTRAINT,        // 约束(C++20)
-    ASTC_DECL_ERROR,             // 错误声明
-    
-    // 复合表达式
-    ASTC_INIT_LIST,        // 初始化列表
-    ASTC_DESIGNATION,      // 指示符 (C99)
-    ASTC_COMPOUND_LITERAL, // 复合字面量
-    ASTC_STMT_EXPR,        // 语句表达式 (GNU扩展)
-    
-    // 特殊表达式
-    ASTC_ALIGNOF_EXPR,     // _Alignof 表达式
-    ASTC_OFFSETOF_EXPR,    // offsetof 表达式
-    ASTC_VA_ARG_EXPR,      // va_arg 表达式
-    ASTC_GENERIC_SELECTION,// _Generic 选择表达式
-    
-    // 内建函数
-    ASTC_BUILTIN_VA_START, // __builtin_va_start
-    ASTC_BUILTIN_VA_END,   // __builtin_va_end
-    ASTC_BUILTIN_VA_COPY,  // __builtin_va_copy
-    ASTC_BUILTIN_OFFSETOF, // __builtin_offsetof
-    
-    // 内联汇编
-    ASTC_ASM_STMT,         // 内联汇编语句
-    
-    // 预处理和元信息
-    ASTC_PREPROCESSING_DIR,// 预处理指令
-    ASTC_MACRO_DEFINITION, // 宏定义
-    ASTC_MACRO_EXPANSION,  // 宏展开
-    ASTC_COMMENT,          // 注释
-    ASTC_PRAGMA,           // #pragma指令
-    
-    // 错误处理
-    ASTC_ERROR,            // 错误节点
     
     // ===== C 语言类型 =====
     // 基本类型
     ASTC_TYPE_INVALID,            // 无效类型
     ASTC_TYPE_VOID,               // void
+    ASTC_TYPE_SIGNED,             // signed
+    ASTC_TYPE_UNSIGNED,           // unsigned
+    ASTC_TYPE_INT,                // int
     
     // 字符类型
     ASTC_TYPE_CHAR,               // char (实现定义的有符号性)
@@ -437,7 +289,6 @@ typedef enum {
     // 整数类型
     ASTC_TYPE_SHORT,              // short (int)
     ASTC_TYPE_UNSIGNED_SHORT,     // unsigned short (int)
-    ASTC_TYPE_INT,                // int
     ASTC_TYPE_UNSIGNED_INT,       // unsigned int
     ASTC_TYPE_LONG,               // long (int)
     ASTC_TYPE_UNSIGNED_LONG,      // unsigned long (int)
@@ -620,6 +471,32 @@ typedef struct ASTNode {
             int dimensions;                // 数组维度，如int[10]为1，int[5][10]为2
             struct ASTNode **dim_sizes;    // 多维数组的各维度大小表达式
         } array_type;
+        
+        // 函数指针类型
+        struct {
+            struct ASTNode *return_type;   // 返回类型
+            struct ASTNode **param_types;  // 参数类型列表
+            int param_count;               // 参数数量
+            int is_variadic;               // 是否为可变参数函数（如 void foo(int, ...)）
+        } function_type;
+        
+        // 数组访问表达式
+        struct {
+            struct ASTNode *array;         // 数组表达式
+            struct ASTNode *index;         // 索引表达式
+        } array_subscript;
+        
+        // 成员访问表达式
+        struct {
+            struct ASTNode *object;        // 对象表达式
+            char *member;                  // 成员名称
+        } member_access;
+        
+        // 指针成员访问表达式
+        struct {
+            struct ASTNode *pointer;       // 指针表达式
+            char *member;                  // 成员名称
+        } ptr_member_access;
     } data;
 } ASTNode;
 struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);

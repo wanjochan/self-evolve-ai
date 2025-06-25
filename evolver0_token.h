@@ -105,7 +105,8 @@ typedef enum {
     TOKEN_SIZEOF,
     
     // 特殊标记
-    TOKEN_ERROR
+    TOKEN_ERROR,
+    TOKEN_UNKNOWN
 } TokenType;
 
 // 标记结构

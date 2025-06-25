@@ -1,7 +1,29 @@
 /**
- * c2astc.c - C语言到ASTC的转换库
- * 整合了evolver0_lexer.inc.c、evolver0_parser.inc.c和evolver0_ast.inc.c的有用代码
- * 使用ASTC作为核心数据结构
+ * c2astc.c - C语言到ASTC（Abstract Syntax Tree for Compilation）的转换库
+ * 
+ * 该库实现了C语言源代码到ASTC表示的转换。
+ * ASTC是一种抽象语法树表示，用于编译和执行C语言程序。
+ * 
+ * 主要功能：
+ * 1. 词法分析：将C语言源代码转换为Token序列
+ * 2. 语法分析：将Token序列解析为抽象语法树
+ * 3. ASTC生成：将抽象语法树转换为ASTC表示
+ * 4. 序列化：将ASTC表示序列化为二进制格式
+ * 5. 反序列化：从二进制格式反序列化为ASTC表示
+ * 
+ * 支持的C语言特性：
+ * - 基本类型（int、float、char等）
+ * - 复杂类型（结构体、联合体、枚举）
+ * - 指针类型
+ * - 数组类型
+ * - 函数指针类型
+ * - 数组访问表达式
+ * - 结构体和联合体成员访问表达式
+ * - 控制流语句（if、while、for、return、break、continue）
+ * - 函数声明和调用
+ * 
+ * 版本：0.9.5
+ * 日期：2023-11-06
  */
 
 #include <stdio.h>
@@ -47,13 +69,7 @@ void c2astc_free(void *ptr) {
 // ===============================================
 
 // Token结构定义
-typedef struct Token {
-    TokenType type;
-    char *value;
-    int line;
-    int column;
-    const char *filename;
-} Token;
+// 使用evolver0_token.h中的Token结构
 
 // 创建Token
 static Token* create_token(TokenType type, const char *value, int line, int column, const char *filename) {
@@ -436,12 +452,12 @@ static Token* scan_token(Lexer *lexer) {
     lexer_advance(lexer);
     
     switch (c) {
-        case '(': return create_token(TOKEN_LEFT_PAREN, "(", start_line, start_column, lexer->filename);
-        case ')': return create_token(TOKEN_RIGHT_PAREN, ")", start_line, start_column, lexer->filename);
-        case '{': return create_token(TOKEN_LEFT_BRACE, "{", start_line, start_column, lexer->filename);
-        case '}': return create_token(TOKEN_RIGHT_BRACE, "}", start_line, start_column, lexer->filename);
-        case '[': return create_token(TOKEN_LEFT_BRACKET, "[", start_line, start_column, lexer->filename);
-        case ']': return create_token(TOKEN_RIGHT_BRACKET, "]", start_line, start_column, lexer->filename);
+        case '(': return create_token(TOKEN_LPAREN, "(", start_line, start_column, lexer->filename);
+        case ')': return create_token(TOKEN_RPAREN, ")", start_line, start_column, lexer->filename);
+        case '{': return create_token(TOKEN_LBRACE, "{", start_line, start_column, lexer->filename);
+        case '}': return create_token(TOKEN_RBRACE, "}", start_line, start_column, lexer->filename);
+        case '[': return create_token(TOKEN_LBRACKET, "[", start_line, start_column, lexer->filename);
+        case ']': return create_token(TOKEN_RBRACKET, "]", start_line, start_column, lexer->filename);
         case ',': return create_token(TOKEN_COMMA, ",", start_line, start_column, lexer->filename);
         case '.': return create_token(TOKEN_DOT, ".", start_line, start_column, lexer->filename);
         case ';': return create_token(TOKEN_SEMICOLON, ";", start_line, start_column, lexer->filename);
@@ -451,45 +467,45 @@ static Token* scan_token(Lexer *lexer) {
         // 可能是双字符Token
         case '!':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_BANG_EQUAL, "!=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_NE, "!=", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_NOT, "!", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_BANG, "!", start_line, start_column, lexer->filename);
             }
         case '=':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_EQUAL_EQUAL, "==", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_EQ, "==", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_EQUAL, "=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_ASSIGN, "=", start_line, start_column, lexer->filename);
             }
         case '<':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_LESS_EQUAL, "<=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_LE, "<=", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '<')) {
-                return create_token(TOKEN_LESS_LESS, "<<", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_SHL, "<<", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_LESS, "<", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_LT, "<", start_line, start_column, lexer->filename);
             }
         case '>':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_GREATER_EQUAL, ">=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_GE, ">=", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '>')) {
-                return create_token(TOKEN_GREATER_GREATER, ">>", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_SHR, ">>", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_GREATER, ">", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_GT, ">", start_line, start_column, lexer->filename);
             }
         case '+':
             if (lexer_match(lexer, '+')) {
-                return create_token(TOKEN_PLUS_PLUS, "++", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_INC, "++", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_PLUS_EQUAL, "+=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_ADD_ASSIGN, "+=", start_line, start_column, lexer->filename);
             } else {
                 return create_token(TOKEN_PLUS, "+", start_line, start_column, lexer->filename);
             }
         case '-':
             if (lexer_match(lexer, '-')) {
-                return create_token(TOKEN_MINUS_MINUS, "--", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_DEC, "--", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_MINUS_EQUAL, "-=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_SUB_ASSIGN, "-=", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '>')) {
                 return create_token(TOKEN_ARROW, "->", start_line, start_column, lexer->filename);
             } else {
@@ -497,43 +513,43 @@ static Token* scan_token(Lexer *lexer) {
             }
         case '*':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_STAR_EQUAL, "*=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_MUL_ASSIGN, "*=", start_line, start_column, lexer->filename);
             } else {
                 return create_token(TOKEN_STAR, "*", start_line, start_column, lexer->filename);
             }
         case '/':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_SLASH_EQUAL, "/=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_DIV_ASSIGN, "/=", start_line, start_column, lexer->filename);
             } else {
                 return create_token(TOKEN_SLASH, "/", start_line, start_column, lexer->filename);
             }
         case '%':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_PERCENT_EQUAL, "%=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_MOD_ASSIGN, "%=", start_line, start_column, lexer->filename);
             } else {
                 return create_token(TOKEN_PERCENT, "%", start_line, start_column, lexer->filename);
             }
         case '&':
             if (lexer_match(lexer, '&')) {
-                return create_token(TOKEN_AND_AND, "&&", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_LOGICAL_AND, "&&", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_AND_EQUAL, "&=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_AND_ASSIGN, "&=", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_AND, "&", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_AMPERSAND, "&", start_line, start_column, lexer->filename);
             }
         case '|':
             if (lexer_match(lexer, '|')) {
-                return create_token(TOKEN_OR_OR, "||", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_LOGICAL_OR, "||", start_line, start_column, lexer->filename);
             } else if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_OR_EQUAL, "|=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_OR_ASSIGN, "|=", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_OR, "|", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_PIPE, "|", start_line, start_column, lexer->filename);
             }
         case '^':
             if (lexer_match(lexer, '=')) {
-                return create_token(TOKEN_XOR_EQUAL, "^=", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_XOR_ASSIGN, "^=", start_line, start_column, lexer->filename);
             } else {
-                return create_token(TOKEN_XOR, "^", start_line, start_column, lexer->filename);
+                return create_token(TOKEN_CARET, "^", start_line, start_column, lexer->filename);
             }
             
         // 字符串和字符字面量
@@ -640,49 +656,30 @@ void ast_free(struct ASTNode *node) {
             free(node->data.call_expr.args);
             break;
         case ASTC_TRANSLATION_UNIT:
-            // 释放翻译单元的子节点
             for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
                 ast_free(node->data.translation_unit.declarations[i]);
             }
             free(node->data.translation_unit.declarations);
             break;
         case ASTC_FUNC_DECL:
-            // 释放函数声明
             if (node->data.func_decl.name) free(node->data.func_decl.name);
             ast_free(node->data.func_decl.return_type);
             for (int i = 0; i < node->data.func_decl.param_count; i++) {
                 ast_free(node->data.func_decl.params[i]);
             }
             free(node->data.func_decl.params);
-            ast_free(node->data.func_decl.body);
+            if (node->data.func_decl.has_body) {
+                ast_free(node->data.func_decl.body);
+            }
             break;
         case ASTC_VAR_DECL:
-            // 释放变量声明
             if (node->data.var_decl.name) free(node->data.var_decl.name);
             ast_free(node->data.var_decl.type);
-            ast_free(node->data.var_decl.initializer);
-            break;
-        case ASTC_TYPE_SPECIFIER:
-            // 释放类型说明符
-            // 复杂类型可能需要额外处理
-            break;
-        case ASTC_POINTER_TYPE:
-            // 释放指针类型
-            ast_free(node->data.pointer_type.base_type);
-            break;
-        case ASTC_ARRAY_TYPE:
-            // 释放数组类型
-            ast_free(node->data.array_type.element_type);
-            ast_free(node->data.array_type.size_expr);
-            if (node->data.array_type.dim_sizes) {
-                for (int i = 0; i < node->data.array_type.dimensions; i++) {
-                    ast_free(node->data.array_type.dim_sizes[i]);
-                }
-                free(node->data.array_type.dim_sizes);
+            if (node->data.var_decl.initializer) {
+                ast_free(node->data.var_decl.initializer);
             }
             break;
         case ASTC_STRUCT_DECL:
-            // 释放结构体声明
             if (node->data.struct_decl.name) free(node->data.struct_decl.name);
             for (int i = 0; i < node->data.struct_decl.member_count; i++) {
                 ast_free(node->data.struct_decl.members[i]);
@@ -690,7 +687,6 @@ void ast_free(struct ASTNode *node) {
             free(node->data.struct_decl.members);
             break;
         case ASTC_UNION_DECL:
-            // 释放联合体声明
             if (node->data.union_decl.name) free(node->data.union_decl.name);
             for (int i = 0; i < node->data.union_decl.member_count; i++) {
                 ast_free(node->data.union_decl.members[i]);
@@ -698,7 +694,6 @@ void ast_free(struct ASTNode *node) {
             free(node->data.union_decl.members);
             break;
         case ASTC_ENUM_DECL:
-            // 释放枚举声明
             if (node->data.enum_decl.name) free(node->data.enum_decl.name);
             for (int i = 0; i < node->data.enum_decl.constant_count; i++) {
                 ast_free(node->data.enum_decl.constants[i]);
@@ -742,6 +737,31 @@ void ast_free(struct ASTNode *node) {
         case ASTC_EXPR_STMT:
             // 释放表达式语句
             ast_free(node->data.expr_stmt.expr);
+            break;
+        case ASTC_FUNCTION_TYPE:
+            // 释放函数指针类型
+            ast_free(node->data.function_type.return_type);
+            if (node->data.function_type.param_types) {
+                for (int i = 0; i < node->data.function_type.param_count; i++) {
+                    ast_free(node->data.function_type.param_types[i]);
+                }
+                free(node->data.function_type.param_types);
+            }
+            break;
+        case ASTC_EXPR_ARRAY_SUBSCRIPT:
+            // 释放数组访问表达式
+            ast_free(node->data.array_subscript.array);
+            ast_free(node->data.array_subscript.index);
+            break;
+        case ASTC_EXPR_MEMBER_ACCESS:
+            // 释放成员访问表达式
+            ast_free(node->data.member_access.object);
+            if (node->data.member_access.member) free(node->data.member_access.member);
+            break;
+        case ASTC_EXPR_PTR_MEMBER_ACCESS:
+            // 释放指针成员访问表达式
+            ast_free(node->data.ptr_member_access.pointer);
+            if (node->data.ptr_member_access.member) free(node->data.ptr_member_access.member);
             break;
         default:
             // 其他节点类型的释放逻辑
@@ -934,10 +954,11 @@ static struct ASTNode* parse_struct_or_union(Parser *parser);
 static struct ASTNode* parse_enum(Parser *parser);
 static struct ASTNode* parse_pointer_type(Parser *parser, struct ASTNode *base_type);
 static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_type);
+static struct ASTNode* parse_function_type(Parser *parser, struct ASTNode *return_type);
 
 // 解析复合语句 { ... }
 static struct ASTNode* parse_compound_statement(Parser *parser) {
-    if (!match(parser, TOKEN_LEFT_BRACE)) {
+    if (!match(parser, TOKEN_LBRACE)) {
         parser_error(parser, "预期左花括号");
         return NULL;
     }
@@ -951,7 +972,7 @@ static struct ASTNode* parse_compound_statement(Parser *parser) {
     int capacity = 0;
     
     // 解析语句列表
-    while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    while (!check(parser, TOKEN_RBRACE) && !check(parser, TOKEN_EOF)) {
         struct ASTNode *stmt = NULL;
         
         // 检查是声明还是语句
@@ -1018,7 +1039,7 @@ static struct ASTNode* parse_compound_statement(Parser *parser) {
         compound->data.compound_stmt.statements[compound->data.compound_stmt.statement_count++] = stmt;
     }
     
-    if (!match(parser, TOKEN_RIGHT_BRACE)) {
+    if (!match(parser, TOKEN_RBRACE)) {
         parser_error(parser, "预期右花括号");
         // 释放已分配的资源
         for (int i = 0; i < compound->data.compound_stmt.statement_count; i++) {
@@ -1044,7 +1065,7 @@ static struct ASTNode* parse_if_statement(Parser *parser) {
     if (!if_stmt) return NULL;
     
     // 解析条件表达式
-    if (!match(parser, TOKEN_LEFT_PAREN)) {
+    if (!match(parser, TOKEN_LPAREN)) {
         parser_error(parser, "预期左括号");
         ast_free(if_stmt);
         return NULL;
@@ -1056,7 +1077,7 @@ static struct ASTNode* parse_if_statement(Parser *parser) {
         return NULL;
     }
     
-    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+    if (!match(parser, TOKEN_RPAREN)) {
         parser_error(parser, "预期右括号");
         ast_free(condition);
         ast_free(if_stmt);
@@ -1103,7 +1124,7 @@ static struct ASTNode* parse_while_statement(Parser *parser) {
     if (!while_stmt) return NULL;
     
     // 解析条件表达式
-    if (!match(parser, TOKEN_LEFT_PAREN)) {
+    if (!match(parser, TOKEN_LPAREN)) {
         parser_error(parser, "预期左括号");
         ast_free(while_stmt);
         return NULL;
@@ -1115,7 +1136,7 @@ static struct ASTNode* parse_while_statement(Parser *parser) {
         return NULL;
     }
     
-    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+    if (!match(parser, TOKEN_RPAREN)) {
         parser_error(parser, "预期右括号");
         ast_free(condition);
         ast_free(while_stmt);
@@ -1149,7 +1170,7 @@ static struct ASTNode* parse_for_statement(Parser *parser) {
     if (!for_stmt) return NULL;
     
     // 解析for语句的三个部分
-    if (!match(parser, TOKEN_LEFT_PAREN)) {
+    if (!match(parser, TOKEN_LPAREN)) {
         parser_error(parser, "预期左括号");
         ast_free(for_stmt);
         return NULL;
@@ -1224,7 +1245,7 @@ static struct ASTNode* parse_for_statement(Parser *parser) {
     
     // 递增部分
     struct ASTNode *increment = NULL;
-    if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    if (!check(parser, TOKEN_RPAREN)) {
         increment = parse_expression(parser);
         if (!increment) {
             ast_free(init);
@@ -1234,7 +1255,7 @@ static struct ASTNode* parse_for_statement(Parser *parser) {
         }
     }
     
-    if (!match(parser, TOKEN_RIGHT_PAREN)) {
+    if (!match(parser, TOKEN_RPAREN)) {
         parser_error(parser, "预期右括号");
         ast_free(init);
         ast_free(condition);
@@ -1324,7 +1345,7 @@ static struct ASTNode* parse_statement(Parser *parser) {
     if (!token) return NULL;
     
     switch (token->type) {
-        case TOKEN_LEFT_BRACE:
+        case TOKEN_LBRACE:
             return parse_compound_statement(parser);
         case TOKEN_IF:
             return parse_if_statement(parser);
@@ -1457,7 +1478,7 @@ static struct ASTNode* parse_struct_or_union(Parser *parser) {
     }
     
     // 检查是否有定义体
-    if (match(parser, TOKEN_LEFT_BRACE)) {
+    if (match(parser, TOKEN_LBRACE)) {
         // 初始化成员列表
         if (type == ASTC_STRUCT_DECL) {
             decl->data.struct_decl.members = NULL;
@@ -1469,7 +1490,7 @@ static struct ASTNode* parse_struct_or_union(Parser *parser) {
         int capacity = 0;
         
         // 解析成员列表
-        while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+        while (!check(parser, TOKEN_RBRACE) && !check(parser, TOKEN_EOF)) {
             struct ASTNode *member = parse_declaration(parser);
             if (!member) {
                 // 尝试跳过错误，继续解析
@@ -1533,7 +1554,7 @@ static struct ASTNode* parse_struct_or_union(Parser *parser) {
             }
         }
         
-        if (!match(parser, TOKEN_RIGHT_BRACE)) {
+        if (!match(parser, TOKEN_RBRACE)) {
             parser_error(parser, "预期右花括号");
             // 释放已分配的资源
             if (type == ASTC_STRUCT_DECL) {
@@ -1589,14 +1610,14 @@ static struct ASTNode* parse_enum(Parser *parser) {
     }
     
     // 检查是否有定义体
-    if (match(parser, TOKEN_LEFT_BRACE)) {
+    if (match(parser, TOKEN_LBRACE)) {
         // 解析枚举常量列表
         decl->data.enum_decl.constants = NULL;
         decl->data.enum_decl.constant_count = 0;
         int capacity = 0;
         
         do {
-            if (check(parser, TOKEN_RIGHT_BRACE)) break;
+            if (check(parser, TOKEN_RBRACE)) break;
             
             // 解析枚举常量
             if (!check(parser, TOKEN_IDENTIFIER)) {
@@ -1636,7 +1657,7 @@ static struct ASTNode* parse_enum(Parser *parser) {
             }
             
             // 检查是否有初始化值
-            if (match(parser, TOKEN_EQUAL)) {
+            if (match(parser, TOKEN_ASSIGN)) {
                 constant->data.enum_constant.has_value = 1;
                 struct ASTNode *value = parse_expression(parser);
                 if (!value) {
@@ -1684,7 +1705,7 @@ static struct ASTNode* parse_enum(Parser *parser) {
             
         } while (match(parser, TOKEN_COMMA));
         
-        if (!match(parser, TOKEN_RIGHT_BRACE)) {
+        if (!match(parser, TOKEN_RBRACE)) {
             parser_error(parser, "预期右花括号");
             // 释放已分配的资源
             for (int i = 0; i < decl->data.enum_decl.constant_count; i++) {
@@ -1778,7 +1799,7 @@ static struct ASTNode* parse_declaration(Parser *parser) {
     advance(parser); // 消耗标识符
     
     // 检查是否为数组类型
-    if (check(parser, TOKEN_LEFT_BRACKET)) {
+    if (check(parser, TOKEN_LBRACKET)) {
         type_node = parse_array_type(parser, type_node);
         if (!type_node) {
             free(name);
@@ -1786,8 +1807,17 @@ static struct ASTNode* parse_declaration(Parser *parser) {
         }
     }
     
+    // 检查是否为函数指针类型
+    if (check(parser, TOKEN_LPAREN) && peek_n(parser, 1) && peek_n(parser, 1)->type == TOKEN_STAR) {
+        type_node = parse_function_type(parser, type_node);
+        if (!type_node) {
+            free(name);
+            return NULL;
+        }
+    }
+    
     // 检查是变量声明还是函数声明
-    if (match(parser, TOKEN_LEFT_PAREN)) {
+    if (match(parser, TOKEN_LPAREN)) {
         // 函数声明
         struct ASTNode *func_decl = ast_create_node(ASTC_FUNC_DECL, token->line, token->column);
         if (!func_decl) {
@@ -1803,7 +1833,7 @@ static struct ASTNode* parse_declaration(Parser *parser) {
         func_decl->data.func_decl.params = NULL;
         func_decl->data.func_decl.param_count = 0;
         
-        if (!check(parser, TOKEN_RIGHT_PAREN)) {
+        if (!check(parser, TOKEN_RPAREN)) {
             // 有参数
             struct ASTNode **params = NULL;
             int param_count = 0;
@@ -1846,14 +1876,14 @@ static struct ASTNode* parse_declaration(Parser *parser) {
             func_decl->data.func_decl.param_count = param_count;
         }
         
-        if (!match(parser, TOKEN_RIGHT_PAREN)) {
+        if (!match(parser, TOKEN_RPAREN)) {
             parser_error(parser, "预期右括号");
             ast_free(func_decl);
             return NULL;
         }
         
         // 检查是函数定义还是声明
-        if (check(parser, TOKEN_LEFT_BRACE)) {
+        if (check(parser, TOKEN_LBRACE)) {
             // 函数定义
             func_decl->data.func_decl.has_body = 1;
             
@@ -1891,7 +1921,7 @@ static struct ASTNode* parse_declaration(Parser *parser) {
         var_decl->data.var_decl.type = type_node;
         
         // 检查是否有初始化器
-        if (match(parser, TOKEN_EQUAL)) {
+        if (match(parser, TOKEN_ASSIGN)) {
             // 解析初始化表达式
             struct ASTNode *init = parse_expression(parser);
             if (!init) {
@@ -1935,10 +1965,24 @@ void c2astc_print_version(void) {
 
 // 从文件加载C源代码并转换为ASTC
 struct ASTNode* c2astc_convert_file(const char *filename, const C2AstcOptions *options) {
-    FILE *fp = fopen(filename, "r");
+    // 尝试直接打开文件
+    FILE *fp = fopen(filename, "rb");
     if (!fp) {
-        set_error("无法打开文件: %s", filename);
-        return NULL;
+        // 如果失败，尝试替换路径分隔符
+        char fixed_filename[1024];
+        strncpy(fixed_filename, filename, sizeof(fixed_filename) - 1);
+        fixed_filename[sizeof(fixed_filename) - 1] = '\0';
+        
+        // 将所有反斜杠转换为正斜杠
+        for (char *p = fixed_filename; *p; p++) {
+            if (*p == '\\') *p = '/';
+        }
+        
+        fp = fopen(fixed_filename, "rb");
+        if (!fp) {
+            set_error("无法打开文件: %s", filename);
+            return NULL;
+        }
     }
     
     // 获取文件大小
@@ -2294,21 +2338,6 @@ void ast_print(struct ASTNode *node, int indent) {
             printf("ExprStmt\n");
             ast_print(node->data.expr_stmt.expr, indent + 1);
             break;
-        case ASTC_TYPE_SPECIFIER:
-            printf("TypeSpecifier: ");
-            switch (node->data.type_specifier.type) {
-                case ASTC_TYPE_VOID: printf("void\n"); break;
-                case ASTC_TYPE_CHAR: printf("char\n"); break;
-                case ASTC_TYPE_SHORT: printf("short\n"); break;
-                case ASTC_TYPE_INT: printf("int\n"); break;
-                case ASTC_TYPE_LONG: printf("long\n"); break;
-                case ASTC_TYPE_FLOAT: printf("float\n"); break;
-                case ASTC_TYPE_DOUBLE: printf("double\n"); break;
-                case ASTC_TYPE_SIGNED: printf("signed\n"); break;
-                case ASTC_TYPE_UNSIGNED: printf("unsigned\n"); break;
-                default: printf("Unknown\n"); break;
-            }
-            break;
         case ASTC_POINTER_TYPE:
             printf("PointerType (level: %d)\n", node->data.pointer_type.pointer_level);
             for (int i = 0; i < indent + 1; i++) printf("  ");
@@ -2336,6 +2365,41 @@ void ast_print(struct ASTNode *node, int indent) {
                     }
                 }
             }
+            break;
+        case ASTC_FUNCTION_TYPE:
+            printf("FunctionType (variadic: %s)\n", node->data.function_type.is_variadic ? "true" : "false");
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("ReturnType:\n");
+            ast_print(node->data.function_type.return_type, indent + 2);
+            
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Parameters:\n");
+            for (int i = 0; i < node->data.function_type.param_count; i++) {
+                for (int j = 0; j < indent + 2; j++) printf("  ");
+                printf("Parameter %d:\n", i);
+                ast_print(node->data.function_type.param_types[i], indent + 3);
+            }
+            break;
+        case ASTC_EXPR_ARRAY_SUBSCRIPT:
+            printf("ArraySubscript\n");
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Array:\n");
+            ast_print(node->data.array_subscript.array, indent + 2);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Index:\n");
+            ast_print(node->data.array_subscript.index, indent + 2);
+            break;
+        case ASTC_EXPR_MEMBER_ACCESS:
+            printf("MemberAccess (member: %s)\n", node->data.member_access.member);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Object:\n");
+            ast_print(node->data.member_access.object, indent + 2);
+            break;
+        case ASTC_EXPR_PTR_MEMBER_ACCESS:
+            printf("PointerMemberAccess (member: %s)\n", node->data.ptr_member_access.member);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Pointer:\n");
+            ast_print(node->data.ptr_member_access.pointer, indent + 2);
             break;
         default:
             printf("Node(type=%d)\n", node->type);
@@ -2372,7 +2436,7 @@ static struct ASTNode* parse_pointer_type(Parser *parser, struct ASTNode *base_t
 // 解析数组类型
 static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_type) {
     // 检查是否为数组类型
-    if (!match(parser, TOKEN_LEFT_BRACKET)) {
+    if (!match(parser, TOKEN_LBRACKET)) {
         return element_type; // 不是数组类型，直接返回元素类型
     }
     
@@ -2388,7 +2452,7 @@ static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_
     array_type->data.array_type.dim_sizes = NULL;
     
     // 解析数组大小表达式（如果有）
-    if (!check(parser, TOKEN_RIGHT_BRACKET)) {
+    if (!check(parser, TOKEN_RBRACKET)) {
         array_type->data.array_type.size_expr = parse_expression(parser);
         if (!array_type->data.array_type.size_expr) {
             ast_free(array_type);
@@ -2399,14 +2463,14 @@ static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_
         array_type->data.array_type.size_expr = NULL;
     }
     
-    if (!match(parser, TOKEN_RIGHT_BRACKET)) {
+    if (!match(parser, TOKEN_RBRACKET)) {
         parser_error(parser, "预期右方括号");
         ast_free(array_type);
         return NULL;
     }
     
     // 处理多维数组
-    if (check(parser, TOKEN_LEFT_BRACKET)) {
+    if (check(parser, TOKEN_LBRACKET)) {
         // 递归解析多维数组
         struct ASTNode *multi_array = parse_array_type(parser, array_type);
         if (!multi_array) {
@@ -2445,4 +2509,679 @@ static struct ASTNode* parse_array_type(Parser *parser, struct ASTNode *element_
     }
     
     return array_type;
+}
+
+// 解析函数指针类型
+static struct ASTNode* parse_function_type(Parser *parser, struct ASTNode *return_type) {
+    // 检查是否为函数指针类型
+    if (!match(parser, TOKEN_LPAREN)) {
+        return return_type; // 不是函数指针类型，直接返回返回类型
+    }
+    
+    // 检查是否是函数指针声明（如 int (*func)(int, int)）
+    if (match(parser, TOKEN_STAR)) {
+        // 跳过标识符，因为我们只关心类型
+        if (check(parser, TOKEN_IDENTIFIER)) {
+            advance(parser);
+        }
+        
+        if (!match(parser, TOKEN_RPAREN)) {
+            parser_error(parser, "预期右括号");
+            ast_free(return_type);
+            return NULL;
+        }
+        
+        if (!match(parser, TOKEN_LPAREN)) {
+            parser_error(parser, "预期左括号");
+            ast_free(return_type);
+            return NULL;
+        }
+    } else {
+        // 这可能是普通函数声明，而不是函数指针类型
+        parser_error(parser, "预期星号(*)表示函数指针");
+        ast_free(return_type);
+        return NULL;
+    }
+    
+    // 创建函数指针类型节点
+    struct ASTNode *function_type = ast_create_node(ASTC_FUNCTION_TYPE, return_type->line, return_type->column);
+    if (!function_type) {
+        ast_free(return_type);
+        return NULL;
+    }
+    
+    function_type->data.function_type.return_type = return_type;
+    function_type->data.function_type.param_types = NULL;
+    function_type->data.function_type.param_count = 0;
+    function_type->data.function_type.is_variadic = 0;
+    
+    // 解析参数类型列表
+    if (!check(parser, TOKEN_RPAREN)) {
+        // 有参数
+        struct ASTNode **param_types = NULL;
+        int param_count = 0;
+        int capacity = 0;
+        
+        do {
+            // 检查是否为可变参数
+            if (match(parser, TOKEN_DOT)) {
+                if (!match(parser, TOKEN_DOT) || !match(parser, TOKEN_DOT)) {
+                    parser_error(parser, "预期省略号(...)");
+                    // 释放已分配的资源
+                    for (int i = 0; i < param_count; i++) {
+                        ast_free(param_types[i]);
+                    }
+                    free(param_types);
+                    ast_free(function_type);
+                    return NULL;
+                }
+                
+                function_type->data.function_type.is_variadic = 1;
+                break;
+            }
+            
+            // 解析参数类型
+            struct ASTNode *param_type = parse_declaration(parser);
+            if (!param_type) {
+                // 释放已分配的资源
+                for (int i = 0; i < param_count; i++) {
+                    ast_free(param_types[i]);
+                }
+                free(param_types);
+                ast_free(function_type);
+                return NULL;
+            }
+            
+            // 动态扩展参数类型数组
+            if (param_count >= capacity) {
+                capacity = capacity == 0 ? 4 : capacity * 2;
+                struct ASTNode **new_param_types = (struct ASTNode **)realloc(param_types, capacity * sizeof(struct ASTNode *));
+                if (!new_param_types) {
+                    parser_error(parser, "内存分配失败");
+                    // 释放已分配的资源
+                    for (int i = 0; i < param_count; i++) {
+                        ast_free(param_types[i]);
+                    }
+                    free(param_types);
+                    ast_free(function_type);
+                    ast_free(param_type);
+                    return NULL;
+                }
+                param_types = new_param_types;
+            }
+            
+            param_types[param_count++] = param_type;
+        } while (match(parser, TOKEN_COMMA));
+        
+        function_type->data.function_type.param_types = param_types;
+        function_type->data.function_type.param_count = param_count;
+    }
+    
+    if (!match(parser, TOKEN_RPAREN)) {
+        parser_error(parser, "预期右括号");
+        // 释放已分配的资源
+        for (int i = 0; i < function_type->data.function_type.param_count; i++) {
+            ast_free(function_type->data.function_type.param_types[i]);
+        }
+        free(function_type->data.function_type.param_types);
+        ast_free(function_type);
+        return NULL;
+    }
+    
+    return function_type;
+}
+
+// 解析基本表达式
+static struct ASTNode* parse_primary(Parser *parser) {
+    Token *token = peek(parser);
+    if (!token) return NULL;
+    
+    struct ASTNode *node = NULL;
+    
+    switch (token->type) {
+        case TOKEN_IDENTIFIER: {
+            // 标识符
+            char *name = strdup(token->value);
+            if (!name) {
+                parser_error(parser, "内存分配失败");
+                return NULL;
+            }
+            
+            node = create_identifier_node(name, token->line, token->column);
+            if (!node) {
+                free(name);
+                return NULL;
+            }
+            
+            advance(parser); // 消耗标识符
+            break;
+        }
+        
+        case TOKEN_NUMBER: {
+            // 数字常量
+            node = create_number_node(token->value, token->line, token->column);
+            if (!node) {
+                return NULL;
+            }
+            
+            advance(parser); // 消耗数字
+            break;
+        }
+        
+        case TOKEN_STRING_LITERAL: {
+            // 字符串字面量
+            node = create_string_node(token->value, token->line, token->column);
+            if (!node) {
+                return NULL;
+            }
+            
+            advance(parser); // 消耗字符串
+            break;
+        }
+        
+        case TOKEN_LPAREN: {
+            // 括号表达式
+            advance(parser); // 消耗左括号
+            
+            node = parse_expression(parser);
+            if (!node) {
+                return NULL;
+            }
+            
+            if (!match(parser, TOKEN_RPAREN)) {
+                parser_error(parser, "预期右括号");
+                ast_free(node);
+                return NULL;
+            }
+            
+            break;
+        }
+        
+        default:
+            parser_error(parser, "预期表达式");
+            return NULL;
+    }
+    
+    return node;
+}
+
+// 解析后缀表达式
+static struct ASTNode* parse_postfix(Parser *parser) {
+    struct ASTNode *expr = parse_primary(parser);
+    if (!expr) return NULL;
+    
+    while (1) {
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        if (token->type == TOKEN_LBRACKET) {
+            // 数组访问
+            advance(parser); // 消耗左方括号
+            
+            // 解析索引表达式
+            struct ASTNode *index = parse_expression(parser);
+            if (!index) {
+                ast_free(expr);
+                return NULL;
+            }
+            
+            if (!match(parser, TOKEN_RBRACKET)) {
+                parser_error(parser, "预期右方括号");
+                ast_free(expr);
+                ast_free(index);
+                return NULL;
+            }
+            
+            // 创建数组访问节点
+            struct ASTNode *array_access = ast_create_node(ASTC_EXPR_ARRAY_SUBSCRIPT, expr->line, expr->column);
+            if (!array_access) {
+                ast_free(expr);
+                ast_free(index);
+                return NULL;
+            }
+            
+            array_access->data.array_subscript.array = expr;
+            array_access->data.array_subscript.index = index;
+            
+            expr = array_access;
+        } else if (token->type == TOKEN_DOT) {
+            // 成员访问
+            advance(parser); // 消耗点号
+            
+            // 获取成员名
+            if (!check(parser, TOKEN_IDENTIFIER)) {
+                parser_error(parser, "预期成员名");
+                ast_free(expr);
+                return NULL;
+            }
+            
+            token = advance(parser);
+            char *member_name = strdup(token->value);
+            if (!member_name) {
+                parser_error(parser, "内存分配失败");
+                ast_free(expr);
+                return NULL;
+            }
+            
+            // 创建成员访问节点
+            struct ASTNode *member_access = ast_create_node(ASTC_EXPR_MEMBER_ACCESS, expr->line, expr->column);
+            if (!member_access) {
+                free(member_name);
+                ast_free(expr);
+                return NULL;
+            }
+            
+            member_access->data.member_access.object = expr;
+            member_access->data.member_access.member = member_name;
+            
+            expr = member_access;
+        } else if (token->type == TOKEN_ARROW) {
+            // 指针成员访问
+            advance(parser); // 消耗箭头
+            
+            // 获取成员名
+            if (!check(parser, TOKEN_IDENTIFIER)) {
+                parser_error(parser, "预期成员名");
+                ast_free(expr);
+                return NULL;
+            }
+            
+            token = advance(parser);
+            char *member_name = strdup(token->value);
+            if (!member_name) {
+                parser_error(parser, "内存分配失败");
+                ast_free(expr);
+                return NULL;
+            }
+            
+            // 创建指针成员访问节点
+            struct ASTNode *ptr_member_access = ast_create_node(ASTC_EXPR_PTR_MEMBER_ACCESS, expr->line, expr->column);
+            if (!ptr_member_access) {
+                free(member_name);
+                ast_free(expr);
+                return NULL;
+            }
+            
+            ptr_member_access->data.ptr_member_access.pointer = expr;
+            ptr_member_access->data.ptr_member_access.member = member_name;
+            
+            expr = ptr_member_access;
+        } else if (token->type == TOKEN_LPAREN) {
+            // 函数调用
+            advance(parser); // 消耗左括号
+            
+            // 解析参数列表
+            struct ASTNode **args = NULL;
+            int arg_count = 0;
+            int capacity = 0;
+            
+            if (!check(parser, TOKEN_RPAREN)) {
+                do {
+                    struct ASTNode *arg = parse_expression(parser);
+                    if (!arg) {
+                        // 释放已分配的资源
+                        for (int i = 0; i < arg_count; i++) {
+                            ast_free(args[i]);
+                        }
+                        free(args);
+                        ast_free(expr);
+                        return NULL;
+                    }
+                    
+                    // 动态扩展参数数组
+                    if (arg_count >= capacity) {
+                        capacity = capacity == 0 ? 4 : capacity * 2;
+                        struct ASTNode **new_args = (struct ASTNode **)realloc(args, capacity * sizeof(struct ASTNode *));
+                        if (!new_args) {
+                            parser_error(parser, "内存分配失败");
+                            // 释放已分配的资源
+                            for (int i = 0; i < arg_count; i++) {
+                                ast_free(args[i]);
+                            }
+                            free(args);
+                            ast_free(expr);
+                            ast_free(arg);
+                            return NULL;
+                        }
+                        args = new_args;
+                    }
+                    
+                    args[arg_count++] = arg;
+                } while (match(parser, TOKEN_COMMA));
+            }
+            
+            if (!match(parser, TOKEN_RPAREN)) {
+                parser_error(parser, "预期右括号");
+                // 释放已分配的资源
+                for (int i = 0; i < arg_count; i++) {
+                    ast_free(args[i]);
+                }
+                free(args);
+                ast_free(expr);
+                return NULL;
+            }
+            
+            // 创建函数调用节点
+            struct ASTNode *call = create_call_expr(expr, args, arg_count, expr->line, expr->column);
+            if (!call) {
+                // 释放已分配的资源
+                for (int i = 0; i < arg_count; i++) {
+                    ast_free(args[i]);
+                }
+                free(args);
+                ast_free(expr);
+                return NULL;
+            }
+            
+            expr = call;
+        } else {
+            break;
+        }
+    }
+    
+    return expr;
+}
+
+// 解析一元表达式
+static struct ASTNode* parse_unary(Parser *parser) {
+    Token *token = peek(parser);
+    if (!token) return NULL;
+    
+    struct ASTNode *node = NULL;
+    
+    switch (token->type) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_BANG:
+        case TOKEN_TILDE:
+        case TOKEN_STAR:
+        case TOKEN_AMPERSAND: {
+            // 一元操作符
+            ASTNodeType op;
+            switch (token->type) {
+                case TOKEN_PLUS: op = ASTC_OP_POS; break;
+                case TOKEN_MINUS: op = ASTC_OP_NEG; break;
+                case TOKEN_BANG: op = ASTC_OP_NOT; break;
+                case TOKEN_TILDE: op = ASTC_OP_BITWISE_NOT; break;
+                case TOKEN_STAR: op = ASTC_OP_DEREF; break;
+                case TOKEN_AMPERSAND: op = ASTC_OP_ADDR; break;
+                default: op = ASTC_OP_UNKNOWN; break;
+            }
+            
+            int line = token->line;
+            int column = token->column;
+            
+            advance(parser); // 消耗操作符
+            
+            struct ASTNode *operand = parse_unary(parser);
+            if (!operand) {
+                return NULL;
+            }
+            
+            node = create_unary_expr(op, operand, line, column);
+            break;
+        }
+        
+        default:
+            // 不是一元操作符，解析后缀表达式
+            node = parse_postfix(parser);
+            break;
+    }
+    
+    return node;
+}
+
+// 解析乘法表达式
+static struct ASTNode* parse_multiplicative(Parser *parser) {
+    struct ASTNode *left = parse_unary(parser);
+    if (!left) return NULL;
+    
+    while (1) {
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        ASTNodeType op;
+        switch (token->type) {
+            case TOKEN_STAR: op = ASTC_OP_MUL; break;
+            case TOKEN_SLASH: op = ASTC_OP_DIV; break;
+            case TOKEN_PERCENT: op = ASTC_OP_MOD; break;
+            default: return left;
+        }
+        
+        int line = token->line;
+        int column = token->column;
+        
+        advance(parser); // 消耗操作符
+        
+        struct ASTNode *right = parse_unary(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(op, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析加法表达式
+static struct ASTNode* parse_additive(Parser *parser) {
+    struct ASTNode *left = parse_multiplicative(parser);
+    if (!left) return NULL;
+    
+    while (1) {
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        ASTNodeType op;
+        switch (token->type) {
+            case TOKEN_PLUS: op = ASTC_OP_ADD; break;
+            case TOKEN_MINUS: op = ASTC_OP_SUB; break;
+            default: return left;
+        }
+        
+        int line = token->line;
+        int column = token->column;
+        
+        advance(parser); // 消耗操作符
+        
+        struct ASTNode *right = parse_multiplicative(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(op, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析关系表达式
+static struct ASTNode* parse_relational(Parser *parser) {
+    struct ASTNode *left = parse_additive(parser);
+    if (!left) return NULL;
+    
+    while (1) {
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        ASTNodeType op;
+        switch (token->type) {
+            case TOKEN_LT: op = ASTC_OP_LT; break;
+            case TOKEN_LE: op = ASTC_OP_LE; break;
+            case TOKEN_GT: op = ASTC_OP_GT; break;
+            case TOKEN_GE: op = ASTC_OP_GE; break;
+            default: return left;
+        }
+        
+        int line = token->line;
+        int column = token->column;
+        
+        advance(parser); // 消耗操作符
+        
+        struct ASTNode *right = parse_additive(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(op, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析相等表达式
+static struct ASTNode* parse_equality(Parser *parser) {
+    struct ASTNode *left = parse_relational(parser);
+    if (!left) return NULL;
+    
+    while (1) {
+        Token *token = peek(parser);
+        if (!token) break;
+        
+        ASTNodeType op;
+        switch (token->type) {
+            case TOKEN_EQ: op = ASTC_OP_EQ; break;
+            case TOKEN_NE: op = ASTC_OP_NE; break;
+            default: return left;
+        }
+        
+        int line = token->line;
+        int column = token->column;
+        
+        advance(parser); // 消耗操作符
+        
+        struct ASTNode *right = parse_relational(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(op, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析逻辑与表达式
+static struct ASTNode* parse_logical_and(Parser *parser) {
+    struct ASTNode *left = parse_equality(parser);
+    if (!left) return NULL;
+    
+    while (match(parser, TOKEN_LOGICAL_AND)) {
+        int line = peek(parser)->line;
+        int column = peek(parser)->column;
+        
+        struct ASTNode *right = parse_equality(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(ASTC_OP_LOGICAL_AND, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析逻辑或表达式
+static struct ASTNode* parse_logical_or(Parser *parser) {
+    struct ASTNode *left = parse_logical_and(parser);
+    if (!left) return NULL;
+    
+    while (match(parser, TOKEN_LOGICAL_OR)) {
+        int line = peek(parser)->line;
+        int column = peek(parser)->column;
+        
+        struct ASTNode *right = parse_logical_and(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *binary = create_binary_expr(ASTC_OP_LOGICAL_OR, left, right, line, column);
+        if (!binary) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        left = binary;
+    }
+    
+    return left;
+}
+
+// 解析赋值表达式
+static struct ASTNode* parse_assignment(Parser *parser) {
+    struct ASTNode *left = parse_logical_or(parser);
+    if (!left) return NULL;
+    
+    Token *token = peek(parser);
+    if (token && token->type == TOKEN_ASSIGN) {
+        int line = token->line;
+        int column = token->column;
+        
+        advance(parser); // 消耗等号
+        
+        struct ASTNode *right = parse_assignment(parser);
+        if (!right) {
+            ast_free(left);
+            return NULL;
+        }
+        
+        struct ASTNode *assign = create_binary_expr(ASTC_OP_ASSIGN, left, right, line, column);
+        if (!assign) {
+            ast_free(left);
+            ast_free(right);
+            return NULL;
+        }
+        
+        return assign;
+    }
+    
+    return left;
+}
+
+// 解析表达式
+static struct ASTNode* parse_expression(Parser *parser) {
+    return parse_assignment(parser);
 }
