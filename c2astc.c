@@ -776,7 +776,7 @@ void ast_free(struct ASTNode *node) {
 // ===============================================
 
 // 从标识符Token创建ASTC标识符节点
-static struct ASTNode* create_identifier_node(const char *name, int line, int column) {
+struct ASTNode* create_identifier_node(const char *name, int line, int column) {
     struct ASTNode *node = ast_create_node(ASTC_EXPR_IDENTIFIER, line, column);
     if (node) {
         node->data.identifier.name = strdup(name);
@@ -801,7 +801,7 @@ static struct ASTNode* create_number_node(const char *value, int line, int colum
 }
 
 // 从字符串Token创建ASTC字符串字面量节点
-static struct ASTNode* create_string_node(const char *value, int line, int column) {
+struct ASTNode* create_string_node(const char *value, int line, int column) {
     struct ASTNode *node = ast_create_node(ASTC_EXPR_STRING_LITERAL, line, column);
     if (node) {
         // 去除引号
@@ -2068,33 +2068,557 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
 
 // 序列化ASTC为二进制格式
 unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
-    // 简单实现：暂时只序列化节点类型
     if (!node || !out_size) {
         set_error("无效的参数");
         return NULL;
     }
     
-    *out_size = sizeof(int);
-    unsigned char *binary = (unsigned char*)malloc(*out_size);
-    if (!binary) {
+    // 序列化格式：
+    // 1. 魔数: 'ASTC' (4字节)
+    // 2. 版本: 1 (4字节)
+    // 3. 节点类型 (4字节)
+    // 4. 行号 (4字节)
+    // 5. 列号 (4字节)
+    // 6. 节点特定数据 (变长)
+    
+    // 先分配一个基本大小的缓冲区
+    size_t buffer_size = 1024;
+    unsigned char *buffer = (unsigned char*)malloc(buffer_size);
+    if (!buffer) {
         set_error("内存分配失败");
         return NULL;
     }
     
-    *(int*)binary = node->type;
-    return binary;
+    // 写入魔数和版本
+    memcpy(buffer, "ASTC", 4);
+    *((int*)(buffer + 4)) = 1; // 版本1
+    
+    // 写入节点类型、行号和列号
+    *((int*)(buffer + 8)) = node->type;
+    *((int*)(buffer + 12)) = node->line;
+    *((int*)(buffer + 16)) = node->column;
+    
+    // 根据节点类型写入特定数据
+    size_t pos = 20; // 当前写入位置
+    
+    // 这里只实现了部分节点类型的序列化，完整实现需要处理所有类型
+    switch (node->type) {
+        case ASTC_EXPR_IDENTIFIER:
+            // 写入标识符名称
+            if (node->data.identifier.name) {
+                size_t name_len = strlen(node->data.identifier.name) + 1; // 包含null终止符
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + name_len > buffer_size) {
+                    buffer_size = pos + 4 + name_len + 1024; // 额外分配一些空间
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入名称长度和名称
+                *((int*)(buffer + pos)) = (int)name_len;
+                pos += 4;
+                memcpy(buffer + pos, node->data.identifier.name, name_len);
+                pos += name_len;
+            } else {
+                // 名称为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+            
+        case ASTC_EXPR_CONSTANT:
+            // 写入常量类型和值
+            *((int*)(buffer + pos)) = node->data.constant.type;
+            pos += 4;
+            
+            if (node->data.constant.type == ASTC_TYPE_INT) {
+                *((int64_t*)(buffer + pos)) = node->data.constant.int_val;
+                pos += 8;
+            } else {
+                *((double*)(buffer + pos)) = node->data.constant.float_val;
+                pos += 8;
+            }
+            break;
+            
+        case ASTC_EXPR_STRING_LITERAL:
+            // 写入字符串值
+            if (node->data.string_literal.value) {
+                size_t str_len = strlen(node->data.string_literal.value) + 1; // 包含null终止符
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + str_len > buffer_size) {
+                    buffer_size = pos + 4 + str_len + 1024; // 额外分配一些空间
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入字符串长度和内容
+                *((int*)(buffer + pos)) = (int)str_len;
+                pos += 4;
+                memcpy(buffer + pos, node->data.string_literal.value, str_len);
+                pos += str_len;
+            } else {
+                // 字符串为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+            
+        case ASTC_BINARY_OP:
+            // 写入操作符类型
+            *((int*)(buffer + pos)) = node->data.binary_op.op;
+            pos += 4;
+            
+            // 递归序列化左操作数
+            if (node->data.binary_op.left) {
+                size_t left_size;
+                unsigned char *left_data = c2astc_serialize(node->data.binary_op.left, &left_size);
+                if (!left_data) {
+                    free(buffer);
+                    return NULL;
+                }
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + left_size > buffer_size) {
+                    buffer_size = pos + 4 + left_size + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(left_data);
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入左操作数大小和数据
+                *((int*)(buffer + pos)) = (int)left_size;
+                pos += 4;
+                memcpy(buffer + pos, left_data, left_size);
+                pos += left_size;
+                free(left_data);
+            } else {
+                // 左操作数为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            
+            // 递归序列化右操作数
+            if (node->data.binary_op.right) {
+                size_t right_size;
+                unsigned char *right_data = c2astc_serialize(node->data.binary_op.right, &right_size);
+                if (!right_data) {
+                    free(buffer);
+                    return NULL;
+                }
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + right_size > buffer_size) {
+                    buffer_size = pos + 4 + right_size + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(right_data);
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入右操作数大小和数据
+                *((int*)(buffer + pos)) = (int)right_size;
+                pos += 4;
+                memcpy(buffer + pos, right_data, right_size);
+                pos += right_size;
+                free(right_data);
+            } else {
+                // 右操作数为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+            
+        case ASTC_UNARY_OP:
+            // 写入操作符类型
+            *((int*)(buffer + pos)) = node->data.unary_op.op;
+            pos += 4;
+            
+            // 递归序列化操作数
+            if (node->data.unary_op.operand) {
+                size_t operand_size;
+                unsigned char *operand_data = c2astc_serialize(node->data.unary_op.operand, &operand_size);
+                if (!operand_data) {
+                    free(buffer);
+                    return NULL;
+                }
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + operand_size > buffer_size) {
+                    buffer_size = pos + 4 + operand_size + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(operand_data);
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入操作数大小和数据
+                *((int*)(buffer + pos)) = (int)operand_size;
+                pos += 4;
+                memcpy(buffer + pos, operand_data, operand_size);
+                pos += operand_size;
+                free(operand_data);
+            } else {
+                // 操作数为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+            
+        case ASTC_CALL_EXPR:
+            // 递归序列化被调用函数
+            if (node->data.call_expr.callee) {
+                size_t callee_size;
+                unsigned char *callee_data = c2astc_serialize(node->data.call_expr.callee, &callee_size);
+                if (!callee_data) {
+                    free(buffer);
+                    return NULL;
+                }
+                
+                // 确保缓冲区足够大
+                if (pos + 4 + callee_size > buffer_size) {
+                    buffer_size = pos + 4 + callee_size + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(callee_data);
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+                
+                // 写入被调用函数大小和数据
+                *((int*)(buffer + pos)) = (int)callee_size;
+                pos += 4;
+                memcpy(buffer + pos, callee_data, callee_size);
+                pos += callee_size;
+                free(callee_data);
+            } else {
+                // 被调用函数为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            
+            // 写入参数数量
+            *((int*)(buffer + pos)) = node->data.call_expr.arg_count;
+            pos += 4;
+            
+            // 递归序列化参数
+            for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                if (node->data.call_expr.args[i]) {
+                    size_t arg_size;
+                    unsigned char *arg_data = c2astc_serialize(node->data.call_expr.args[i], &arg_size);
+                    if (!arg_data) {
+                        free(buffer);
+                        return NULL;
+                    }
+                    
+                    // 确保缓冲区足够大
+                    if (pos + 4 + arg_size > buffer_size) {
+                        buffer_size = pos + 4 + arg_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(arg_data);
+                            free(buffer);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+                    
+                    // 写入参数大小和数据
+                    *((int*)(buffer + pos)) = (int)arg_size;
+                    pos += 4;
+                    memcpy(buffer + pos, arg_data, arg_size);
+                    pos += arg_size;
+                    free(arg_data);
+                } else {
+                    // 参数为NULL
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            }
+            break;
+            
+        // 其他节点类型的序列化...
+        // 完整实现需要处理所有节点类型
+            
+        default:
+            // 对于其他类型，暂时只序列化基本信息
+            break;
+    }
+    
+    // 调整缓冲区大小为实际使用的大小
+    unsigned char *final_buffer = (unsigned char*)realloc(buffer, pos);
+    if (!final_buffer) {
+        free(buffer);
+        set_error("内存分配失败");
+        return NULL;
+    }
+    
+    *out_size = pos;
+    return final_buffer;
 }
 
 // 反序列化二进制格式为ASTC
 struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
-    // 简单实现：暂时只反序列化节点类型
-    if (!binary || size < sizeof(int)) {
+    if (!binary || size < 20) { // 至少需要包含魔数、版本、类型、行号和列号
         set_error("无效的二进制数据");
         return NULL;
     }
     
-    ASTNodeType type = *(int*)binary;
-    return ast_create_node(type, 0, 0);
+    // 验证魔数
+    if (memcmp(binary, "ASTC", 4) != 0) {
+        set_error("无效的ASTC格式");
+        return NULL;
+    }
+    
+    // 验证版本
+    int version = *((int*)(binary + 4));
+    if (version != 1) {
+        set_error("不支持的ASTC版本");
+        return NULL;
+    }
+    
+    // 读取节点类型、行号和列号
+    ASTNodeType type = *((int*)(binary + 8));
+    int line = *((int*)(binary + 12));
+    int column = *((int*)(binary + 16));
+    
+    // 创建节点
+    struct ASTNode *node = ast_create_node(type, line, column);
+    if (!node) {
+        return NULL;
+    }
+    
+    // 根据节点类型读取特定数据
+    size_t pos = 20; // 当前读取位置
+    
+    // 这里只实现了部分节点类型的反序列化，完整实现需要处理所有类型
+    switch (type) {
+        case ASTC_EXPR_IDENTIFIER:
+            // 读取标识符名称
+            if (pos + 4 <= size) {
+                int name_len = *((int*)(binary + pos));
+                pos += 4;
+                
+                if (name_len > 0 && pos + name_len <= size) {
+                    node->data.identifier.name = (char*)malloc(name_len);
+                    if (!node->data.identifier.name) {
+                        ast_free(node);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    
+                    memcpy(node->data.identifier.name, binary + pos, name_len);
+                    pos += name_len;
+                } else {
+                    node->data.identifier.name = NULL;
+                }
+            }
+            break;
+            
+        case ASTC_EXPR_CONSTANT:
+            // 读取常量类型和值
+            if (pos + 4 <= size) {
+                node->data.constant.type = *((int*)(binary + pos));
+                pos += 4;
+                
+                if (pos + 8 <= size) {
+                    if (node->data.constant.type == ASTC_TYPE_INT) {
+                        node->data.constant.int_val = *((int64_t*)(binary + pos));
+                    } else {
+                        node->data.constant.float_val = *((double*)(binary + pos));
+                    }
+                    pos += 8;
+                }
+            }
+            break;
+            
+        case ASTC_EXPR_STRING_LITERAL:
+            // 读取字符串值
+            if (pos + 4 <= size) {
+                int str_len = *((int*)(binary + pos));
+                pos += 4;
+                
+                if (str_len > 0 && pos + str_len <= size) {
+                    node->data.string_literal.value = (char*)malloc(str_len);
+                    if (!node->data.string_literal.value) {
+                        ast_free(node);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    
+                    memcpy(node->data.string_literal.value, binary + pos, str_len);
+                    pos += str_len;
+                } else {
+                    node->data.string_literal.value = NULL;
+                }
+            }
+            break;
+            
+        case ASTC_BINARY_OP:
+            // 读取操作符类型
+            if (pos + 4 <= size) {
+                node->data.binary_op.op = *((int*)(binary + pos));
+                pos += 4;
+                
+                // 读取左操作数
+                if (pos + 4 <= size) {
+                    int left_size = *((int*)(binary + pos));
+                    pos += 4;
+                    
+                    if (left_size > 0 && pos + left_size <= size) {
+                        node->data.binary_op.left = c2astc_deserialize(binary + pos, left_size);
+                        if (!node->data.binary_op.left) {
+                            ast_free(node);
+                            return NULL;
+                        }
+                        pos += left_size;
+                    } else {
+                        node->data.binary_op.left = NULL;
+                    }
+                }
+                
+                // 读取右操作数
+                if (pos + 4 <= size) {
+                    int right_size = *((int*)(binary + pos));
+                    pos += 4;
+                    
+                    if (right_size > 0 && pos + right_size <= size) {
+                        node->data.binary_op.right = c2astc_deserialize(binary + pos, right_size);
+                        if (!node->data.binary_op.right) {
+                            ast_free(node);
+                            return NULL;
+                        }
+                        pos += right_size;
+                    } else {
+                        node->data.binary_op.right = NULL;
+                    }
+                }
+            }
+            break;
+            
+        case ASTC_UNARY_OP:
+            // 读取操作符类型
+            if (pos + 4 <= size) {
+                node->data.unary_op.op = *((int*)(binary + pos));
+                pos += 4;
+                
+                // 读取操作数
+                if (pos + 4 <= size) {
+                    int operand_size = *((int*)(binary + pos));
+                    pos += 4;
+                    
+                    if (operand_size > 0 && pos + operand_size <= size) {
+                        node->data.unary_op.operand = c2astc_deserialize(binary + pos, operand_size);
+                        if (!node->data.unary_op.operand) {
+                            ast_free(node);
+                            return NULL;
+                        }
+                        pos += operand_size;
+                    } else {
+                        node->data.unary_op.operand = NULL;
+                    }
+                }
+            }
+            break;
+            
+        case ASTC_CALL_EXPR:
+            // 读取被调用函数
+            if (pos + 4 <= size) {
+                int callee_size = *((int*)(binary + pos));
+                pos += 4;
+                
+                if (callee_size > 0 && pos + callee_size <= size) {
+                    node->data.call_expr.callee = c2astc_deserialize(binary + pos, callee_size);
+                    if (!node->data.call_expr.callee) {
+                        ast_free(node);
+                        return NULL;
+                    }
+                    pos += callee_size;
+                } else {
+                    node->data.call_expr.callee = NULL;
+                }
+            }
+            
+            // 读取参数数量
+            if (pos + 4 <= size) {
+                node->data.call_expr.arg_count = *((int*)(binary + pos));
+                pos += 4;
+                
+                if (node->data.call_expr.arg_count > 0) {
+                    // 分配参数数组
+                    node->data.call_expr.args = (struct ASTNode **)malloc(node->data.call_expr.arg_count * sizeof(struct ASTNode *));
+                    if (!node->data.call_expr.args) {
+                        ast_free(node);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    
+                    // 读取参数
+                    for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                        if (pos + 4 <= size) {
+                            int arg_size = *((int*)(binary + pos));
+                            pos += 4;
+                            
+                            if (arg_size > 0 && pos + arg_size <= size) {
+                                node->data.call_expr.args[i] = c2astc_deserialize(binary + pos, arg_size);
+                                if (!node->data.call_expr.args[i]) {
+                                    // 释放已分配的资源
+                                    for (int j = 0; j < i; j++) {
+                                        ast_free(node->data.call_expr.args[j]);
+                                    }
+                                    free(node->data.call_expr.args);
+                                    ast_free(node);
+                                    return NULL;
+                                }
+                                pos += arg_size;
+                            } else {
+                                node->data.call_expr.args[i] = NULL;
+                            }
+                        }
+                    }
+                } else {
+                    node->data.call_expr.args = NULL;
+                }
+            }
+            break;
+            
+        // 其他节点类型的反序列化...
+        // 完整实现需要处理所有节点类型
+            
+        default:
+            // 对于其他类型，暂时只反序列化基本信息
+            break;
+    }
+    
+    return node;
 }
 
 unsigned char* c2astc(struct ASTNode *node, const C2AstcOptions *options, size_t *out_size) {
@@ -3185,3 +3709,15 @@ static struct ASTNode* parse_assignment(Parser *parser) {
 static struct ASTNode* parse_expression(Parser *parser) {
     return parse_assignment(parser);
 }
+
+// 创建一元操作节点
+struct ASTNode* create_unary_op_node(int op, struct ASTNode *operand, int line, int column) {
+    struct ASTNode *node = ast_create_node(ASTC_UNARY_OP, line, column);
+    if (node) {
+        node->data.unary_op.op = op;
+        node->data.unary_op.operand = operand;
+    }
+    return node;
+}
+
+

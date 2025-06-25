@@ -12,7 +12,17 @@ if not exist "%TCC_PATH%\tcc.exe" (
 
 REM 编译test_c2astc.c
 echo 编译test_c2astc.c...
-%TCC_PATH%\tcc.exe -I..\..\. -o test_c2astc.exe test_c2astc.c ..\..\c2astc.c
+%TCC_PATH%\tcc.exe -I..\..\ -o test_c2astc.exe test_c2astc.c ..\..\c2astc.c
+
+REM 检查编译结果
+if %ERRORLEVEL% neq 0 (
+    echo 编译失败!
+    exit /b 1
+)
+
+REM 编译serialize_test.c
+echo 编译serialize_test.c...
+%TCC_PATH%\tcc.exe -I..\..\ -o serialize_test.exe serialize_test.c ..\..\c2astc.c
 
 REM 检查编译结果
 if %ERRORLEVEL% neq 0 (
@@ -48,4 +58,6 @@ REM 测试数组访问和成员访问用例
 echo 测试数组访问和成员访问用例...
 test_c2astc.exe array_member_access_test.c
 
-echo 测试完成！ 
+REM 测试序列化和反序列化
+echo 测试序列化和反序列化...
+serialize_test.exe 

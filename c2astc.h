@@ -93,6 +93,95 @@ unsigned char* c2astc(struct ASTNode *node, const C2AstcOptions *options, size_t
  */
 void c2astc_free(void *ptr);
 
+/**
+ * 创建AST节点
+ * 
+ * @param type 节点类型
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);
+
+// ===============================================
+// 节点创建函数
+// ===============================================
+
+/**
+ * 创建标识符节点
+ * 
+ * @param name 标识符名称
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_identifier_node(const char *name, int line, int column);
+
+/**
+ * 创建整数常量节点
+ * 
+ * @param value 整数值
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_int_node(long long value, int line, int column);
+
+/**
+ * 创建浮点数常量节点
+ * 
+ * @param value 浮点数值
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_float_node(double value, int line, int column);
+
+/**
+ * 创建字符串字面量节点
+ * 
+ * @param value 字符串值
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_string_node(const char *value, int line, int column);
+
+/**
+ * 创建二元操作节点
+ * 
+ * @param op 操作符类型
+ * @param left 左操作数
+ * @param right 右操作数
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_binary_op_node(int op, struct ASTNode *left, struct ASTNode *right, int line, int column);
+
+/**
+ * 创建一元操作节点
+ * 
+ * @param op 操作符类型
+ * @param operand 操作数
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_unary_op_node(int op, struct ASTNode *operand, int line, int column);
+
+/**
+ * 创建函数调用节点
+ * 
+ * @param callee 被调用函数
+ * @param args 参数数组
+ * @param arg_count 参数数量
+ * @param line 行号
+ * @param column 列号
+ * @return 创建的节点
+ */
+struct ASTNode* create_call_expr_node(struct ASTNode *callee, struct ASTNode **args, int arg_count, int line, int column);
+
 #ifdef __cplusplus
 }
 #endif
