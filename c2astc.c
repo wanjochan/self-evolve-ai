@@ -2551,6 +2551,168 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
             }
             break;
 
+        case ASTC_VAR_DECL:
+            // 序列化变量声明
+            if (node->data.var_decl.name) {
+                size_t name_len = strlen(node->data.var_decl.name) + 1;
+
+                // 确保缓冲区足够大
+                if (pos + 4 + name_len > buffer_size) {
+                    buffer_size = pos + 4 + name_len + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+
+                // 写入变量名长度和名称
+                *((int*)(buffer + pos)) = (int)name_len;
+                pos += 4;
+                memcpy(buffer + pos, node->data.var_decl.name, name_len);
+                pos += name_len;
+            } else {
+                // 变量名为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化初始化表达式
+            if (node->data.var_decl.initializer) {
+                size_t init_size;
+                unsigned char* init_data = c2astc_serialize(node->data.var_decl.initializer, &init_size);
+                if (init_data) {
+                    // 确保缓冲区足够大
+                    if (pos + 4 + init_size > buffer_size) {
+                        buffer_size = pos + 4 + init_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(init_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    // 写入初始化表达式大小和数据
+                    *((int*)(buffer + pos)) = (int)init_size;
+                    pos += 4;
+                    memcpy(buffer + pos, init_data, init_size);
+                    pos += init_size;
+                    free(init_data);
+                } else {
+                    // 初始化表达式序列化失败
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                // 没有初始化表达式
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+
+        case ASTC_IF_STMT:
+            // 序列化if语句
+            // 序列化条件表达式
+            if (node->data.if_stmt.condition) {
+                size_t cond_size;
+                unsigned char* cond_data = c2astc_serialize(node->data.if_stmt.condition, &cond_size);
+                if (cond_data) {
+                    // 确保缓冲区足够大
+                    if (pos + 4 + cond_size > buffer_size) {
+                        buffer_size = pos + 4 + cond_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(cond_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    // 写入条件表达式大小和数据
+                    *((int*)(buffer + pos)) = (int)cond_size;
+                    pos += 4;
+                    memcpy(buffer + pos, cond_data, cond_size);
+                    pos += cond_size;
+                    free(cond_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化then分支
+            if (node->data.if_stmt.then_branch) {
+                size_t then_size;
+                unsigned char* then_data = c2astc_serialize(node->data.if_stmt.then_branch, &then_size);
+                if (then_data) {
+                    if (pos + 4 + then_size > buffer_size) {
+                        buffer_size = pos + 4 + then_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(then_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    *((int*)(buffer + pos)) = (int)then_size;
+                    pos += 4;
+                    memcpy(buffer + pos, then_data, then_size);
+                    pos += then_size;
+                    free(then_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化else分支
+            if (node->data.if_stmt.else_branch) {
+                size_t else_size;
+                unsigned char* else_data = c2astc_serialize(node->data.if_stmt.else_branch, &else_size);
+                if (else_data) {
+                    if (pos + 4 + else_size > buffer_size) {
+                        buffer_size = pos + 4 + else_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(else_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    *((int*)(buffer + pos)) = (int)else_size;
+                    pos += 4;
+                    memcpy(buffer + pos, else_data, else_size);
+                    pos += else_size;
+                    free(else_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+
         // 其他节点类型的序列化...
         // 完整实现需要处理所有节点类型
 
@@ -2971,6 +3133,118 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
                     }
                 } else {
                     node->data.return_stmt.value = NULL;
+                }
+            }
+            break;
+
+        case ASTC_VAR_DECL:
+            // 反序列化变量声明
+            if (pos + 4 <= size) {
+                int name_len = *((int*)(binary + pos));
+                pos += 4;
+
+                if (name_len > 0 && pos + name_len <= size) {
+                    node->data.var_decl.name = (char*)malloc(name_len);
+                    if (!node->data.var_decl.name) {
+                        ast_free(node);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+
+                    memcpy(node->data.var_decl.name, binary + pos, name_len);
+                    pos += name_len;
+                } else {
+                    node->data.var_decl.name = NULL;
+                }
+            }
+
+            // 反序列化初始化表达式
+            if (pos + 4 <= size) {
+                int init_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (init_size > 0 && pos + init_size <= size) {
+                    node->data.var_decl.initializer = c2astc_deserialize(binary + pos, init_size);
+                    pos += init_size;
+
+                    if (!node->data.var_decl.initializer) {
+                        if (node->data.var_decl.name) {
+                            free(node->data.var_decl.name);
+                        }
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.var_decl.initializer = NULL;
+                }
+            }
+
+            // 初始化其他字段
+            node->data.var_decl.type = NULL;
+            break;
+
+        case ASTC_IF_STMT:
+            // 反序列化if语句
+            // 反序列化条件表达式
+            if (pos + 4 <= size) {
+                int cond_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (cond_size > 0 && pos + cond_size <= size) {
+                    node->data.if_stmt.condition = c2astc_deserialize(binary + pos, cond_size);
+                    pos += cond_size;
+
+                    if (!node->data.if_stmt.condition) {
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.if_stmt.condition = NULL;
+                }
+            }
+
+            // 反序列化then分支
+            if (pos + 4 <= size) {
+                int then_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (then_size > 0 && pos + then_size <= size) {
+                    node->data.if_stmt.then_branch = c2astc_deserialize(binary + pos, then_size);
+                    pos += then_size;
+
+                    if (!node->data.if_stmt.then_branch) {
+                        if (node->data.if_stmt.condition) {
+                            ast_free(node->data.if_stmt.condition);
+                        }
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.if_stmt.then_branch = NULL;
+                }
+            }
+
+            // 反序列化else分支
+            if (pos + 4 <= size) {
+                int else_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (else_size > 0 && pos + else_size <= size) {
+                    node->data.if_stmt.else_branch = c2astc_deserialize(binary + pos, else_size);
+                    pos += else_size;
+
+                    if (!node->data.if_stmt.else_branch) {
+                        if (node->data.if_stmt.condition) {
+                            ast_free(node->data.if_stmt.condition);
+                        }
+                        if (node->data.if_stmt.then_branch) {
+                            ast_free(node->data.if_stmt.then_branch);
+                        }
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.if_stmt.else_branch = NULL;
                 }
             }
             break;

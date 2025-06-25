@@ -13,9 +13,9 @@
 void compare_ast_execution() {
     printf("=== ASTC Serialization Debug ===\n");
     
-    // 步骤1: 编译evolver0_program_minimal.c
-    printf("Step 1: Compiling evolver0_program_minimal.c...\n");
-    struct ASTNode* original_ast = c2astc_convert_file("../evolver0_program_minimal.c", NULL);
+    // 步骤1: 编译evolver0_program.c
+    printf("Step 1: Compiling evolver0_program.c...\n");
+    struct ASTNode* original_ast = c2astc_convert_file("../evolver0_program.c", NULL);
     
     if (!original_ast) {
         printf("❌ Failed to compile: %s\n", c2astc_get_error());
