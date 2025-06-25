@@ -170,6 +170,13 @@ int runtime_execute(RuntimeVM* vm, const char* entry_point);
 bool runtime_register_native_function(RuntimeVM* vm, const char* name, void* func);
 
 /**
+ * Runtime系统调用接口 - 文件操作
+ */
+int runtime_syscall_read_file(RuntimeVM* vm, const char* filename, char** content, size_t* size);
+int runtime_syscall_write_file(RuntimeVM* vm, const char* filename, const char* content, size_t size);
+int runtime_syscall_copy_file(RuntimeVM* vm, const char* src, const char* dst);
+
+/**
  * 获取最后一次错误信息
  * 
  * @param vm 虚拟机实例

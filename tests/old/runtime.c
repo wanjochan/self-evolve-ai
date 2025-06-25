@@ -1050,4 +1050,95 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             runtime_set_error(vm, "不支持的表达式类型: %d", expr->type);
             return runtime_value_i32(0);
     }
-} 
+}
+
+// ===============================================
+// Runtime系统调用实现
+// ===============================================
+
+// 读取文件内容
+int runtime_syscall_read_file(RuntimeVM* vm, const char* filename, char** content, size_t* size) {
+    if (!vm || !filename || !content || !size) {
+        runtime_set_error(vm, "Invalid parameters for read_file");
+        return -1;
+    }
+
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        runtime_set_error(vm, "Cannot open file: %s", filename);
+        return -1;
+    }
+
+    // 获取文件大小
+    fseek(file, 0, SEEK_END);
+    *size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // 分配内存
+    *content = (char*)malloc(*size + 1);
+    if (!*content) {
+        runtime_set_error(vm, "Memory allocation failed");
+        fclose(file);
+        return -1;
+    }
+
+    // 读取文件
+    size_t bytes_read = fread(*content, 1, *size, file);
+    if (bytes_read != *size) {
+        runtime_set_error(vm, "Failed to read file: %s", filename);
+        free(*content);
+        *content = NULL;
+        fclose(file);
+        return -1;
+    }
+
+    (*content)[*size] = '\0';
+    fclose(file);
+    return 0;
+}
+
+// 写入文件内容
+int runtime_syscall_write_file(RuntimeVM* vm, const char* filename, const char* content, size_t size) {
+    if (!vm || !filename || !content) {
+        runtime_set_error(vm, "Invalid parameters for write_file");
+        return -1;
+    }
+
+    FILE* file = fopen(filename, "wb");
+    if (!file) {
+        runtime_set_error(vm, "Cannot create file: %s", filename);
+        return -1;
+    }
+
+    size_t bytes_written = fwrite(content, 1, size, file);
+    fclose(file);
+
+    if (bytes_written != size) {
+        runtime_set_error(vm, "Failed to write file: %s", filename);
+        return -1;
+    }
+
+    return 0;
+}
+
+// 复制文件
+int runtime_syscall_copy_file(RuntimeVM* vm, const char* src, const char* dst) {
+    if (!vm || !src || !dst) {
+        runtime_set_error(vm, "Invalid parameters for copy_file");
+        return -1;
+    }
+
+    char* content;
+    size_t size;
+
+    // 读取源文件
+    if (runtime_syscall_read_file(vm, src, &content, &size) != 0) {
+        return -1;
+    }
+
+    // 写入目标文件
+    int result = runtime_syscall_write_file(vm, dst, content, size);
+    free(content);
+
+    return result;
+}
