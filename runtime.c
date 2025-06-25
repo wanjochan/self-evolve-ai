@@ -417,8 +417,9 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
     frame->ip = 0;
     frame->prev = vm->current_frame;
     
-    // 分配局部变量
+    // 分配局部变量（至少分配一个用于返回值）
     size_t local_count = func->data.func_decl.param_count;
+    if (local_count == 0) local_count = 1;  // 至少分配一个用于返回值
     frame->locals = (RuntimeValue*)malloc(local_count * sizeof(RuntimeValue));
     if (!frame->locals) {
         free(frame);
@@ -428,12 +429,13 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
     frame->local_count = local_count;
     
     // 初始化参数
-    for (size_t i = 0; i < arg_count && i < local_count; i++) {
+    size_t param_count = func->data.func_decl.param_count;
+    for (size_t i = 0; i < arg_count && i < param_count; i++) {
         frame->locals[i] = args[i];
     }
-    
-    // 默认初始化其余局部变量
-    for (size_t i = arg_count; i < local_count; i++) {
+
+    // 默认初始化其余局部变量（包括返回值槽）
+    for (size_t i = param_count; i < local_count; i++) {
         frame->locals[i] = runtime_value_i32(0);
     }
     
@@ -486,11 +488,12 @@ static int runtime_execute_function(RuntimeVM* vm, struct ASTNode* func, Runtime
     // 获取返回值
     int return_value = 0;
     if (result && frame->locals && frame->local_count > 0) {
-        // 使用第一个局部变量作为返回值
-        if (frame->locals[0].type == RT_VAL_I32) {
-            return_value = frame->locals[0].value.i32;
-        } else if (frame->locals[0].type == RT_VAL_I64) {
-            return_value = (int)frame->locals[0].value.i64;
+        // 使用最后一个局部变量作为返回值
+        RuntimeValue* ret_val = &frame->locals[frame->local_count - 1];
+        if (ret_val->type == RT_VAL_I32) {
+            return_value = ret_val->value.i32;
+        } else if (ret_val->type == RT_VAL_I64) {
+            return_value = (int)ret_val->value.i64;
         }
     }
     
@@ -526,8 +529,8 @@ static bool runtime_execute_statement(RuntimeVM* vm, struct ASTNode* stmt) {
             if (stmt->data.return_stmt.value) {
                 RuntimeValue result = runtime_evaluate_expression(vm, stmt->data.return_stmt.value);
                 if (vm->current_frame && vm->current_frame->locals && vm->current_frame->local_count > 0) {
-                    // 将返回值存储在第一个局部变量中
-                    vm->current_frame->locals[0] = result;
+                    // 将返回值存储在最后一个局部变量槽中（专门用于返回值）
+                    vm->current_frame->locals[vm->current_frame->local_count - 1] = result;
                 }
             }
             return true;
@@ -584,9 +587,107 @@ static bool runtime_execute_statement(RuntimeVM* vm, struct ASTNode* stmt) {
             
             return true;
         }
-        
+
+        case ASTC_VAR_DECL: {
+            // 变量声明语句
+            const char* var_name = stmt->data.var_decl.name;
+
+            // 计算初始值
+            RuntimeValue init_value = runtime_value_i32(0);
+            if (stmt->data.var_decl.initializer) {
+                init_value = runtime_evaluate_expression(vm, stmt->data.var_decl.initializer);
+            }
+
+            // 如果在函数内，添加到局部变量
+            if (vm->current_frame) {
+                // 简化实现：扩展局部变量数组
+                size_t new_count = vm->current_frame->local_count + 1;
+                RuntimeValue* new_locals = (RuntimeValue*)realloc(vm->current_frame->locals,
+                                                                  new_count * sizeof(RuntimeValue));
+                if (!new_locals) {
+                    runtime_set_error(vm, "无法分配局部变量内存");
+                    return false;
+                }
+
+                vm->current_frame->locals = new_locals;
+                vm->current_frame->locals[vm->current_frame->local_count] = init_value;
+                vm->current_frame->local_count = new_count;
+
+                // TODO: 需要维护变量名到索引的映射
+            } else {
+                // 添加到全局变量
+                // 检查全局变量表容量
+                if (vm->globals.count >= vm->globals.capacity) {
+                    size_t new_capacity = vm->globals.capacity * 2;
+                    RuntimeGlobalEntry* new_entries = (RuntimeGlobalEntry*)realloc(
+                        vm->globals.entries,
+                        new_capacity * sizeof(RuntimeGlobalEntry)
+                    );
+
+                    if (!new_entries) {
+                        runtime_set_error(vm, "无法扩展全局变量表");
+                        return false;
+                    }
+
+                    vm->globals.entries = new_entries;
+                    vm->globals.capacity = new_capacity;
+                }
+
+                // 添加全局变量到全局变量表
+                RuntimeGlobalEntry* entry = &vm->globals.entries[vm->globals.count++];
+                entry->name = strdup(var_name);
+                entry->is_mutable = true;
+                entry->value = init_value;
+            }
+
+            return true;
+        }
+
+        case ASTC_FOR_STMT: {
+            // for循环语句
+            // 执行初始化
+            if (stmt->data.for_stmt.init) {
+                if (!runtime_execute_statement(vm, stmt->data.for_stmt.init)) {
+                    return false;
+                }
+            }
+
+            // 循环执行
+            while (true) {
+                // 检查条件
+                if (stmt->data.for_stmt.condition) {
+                    RuntimeValue condition = runtime_evaluate_expression(vm, stmt->data.for_stmt.condition);
+                    bool cond_result = false;
+
+                    if (condition.type == RT_VAL_I32) {
+                        cond_result = condition.value.i32 != 0;
+                    } else if (condition.type == RT_VAL_I64) {
+                        cond_result = condition.value.i64 != 0;
+                    } else if (condition.type == RT_VAL_PTR) {
+                        cond_result = condition.value.ptr != NULL;
+                    }
+
+                    if (!cond_result) {
+                        break;
+                    }
+                }
+
+                // 执行循环体
+                if (!runtime_execute_statement(vm, stmt->data.for_stmt.body)) {
+                    return false;
+                }
+
+                // 执行更新
+                if (stmt->data.for_stmt.increment) {
+                    runtime_evaluate_expression(vm, stmt->data.for_stmt.increment);
+                }
+            }
+
+            return true;
+        }
+
         // 其他语句类型...
-        
+
         default:
             runtime_set_error(vm, "不支持的语句类型: %d", stmt->type);
             return false;
@@ -631,22 +732,28 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             // 计算二元操作
             RuntimeValue left = runtime_evaluate_expression(vm, expr->data.binary_op.left);
             RuntimeValue right = runtime_evaluate_expression(vm, expr->data.binary_op.right);
-            
+
             // 处理不同类型的二元操作
             switch (expr->data.binary_op.op) {
                 case ASTC_OP_ADD:
                     if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
                         return runtime_value_i32(left.value.i32 + right.value.i32);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_f32(left.value.f32 + right.value.f32);
                     }
                     break;
                 case ASTC_OP_SUB:
                     if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
                         return runtime_value_i32(left.value.i32 - right.value.i32);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_f32(left.value.f32 - right.value.f32);
                     }
                     break;
                 case ASTC_OP_MUL:
                     if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
                         return runtime_value_i32(left.value.i32 * right.value.i32);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_f32(left.value.f32 * right.value.f32);
                     }
                     break;
                 case ASTC_OP_DIV:
@@ -656,15 +763,120 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
                             return runtime_value_i32(0);
                         }
                         return runtime_value_i32(left.value.i32 / right.value.i32);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_f32(left.value.f32 / right.value.f32);
                     }
                     break;
-                // 其他操作符...
+                case ASTC_OP_MOD:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        if (right.value.i32 == 0) {
+                            runtime_set_error(vm, "除零错误");
+                            return runtime_value_i32(0);
+                        }
+                        return runtime_value_i32(left.value.i32 % right.value.i32);
+                    }
+                    break;
+                case ASTC_OP_EQ:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 == right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 == right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_NE:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 != right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 != right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_LT:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 < right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 < right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_LE:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 <= right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 <= right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_GT:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 > right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 > right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_GE:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32(left.value.i32 >= right.value.i32 ? 1 : 0);
+                    } else if (left.type == RT_VAL_F32 && right.type == RT_VAL_F32) {
+                        return runtime_value_i32(left.value.f32 >= right.value.f32 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_AND:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32((left.value.i32 != 0 && right.value.i32 != 0) ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_OR:
+                    if (left.type == RT_VAL_I32 && right.type == RT_VAL_I32) {
+                        return runtime_value_i32((left.value.i32 != 0 || right.value.i32 != 0) ? 1 : 0);
+                    }
+                    break;
+                default:
+                    runtime_set_error(vm, "不支持的二元运算符: %d", expr->data.binary_op.op);
+                    return runtime_value_i32(0);
             }
-            
-            runtime_set_error(vm, "不支持的二元操作");
+
+            runtime_set_error(vm, "二元运算类型不匹配");
             return runtime_value_i32(0);
         }
-        
+
+        case ASTC_UNARY_OP: {
+            // 一元运算表达式
+            RuntimeValue operand = runtime_evaluate_expression(vm, expr->data.unary_op.operand);
+
+            switch (expr->data.unary_op.op) {
+                case ASTC_OP_NEG:
+                    if (operand.type == RT_VAL_I32) {
+                        return runtime_value_i32(-operand.value.i32);
+                    } else if (operand.type == RT_VAL_F32) {
+                        return runtime_value_f32(-operand.value.f32);
+                    }
+                    break;
+                case ASTC_OP_NOT:
+                    if (operand.type == RT_VAL_I32) {
+                        return runtime_value_i32(operand.value.i32 == 0 ? 1 : 0);
+                    }
+                    break;
+                case ASTC_OP_ADDR:
+                    // 取地址运算符 - 简化实现
+                    runtime_set_error(vm, "取地址运算符暂未实现");
+                    return runtime_value_i32(0);
+                case ASTC_OP_DEREF:
+                    // 解引用运算符 - 简化实现
+                    if (operand.type == RT_VAL_PTR) {
+                        // 简单的指针解引用
+                        if (operand.value.ptr) {
+                            return runtime_value_i32(*(int32_t*)operand.value.ptr);
+                        }
+                    }
+                    runtime_set_error(vm, "无效的指针解引用");
+                    return runtime_value_i32(0);
+                default:
+                    runtime_set_error(vm, "不支持的一元运算符: %d", expr->data.unary_op.op);
+                    return runtime_value_i32(0);
+            }
+
+            runtime_set_error(vm, "一元运算类型不匹配");
+            return runtime_value_i32(0);
+        }
+
         case ASTC_CALL_EXPR: {
             // 函数调用
             if (expr->data.call_expr.callee->type != ASTC_EXPR_IDENTIFIER) {
@@ -714,9 +926,46 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             
             return runtime_value_i32(result);
         }
-        
+
+        // 赋值表达式暂时通过二元操作处理
+
+        case ASTC_EXPR_ARRAY_SUBSCRIPT: {
+            // 数组访问表达式
+            RuntimeValue array = runtime_evaluate_expression(vm, expr->data.array_subscript.array);
+            RuntimeValue index = runtime_evaluate_expression(vm, expr->data.array_subscript.index);
+
+            if (array.type != RT_VAL_PTR) {
+                runtime_set_error(vm, "数组访问需要指针类型");
+                return runtime_value_i32(0);
+            }
+
+            if (index.type != RT_VAL_I32) {
+                runtime_set_error(vm, "数组索引必须是整数");
+                return runtime_value_i32(0);
+            }
+
+            // 简化实现：假设是int数组
+            int32_t* int_array = (int32_t*)array.value.ptr;
+            if (int_array && index.value.i32 >= 0) {
+                return runtime_value_i32(int_array[index.value.i32]);
+            }
+
+            runtime_set_error(vm, "无效的数组访问");
+            return runtime_value_i32(0);
+        }
+
+        case ASTC_EXPR_MEMBER_ACCESS: {
+            // 成员访问表达式
+            RuntimeValue object = runtime_evaluate_expression(vm, expr->data.member_access.object);
+            const char* member_name = expr->data.member_access.member;
+
+            // 简化实现：暂不支持结构体成员访问
+            runtime_set_error(vm, "结构体成员访问暂未实现");
+            return runtime_value_i32(0);
+        }
+
         // 其他表达式类型...
-        
+
         default:
             runtime_set_error(vm, "不支持的表达式类型: %d", expr->type);
             return runtime_value_i32(0);
