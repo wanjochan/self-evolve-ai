@@ -2713,6 +2713,74 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
             }
             break;
 
+        case ASTC_EXPR_STMT:
+            // 序列化表达式语句
+            if (node->data.expr_stmt.expr) {
+                size_t expr_size;
+                unsigned char* expr_data = c2astc_serialize(node->data.expr_stmt.expr, &expr_size);
+                if (expr_data) {
+                    // 确保缓冲区足够大
+                    if (pos + 4 + expr_size > buffer_size) {
+                        buffer_size = pos + 4 + expr_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(expr_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    // 写入表达式大小和数据
+                    *((int*)(buffer + pos)) = (int)expr_size;
+                    pos += 4;
+                    memcpy(buffer + pos, expr_data, expr_size);
+                    pos += expr_size;
+                    free(expr_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+
+        case ASTC_STRUCT_DECL:
+            // 序列化结构体声明
+            if (node->data.struct_decl.name) {
+                size_t name_len = strlen(node->data.struct_decl.name) + 1;
+
+                // 确保缓冲区足够大
+                if (pos + 4 + name_len > buffer_size) {
+                    buffer_size = pos + 4 + name_len + 1024;
+                    unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                    if (!new_buffer) {
+                        free(buffer);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+                    buffer = new_buffer;
+                }
+
+                // 写入结构体名长度和名称
+                *((int*)(buffer + pos)) = (int)name_len;
+                pos += 4;
+                memcpy(buffer + pos, node->data.struct_decl.name, name_len);
+                pos += name_len;
+            } else {
+                // 结构体名为NULL
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 写入成员数量（简化实现，不序列化成员）
+            *((int*)(buffer + pos)) = 0;
+            pos += 4;
+            break;
+
         // 其他节点类型的序列化...
         // 完整实现需要处理所有节点类型
 
@@ -3247,6 +3315,59 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
                     node->data.if_stmt.else_branch = NULL;
                 }
             }
+            break;
+
+        case ASTC_EXPR_STMT:
+            // 反序列化表达式语句
+            if (pos + 4 <= size) {
+                int expr_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (expr_size > 0 && pos + expr_size <= size) {
+                    node->data.expr_stmt.expr = c2astc_deserialize(binary + pos, expr_size);
+                    pos += expr_size;
+
+                    if (!node->data.expr_stmt.expr) {
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.expr_stmt.expr = NULL;
+                }
+            }
+            break;
+
+        case ASTC_STRUCT_DECL:
+            // 反序列化结构体声明
+            if (pos + 4 <= size) {
+                int name_len = *((int*)(binary + pos));
+                pos += 4;
+
+                if (name_len > 0 && pos + name_len <= size) {
+                    node->data.struct_decl.name = (char*)malloc(name_len);
+                    if (!node->data.struct_decl.name) {
+                        ast_free(node);
+                        set_error("内存分配失败");
+                        return NULL;
+                    }
+
+                    memcpy(node->data.struct_decl.name, binary + pos, name_len);
+                    pos += name_len;
+                } else {
+                    node->data.struct_decl.name = NULL;
+                }
+            }
+
+            // 读取成员数量（简化实现）
+            if (pos + 4 <= size) {
+                int member_count = *((int*)(binary + pos));
+                pos += 4;
+                // 简化实现：不处理成员
+            }
+
+            // 初始化其他字段
+            node->data.struct_decl.members = NULL;
+            node->data.struct_decl.member_count = 0;
             break;
 
         // 其他节点类型的反序列化...
