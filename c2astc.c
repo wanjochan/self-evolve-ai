@@ -2781,6 +2781,77 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
             pos += 4;
             break;
 
+
+
+
+
+        case ASTC_WHILE_STMT:
+            // 序列化while语句
+            // 序列化条件表达式
+            if (node->data.while_stmt.condition) {
+                size_t cond_size;
+                unsigned char* cond_data = c2astc_serialize(node->data.while_stmt.condition, &cond_size);
+                if (cond_data) {
+                    if (pos + 4 + cond_size > buffer_size) {
+                        buffer_size = pos + 4 + cond_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(cond_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    *((int*)(buffer + pos)) = (int)cond_size;
+                    pos += 4;
+                    memcpy(buffer + pos, cond_data, cond_size);
+                    pos += cond_size;
+                    free(cond_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化循环体
+            if (node->data.while_stmt.body) {
+                size_t body_size;
+                unsigned char* body_data = c2astc_serialize(node->data.while_stmt.body, &body_size);
+                if (body_data) {
+                    if (pos + 4 + body_size > buffer_size) {
+                        buffer_size = pos + 4 + body_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(body_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+
+                    *((int*)(buffer + pos)) = (int)body_size;
+                    pos += 4;
+                    memcpy(buffer + pos, body_data, body_size);
+                    pos += body_size;
+                    free(body_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+
+
+
         // 其他节点类型的序列化...
         // 完整实现需要处理所有节点类型
 
@@ -3369,6 +3440,54 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
             node->data.struct_decl.members = NULL;
             node->data.struct_decl.member_count = 0;
             break;
+
+
+
+
+
+        case ASTC_WHILE_STMT:
+            // 反序列化while语句
+            // 反序列化条件表达式
+            if (pos + 4 <= size) {
+                int cond_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (cond_size > 0 && pos + cond_size <= size) {
+                    node->data.while_stmt.condition = c2astc_deserialize(binary + pos, cond_size);
+                    pos += cond_size;
+
+                    if (!node->data.while_stmt.condition) {
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.while_stmt.condition = NULL;
+                }
+            }
+
+            // 反序列化循环体
+            if (pos + 4 <= size) {
+                int body_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (body_size > 0 && pos + body_size <= size) {
+                    node->data.while_stmt.body = c2astc_deserialize(binary + pos, body_size);
+                    pos += body_size;
+
+                    if (!node->data.while_stmt.body) {
+                        if (node->data.while_stmt.condition) {
+                            ast_free(node->data.while_stmt.condition);
+                        }
+                        ast_free(node);
+                        return NULL;
+                    }
+                } else {
+                    node->data.while_stmt.body = NULL;
+                }
+            }
+            break;
+
+
 
         // 其他节点类型的反序列化...
         // 完整实现需要处理所有节点类型
