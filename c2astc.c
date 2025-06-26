@@ -2850,7 +2850,139 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
             }
             break;
 
+        case ASTC_FOR_STMT:
+            // 序列化for语句
+            // 序列化初始化表达式
+            if (node->data.for_stmt.init) {
+                size_t init_size;
+                unsigned char* init_data = c2astc_serialize(node->data.for_stmt.init, &init_size);
+                if (init_data) {
+                    if (pos + 4 + init_size > buffer_size) {
+                        buffer_size = pos + 4 + init_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(init_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+                    *((int*)(buffer + pos)) = (int)init_size;
+                    pos += 4;
+                    memcpy(buffer + pos, init_data, init_size);
+                    pos += init_size;
+                    free(init_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
 
+            // 序列化条件表达式
+            if (node->data.for_stmt.condition) {
+                size_t cond_size;
+                unsigned char* cond_data = c2astc_serialize(node->data.for_stmt.condition, &cond_size);
+                if (cond_data) {
+                    if (pos + 4 + cond_size > buffer_size) {
+                        buffer_size = pos + 4 + cond_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(cond_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+                    *((int*)(buffer + pos)) = (int)cond_size;
+                    pos += 4;
+                    memcpy(buffer + pos, cond_data, cond_size);
+                    pos += cond_size;
+                    free(cond_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化更新表达式
+            if (node->data.for_stmt.increment) {
+                size_t update_size;
+                unsigned char* update_data = c2astc_serialize(node->data.for_stmt.increment, &update_size);
+                if (update_data) {
+                    if (pos + 4 + update_size > buffer_size) {
+                        buffer_size = pos + 4 + update_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(update_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+                    *((int*)(buffer + pos)) = (int)update_size;
+                    pos += 4;
+                    memcpy(buffer + pos, update_data, update_size);
+                    pos += update_size;
+                    free(update_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+
+            // 序列化循环体
+            if (node->data.for_stmt.body) {
+                size_t body_size;
+                unsigned char* body_data = c2astc_serialize(node->data.for_stmt.body, &body_size);
+                if (body_data) {
+                    if (pos + 4 + body_size > buffer_size) {
+                        buffer_size = pos + 4 + body_size + 1024;
+                        unsigned char *new_buffer = (unsigned char*)realloc(buffer, buffer_size);
+                        if (!new_buffer) {
+                            free(buffer);
+                            free(body_data);
+                            set_error("内存分配失败");
+                            return NULL;
+                        }
+                        buffer = new_buffer;
+                    }
+                    *((int*)(buffer + pos)) = (int)body_size;
+                    pos += 4;
+                    memcpy(buffer + pos, body_data, body_size);
+                    pos += body_size;
+                    free(body_data);
+                } else {
+                    *((int*)(buffer + pos)) = 0;
+                    pos += 4;
+                }
+            } else {
+                *((int*)(buffer + pos)) = 0;
+                pos += 4;
+            }
+            break;
+
+        case ASTC_BREAK_STMT:
+        case ASTC_CONTINUE_STMT:
+            // break和continue语句没有额外数据
+            break;
+
+        case ASTC_TYPE_SPECIFIER:
+            // 序列化类型说明符
+            *((int*)(buffer + pos)) = (int)node->data.type_specifier.type;
+            pos += 4;
+            break;
 
         // 其他节点类型的序列化...
         // 完整实现需要处理所有节点类型
@@ -3489,11 +3621,93 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
 
 
 
+        case ASTC_FOR_STMT:
+            // 反序列化for语句
+            node = ast_create_node(ASTC_FOR_STMT, 0, 0);
+            if (!node) {
+                set_error("内存分配失败");
+                return NULL;
+            }
+
+            // 读取初始化表达式
+            if (pos + 4 <= size) {
+                int init_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (init_size > 0 && pos + init_size <= size) {
+                    node->data.for_stmt.init = c2astc_deserialize(binary + pos, init_size);
+                    pos += init_size;
+                } else {
+                    node->data.for_stmt.init = NULL;
+                }
+            }
+
+            // 读取条件表达式
+            if (pos + 4 <= size) {
+                int cond_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (cond_size > 0 && pos + cond_size <= size) {
+                    node->data.for_stmt.condition = c2astc_deserialize(binary + pos, cond_size);
+                    pos += cond_size;
+                } else {
+                    node->data.for_stmt.condition = NULL;
+                }
+            }
+
+            // 读取更新表达式
+            if (pos + 4 <= size) {
+                int update_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (update_size > 0 && pos + update_size <= size) {
+                    node->data.for_stmt.increment = c2astc_deserialize(binary + pos, update_size);
+                    pos += update_size;
+                } else {
+                    node->data.for_stmt.increment = NULL;
+                }
+            }
+
+            // 读取循环体
+            if (pos + 4 <= size) {
+                int body_size = *((int*)(binary + pos));
+                pos += 4;
+
+                if (body_size > 0 && pos + body_size <= size) {
+                    node->data.for_stmt.body = c2astc_deserialize(binary + pos, body_size);
+                    pos += body_size;
+                } else {
+                    node->data.for_stmt.body = NULL;
+                }
+            }
+            break;
+
+        case ASTC_BREAK_STMT:
+        case ASTC_CONTINUE_STMT:
+            // break和continue语句没有额外数据
+            node = ast_create_node(type, 0, 0);
+            break;
+
+        case ASTC_TYPE_SPECIFIER:
+            // 反序列化类型说明符
+            node = ast_create_node(ASTC_TYPE_SPECIFIER, 0, 0);
+            if (!node) {
+                set_error("内存分配失败");
+                return NULL;
+            }
+
+            if (pos + 4 <= size) {
+                node->data.type_specifier.type = (ASTNodeType)*((int*)(binary + pos));
+                pos += 4;
+            }
+            break;
+
         // 其他节点类型的反序列化...
         // 完整实现需要处理所有节点类型
 
         default:
             // 对于其他类型，暂时只反序列化基本信息
+            node = ast_create_node(type, 0, 0);
             break;
     }
     
