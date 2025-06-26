@@ -8,7 +8,7 @@ echo [步骤1/2] C源码 → ASTC
 echo 输入: evolver0_runtime.c
 echo 输出: evolver0_runtime.astc
 
-.\tool_build_program.exe evolver0_runtime.c evolver0_runtime.astc
+.\tool_c2astc.exe evolver0_runtime.c evolver0_runtime.astc
 if %ERRORLEVEL% NEQ 0 (
     echo ❌ C→ASTC转换失败
     goto :failed

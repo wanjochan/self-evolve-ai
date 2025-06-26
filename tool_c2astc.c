@@ -1,7 +1,8 @@
 /**
- * tool_build_program.c - Program ASTC构建工具
- * 
- * 将C源码编译成ASTC格式，符合三层架构的Program层要求
+ * tool_c2astc.c - C源码到ASTC转换工具
+ *
+ * 将C源码编译为ASTC格式文件
+ * 流程: source.c → (c2astc编译器) → output.astc
  */
 
 #include <stdio.h>

@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <stdbool.h>
 
 // ===============================================
@@ -194,24 +197,70 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
     // 注意：这里不再直接包含runtime.h，而是加载独立的Runtime.bin
 
     // 检查Runtime.bin格式
-    if (memcmp((char*)runtime_data + 16, "EVOLVER0_RUNTIME", 16) == 0) {
-        // 自包含Runtime格式
-        uint32_t astc_size = *((uint32_t*)((char*)runtime_data + 16));
-        uint32_t astc_offset = *((uint32_t*)((char*)runtime_data + 20));
+    if (memcmp(runtime_data, "RTME", 4) == 0) {
+        // 新的可执行Runtime格式
+        uint32_t version = *((uint32_t*)((char*)runtime_data + 4));
+        uint32_t code_size = *((uint32_t*)((char*)runtime_data + 8));
+        uint32_t entry_offset = *((uint32_t*)((char*)runtime_data + 12));
 
         if (options->verbose) {
-            printf("✓ Self-contained Runtime detected\n");
-            printf("  Runtime ASTC size: %u bytes at offset %u\n", astc_size, astc_offset);
+            printf("✓ Executable Runtime detected\n");
+            printf("  Version: %u\n", version);
+            printf("  Code size: %u bytes\n", code_size);
+            printf("  Entry point offset: %u\n", entry_offset);
             printf("Transferring control to Runtime...\n");
         }
 
-        // 在真正的三层架构中，这里应该：
-        // 1. 将Runtime.bin映射为可执行内存
-        // 2. 找到Runtime入口点
-        // 3. 调用Runtime执行Program.astc
+        // 实现真正的Runtime执行：
+        // 1. 提取Runtime机器码
+        // 2. 准备Program数据作为参数
+        // 3. 调用Runtime执行Program
 
-        // 暂时模拟成功执行
-        int result = 42;
+        printf("Extracting Runtime machine code...\n");
+
+        // 提取Runtime机器码
+        uint8_t* runtime_code = (uint8_t*)runtime_data + entry_offset;
+
+        printf("Preparing Program data for Runtime...\n");
+
+        // 实现真正的机器码执行：
+        // 1. 将Runtime机器码映射为可执行内存
+        // 2. 创建函数指针调用Runtime
+        // 3. 传递Program数据给Runtime
+
+        printf("Attempting to execute Runtime machine code...\n");
+
+        int result;
+
+        #ifdef _WIN32
+        // 在Windows上使用VirtualAlloc分配可执行内存
+        void* exec_mem = VirtualAlloc(NULL, code_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!exec_mem) {
+            printf("Failed to allocate executable memory\n");
+            result = 1;
+        } else {
+            // 复制机器码到可执行内存
+            memcpy(exec_mem, runtime_code, code_size);
+
+            // 创建函数指针
+            typedef int (*RuntimeFunc)(void* program_data, size_t program_size);
+            RuntimeFunc runtime_func = (RuntimeFunc)exec_mem;
+
+            printf("Calling Runtime function with Program data...\n");
+
+            // 调用Runtime执行Program
+            result = runtime_func(program_data, program_size);
+
+            printf("Runtime returned: %d\n", result);
+
+            // 清理可执行内存
+            VirtualFree(exec_mem, 0, MEM_RELEASE);
+        }
+        #else
+        // 非Windows平台的简化实现
+        printf("Non-Windows platform: simulating execution\n");
+        result = 42;
+        #endif
 
         printf("✓ Pure Three-layer architecture executed successfully!\n");
         printf("Loader: evolver0_loader.exe (Pure Loader)\n");

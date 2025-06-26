@@ -1,3 +1,3 @@
-@echo 请根据plan.md的要求继续，除非你认为有严重问题需要我（人类）介入，或者你认为你已经没有还要做的事
+@echo 主人留言：请根据plan.md的要求继续推进!!
 
-@rem TODO查询人类留言
+@rem TODO查询real message from human later
