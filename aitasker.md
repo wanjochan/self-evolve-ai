@@ -356,6 +356,14 @@ graph TD
 - 原生函数调用完整实现
 - 更完整的C语言特性支持
 
+### ⚠️ **重大架构问题**：
+**三层架构违背** - 当前实现错误地将Runtime编译到Loader中，违背了plan.md的三层分离设计：
+- ❌ **错误现状**: evolver0_loader.exe包含runtime.c代码
+- ❌ **错误现状**: evolver0_runtime.bin只是占位符数据
+- ✅ **应该是**: Loader独立加载Runtime.bin和Program.astc
+- ✅ **应该是**: Runtime.bin是独立的ASTC虚拟机二进制
+- 🎯 **修复优先级**: 高 - 需要重新设计加载机制
+
 ## 资源和参考
 - C语言标准文档
 - LLVM和Clang项目
