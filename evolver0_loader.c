@@ -197,61 +197,18 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
     // 注意：这里不再直接包含runtime.h，而是加载独立的Runtime.bin
 
     // 检查Runtime.bin格式
-    if (memcmp(runtime_data, "MZ", 2) == 0) {
-        // 新格式：完整的PE可执行文件
-        if (options->verbose) {
-            printf("✓ Standalone PE executable Runtime detected\n");
-            printf("  Runtime size: %zu bytes\n", runtime_size);
-            printf("Launching Runtime as independent process...\n");
-        }
-
-        // 将Runtime.bin写入临时文件并执行
-        const char* temp_runtime = "temp_evolver0_runtime.exe";
-        FILE* temp_file = fopen(temp_runtime, "wb");
-        if (!temp_file) {
-            fprintf(stderr, "Error: Cannot create temporary runtime file\n");
-            free(runtime_data);
-            free(program_data);
-            return 1;
-        }
-
-        fwrite(runtime_data, runtime_size, 1, temp_file);
-        fclose(temp_file);
-
-        // 构建命令行来执行Runtime
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "%s %s", temp_runtime, options->program_file);
-
-        if (options->verbose) {
-            printf("Executing: %s\n", cmd);
-        }
-
-        // 执行Runtime进程
-        int result = system(cmd);
-
-        // 清理临时文件
-        remove(temp_runtime);
-
-        if (options->verbose) {
-            printf("Runtime process completed with result: %d\n", result);
-        }
-
-        free(runtime_data);
-        free(program_data);
-        return result;
-
-    } else if (memcmp(runtime_data, "RTME", 4) == 0) {
-        // 旧的可执行Runtime格式
+    if (memcmp(runtime_data, "RTME", 4) == 0) {
+        // RTME Runtime格式
         uint32_t version = *((uint32_t*)((char*)runtime_data + 4));
         uint32_t code_size = *((uint32_t*)((char*)runtime_data + 8));
         uint32_t entry_offset = *((uint32_t*)((char*)runtime_data + 12));
 
         if (options->verbose) {
-            printf("✓ Legacy RTME Runtime detected\n");
+            printf("✓ RTME Runtime detected\n");
             printf("  Version: %u\n", version);
             printf("  Code size: %u bytes\n", code_size);
             printf("  Entry point offset: %u\n", entry_offset);
-            printf("Transferring control to Runtime...\n");
+            printf("Loading Runtime machine code into memory...\n");
         }
 
         // 实现真正的Runtime执行：
@@ -407,13 +364,28 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
 // ===============================================
 
 int main(int argc, char* argv[]) {
+    printf("Evolver0 Loader starting...\n");
+    printf("Arguments: %d\n", argc);
+    for (int i = 0; i < argc; i++) {
+        printf("  argv[%d]: %s\n", i, argv[i]);
+    }
+
     LoaderOptions options;
-    
+
     // 解析命令行参数
+    printf("Parsing arguments...\n");
     if (!parse_arguments(argc, argv, &options)) {
+        printf("Argument parsing failed\n");
         return 1;
     }
-    
+
+    printf("Arguments parsed successfully\n");
+    printf("Runtime file: %s\n", options.runtime_file);
+    printf("Program file: %s\n", options.program_file);
+
     // 加载并执行三层架构
-    return load_and_execute_runtime(&options);
+    printf("Starting load and execute...\n");
+    int result = load_and_execute_runtime(&options);
+    printf("Load and execute completed with result: %d\n", result);
+    return result;
 }

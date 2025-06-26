@@ -22,47 +22,75 @@
 #include "c2astc.h"
 
 // ===============================================
+// 前向声明
+// ===============================================
+int runtime_compile_c_to_astc(const char* source_code, const char* filename, char** output_data, size_t* output_size);
+
+// ===============================================
 // Runtime入口点和接口
 // ===============================================
 
 // Runtime的主入口点，由Loader调用
 // 参数：ASTC程序数据和大小
 int evolver0_runtime_main(const unsigned char* astc_data, size_t astc_size) {
-    printf("Evolver0 Runtime starting...\n");
-    printf("ASTC data size: %zu bytes\n", astc_size);
-    
+    printf("=== Evolver0 Runtime Debug Mode ===\n");
+    printf("Runtime: Starting execution\n");
+    printf("Runtime: ASTC data size: %zu bytes\n", astc_size);
+    fflush(stdout);
+
     // 初始化虚拟机
     RuntimeVM vm;
+    printf("Runtime: Initializing VM...\n");
+    fflush(stdout);
     if (!runtime_init(&vm)) {
         fprintf(stderr, "Runtime: Failed to initialize VM\n");
+        fflush(stderr);
         return 1;
     }
-    
+    printf("Runtime: VM initialized successfully\n");
+    fflush(stdout);
+
     // 反序列化ASTC程序
+    printf("Runtime: Deserializing ASTC program...\n");
+    fflush(stdout);
     struct ASTNode* program = c2astc_deserialize(astc_data, astc_size);
     if (!program) {
         fprintf(stderr, "Runtime: Failed to deserialize ASTC program\n");
+        fflush(stderr);
         runtime_destroy(&vm);
         return 1;
     }
-    
+    printf("Runtime: ASTC program deserialized successfully\n");
+    fflush(stdout);
+
     // 加载程序到虚拟机
+    printf("Runtime: Loading program to VM...\n");
+    fflush(stdout);
     if (!runtime_load_program(&vm, program)) {
         fprintf(stderr, "Runtime: Failed to load program: %s\n", runtime_get_error(&vm));
+        fflush(stderr);
         ast_free(program);
         runtime_destroy(&vm);
         return 1;
     }
-    
+    printf("Runtime: Program loaded successfully\n");
+    fflush(stdout);
+
     // 执行main函数
-    printf("Runtime: Executing program...\n");
+    printf("Runtime: Executing main function...\n");
+    fflush(stdout);
     int result = runtime_execute(&vm, "main");
-    printf("Runtime: Program completed with result: %d\n", result);
-    
+    printf("Runtime: Execution completed with result: %d\n", result);
+    fflush(stdout);
+
     // 清理
+    printf("Runtime: Cleaning up...\n");
+    fflush(stdout);
     ast_free(program);
     runtime_destroy(&vm);
-    
+
+    printf("Runtime: Exiting with result: %d\n", result);
+    fflush(stdout);
     return result;
 }
 
