@@ -261,7 +261,7 @@ int runtime_execute(RuntimeVM* vm, const char* entry_point) {
 }
 
 bool runtime_register_native_function(RuntimeVM* vm, const char* name, void* func) {
-    if (!vm || !name || !func) {
+    if (!vm || !name) {
         runtime_set_error(vm, "无效的参数");
         return false;
     }
@@ -1078,14 +1078,27 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
 static int runtime_call_native_function(RuntimeVM* vm, const char* func_name, RuntimeValue* args, size_t arg_count) {
     // 处理标准库函数调用
     if (strcmp(func_name, "printf") == 0) {
-        // 简化的printf实现
-        if (arg_count > 0) {
-            if (args[0].type == RT_VAL_PTR) {
-                printf("%s", (char*)args[0].value.ptr);
-            } else if (args[0].type == RT_VAL_I32) {
-                printf("%d", args[0].value.i32);
-            } else if (args[0].type == RT_VAL_I64) {
-                printf("%lld", args[0].value.i64);
+        // 改进的printf实现，支持基本格式化
+        if (arg_count > 0 && args[0].type == RT_VAL_PTR) {
+            const char* format = (char*)args[0].value.ptr;
+
+            if (arg_count == 1) {
+                // 只有格式字符串，直接输出
+                printf("%s", format);
+            } else if (arg_count == 2) {
+                // 一个参数的格式化
+                if (args[1].type == RT_VAL_I32) {
+                    printf(format, args[1].value.i32);
+                } else if (args[1].type == RT_VAL_I64) {
+                    printf(format, args[1].value.i64);
+                } else if (args[1].type == RT_VAL_PTR) {
+                    printf(format, (char*)args[1].value.ptr);
+                } else {
+                    printf("%s", format);
+                }
+            } else {
+                // 多个参数的简化处理
+                printf("%s", format);
             }
             fflush(stdout);
         }

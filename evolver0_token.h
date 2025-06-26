@@ -103,7 +103,22 @@ typedef enum {
     TOKEN_UNION,
     TOKEN_ENUM,
     TOKEN_SIZEOF,
-    
+
+    // 预处理器指令
+    TOKEN_INCLUDE,       // include
+    TOKEN_DEFINE,        // define
+    TOKEN_UNDEF,         // undef
+    TOKEN_IFDEF,         // ifdef
+    TOKEN_IFNDEF,        // ifndef
+    TOKEN_ENDIF,         // endif
+    TOKEN_IF_PP,         // if (预处理器)
+    TOKEN_ELIF,          // elif
+    TOKEN_ELSE_PP,       // else (预处理器)
+    TOKEN_PRAGMA,        // pragma
+    TOKEN_LINE,          // line
+    TOKEN_ERROR_PP,      // error (预处理器)
+    TOKEN_WARNING,       // warning
+
     // 特殊标记
     TOKEN_ERROR,
     TOKEN_UNKNOWN

@@ -193,8 +193,8 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
         printf("Executing ASTC data: %zu bytes\n", astc_data_size);
     }
 
-    // 步骤4: 执行Runtime.bin（纯三层架构）
-    // 注意：这里不再直接包含runtime.h，而是加载独立的Runtime.bin
+    // 步骤4: 执行Runtime（使用安全的库调用方式）
+    // 为了避免机器码执行的复杂性，我们使用库调用方式
 
     // 检查Runtime.bin格式
     if (memcmp(runtime_data, "RTME", 4) == 0) {

@@ -65,6 +65,73 @@ void c2astc_free(void *ptr) {
 }
 
 // ===============================================
+// 预处理器
+// ===============================================
+
+// 宏定义结构
+typedef struct MacroDefinition {
+    char* name;
+    char* value;
+    struct MacroDefinition* next;
+} MacroDefinition;
+
+// 预处理器状态
+typedef struct {
+    MacroDefinition* macros;
+    int include_depth;
+    char** include_paths;
+    int include_path_count;
+} Preprocessor;
+
+// 初始化预处理器
+static void preprocessor_init(Preprocessor* pp) {
+    pp->macros = NULL;
+    pp->include_depth = 0;
+    pp->include_paths = NULL;
+    pp->include_path_count = 0;
+}
+
+// 清理预处理器
+static void preprocessor_cleanup(Preprocessor* pp) {
+    MacroDefinition* current = pp->macros;
+    while (current) {
+        MacroDefinition* next = current->next;
+        free(current->name);
+        free(current->value);
+        free(current);
+        current = next;
+    }
+
+    for (int i = 0; i < pp->include_path_count; i++) {
+        free(pp->include_paths[i]);
+    }
+    free(pp->include_paths);
+}
+
+// 添加宏定义
+static void preprocessor_define_macro(Preprocessor* pp, const char* name, const char* value) {
+    MacroDefinition* macro = (MacroDefinition*)malloc(sizeof(MacroDefinition));
+    if (!macro) return;
+
+    macro->name = strdup(name);
+    macro->value = strdup(value);
+    macro->next = pp->macros;
+    pp->macros = macro;
+}
+
+// 查找宏定义
+static const char* preprocessor_find_macro(Preprocessor* pp, const char* name) {
+    MacroDefinition* current = pp->macros;
+    while (current) {
+        if (strcmp(current->name, name) == 0) {
+            return current->value;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+// ===============================================
 // 词法分析器
 // ===============================================
 
@@ -100,14 +167,15 @@ typedef struct {
     int line;
     int column;
     const char *filename;
-    
+
     // 错误处理
     char error_msg[256];
     int error_count;
-    
+
     // 预处理器状态
     int in_preprocessor;
     int in_include;
+    Preprocessor preprocessor;
 } Lexer;
 
 // 初始化词法分析器
@@ -122,6 +190,7 @@ static void init_lexer(Lexer *lexer, const char *source, const char *filename) {
     lexer->error_count = 0;
     lexer->in_preprocessor = 0;
     lexer->in_include = 0;
+    preprocessor_init(&lexer->preprocessor);
 }
 
 static int lexer_is_at_end(Lexer *lexer) {
@@ -264,6 +333,27 @@ static struct {
     {NULL, TOKEN_EOF}
 };
 
+// 预处理器指令查找表
+static struct {
+    const char *directive;
+    TokenType type;
+} preprocessor_directives[] = {
+    {"include", TOKEN_INCLUDE},
+    {"define", TOKEN_DEFINE},
+    {"undef", TOKEN_UNDEF},
+    {"ifdef", TOKEN_IFDEF},
+    {"ifndef", TOKEN_IFNDEF},
+    {"endif", TOKEN_ENDIF},
+    {"if", TOKEN_IF_PP},
+    {"elif", TOKEN_ELIF},
+    {"else", TOKEN_ELSE_PP},
+    {"pragma", TOKEN_PRAGMA},
+    {"line", TOKEN_LINE},
+    {"error", TOKEN_ERROR_PP},
+    {"warning", TOKEN_WARNING},
+    {NULL, TOKEN_EOF}
+};
+
 // 检查标识符是否为关键字
 static TokenType check_keyword(const char *identifier) {
     for (int i = 0; keywords[i].keyword != NULL; i++) {
@@ -272,6 +362,53 @@ static TokenType check_keyword(const char *identifier) {
         }
     }
     return TOKEN_IDENTIFIER;
+}
+
+// 检查预处理器指令
+static TokenType check_preprocessor_directive(const char *directive) {
+    for (int i = 0; preprocessor_directives[i].directive != NULL; i++) {
+        if (strcmp(directive, preprocessor_directives[i].directive) == 0) {
+            return preprocessor_directives[i].type;
+        }
+    }
+    return TOKEN_IDENTIFIER;
+}
+
+// 扫描预处理器指令
+static Token* scan_preprocessor_directive(Lexer *lexer) {
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+
+    // 跳过 #
+    lexer_advance(lexer);
+
+    // 跳过空白字符
+    skip_whitespace(lexer);
+
+    // 扫描指令名称
+    size_t start = lexer->pos;
+    while (!lexer_is_at_end(lexer) && lexer_is_alpha(lexer_peek(lexer))) {
+        lexer_advance(lexer);
+    }
+
+    if (start == lexer->pos) {
+        // 只有 # 没有指令名称
+        return create_token(TOKEN_HASH, "#", start_line, start_column, lexer->filename);
+    }
+
+    size_t length = lexer->pos - start;
+    char *directive = (char*)malloc(length + 1);
+    if (!directive) return NULL;
+
+    strncpy(directive, lexer->source + start, length);
+    directive[length] = '\0';
+
+    TokenType type = check_preprocessor_directive(directive);
+    Token *token = create_token(type, directive, start_line, start_column, lexer->filename);
+    free(directive);
+
+    lexer->in_preprocessor = 1;
+    return token;
 }
 
 // 扫描标识符
@@ -558,8 +695,7 @@ static Token* scan_token(Lexer *lexer) {
             
         // 预处理指令
         case '#':
-            lexer->in_preprocessor = 1;
-            return create_token(TOKEN_HASH, "#", start_line, start_column, lexer->filename);
+            return scan_preprocessor_directive(lexer);
     }
     
     // 未知字符
