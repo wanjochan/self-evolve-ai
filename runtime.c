@@ -39,6 +39,9 @@ static RuntimeCallFrame* runtime_create_call_frame(RuntimeVM* vm, struct ASTNode
 // 销毁调用帧
 static void runtime_destroy_call_frame(RuntimeVM* vm, RuntimeCallFrame* frame);
 
+// 调用原生函数
+static int runtime_call_native_function(RuntimeVM* vm, const char* func_name, RuntimeValue* args, size_t arg_count);
+
 // 添加局部变量到映射表
 static bool runtime_add_local_variable(RuntimeVM* vm, const char* name, RuntimeValue value);
 
@@ -98,7 +101,15 @@ bool runtime_init(RuntimeVM* vm) {
     vm->exit_code = 0;
     vm->running = false;
     vm->error_message[0] = '\0';
-    
+
+    // 注册标准库原生函数
+    runtime_register_native_function(vm, "printf", NULL);
+    runtime_register_native_function(vm, "fopen", NULL);
+    runtime_register_native_function(vm, "fwrite", NULL);
+    runtime_register_native_function(vm, "fclose", NULL);
+    runtime_register_native_function(vm, "malloc", NULL);
+    runtime_register_native_function(vm, "free", NULL);
+
     return true;
 }
 
@@ -163,7 +174,7 @@ bool runtime_load_program(RuntimeVM* vm, struct ASTNode* root) {
     // 遍历声明列表
     for (int i = 0; i < root->data.translation_unit.declaration_count; i++) {
         struct ASTNode* decl = root->data.translation_unit.declarations[i];
-        
+
         // 处理函数声明
         if (decl->type == ASTC_FUNC_DECL) {
             // 检查函数表容量
@@ -804,8 +815,16 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             } else if (expr->data.constant.type == ASTC_TYPE_FLOAT) {
                 return runtime_value_f32((float)expr->data.constant.float_val);
             }
-            
+
             return runtime_value_i32(0);
+        }
+
+        case ASTC_EXPR_STRING_LITERAL: {
+            // 返回字符串字面量
+            RuntimeValue val;
+            val.type = RT_VAL_PTR;
+            val.value.ptr = expr->data.string_literal.value;
+            return val;
         }
         
         case ASTC_BINARY_OP: {
@@ -992,8 +1011,7 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             int result;
             if (func_entry->is_native) {
                 // 调用原生函数
-                // TODO: 实现原生函数调用
-                result = 0;
+                result = runtime_call_native_function(vm, func_name, args, expr->data.call_expr.arg_count);
             } else {
                 // 调用ASTC函数
                 result = runtime_execute_function(vm, func_entry->node, args, expr->data.call_expr.arg_count);
@@ -1050,6 +1068,71 @@ static RuntimeValue runtime_evaluate_expression(RuntimeVM* vm, struct ASTNode* e
             runtime_set_error(vm, "不支持的表达式类型: %d", expr->type);
             return runtime_value_i32(0);
     }
+}
+
+// ===============================================
+// 原生函数调用实现
+// ===============================================
+
+// 调用原生函数
+static int runtime_call_native_function(RuntimeVM* vm, const char* func_name, RuntimeValue* args, size_t arg_count) {
+    // 处理标准库函数调用
+    if (strcmp(func_name, "printf") == 0) {
+        // 简化的printf实现
+        if (arg_count > 0) {
+            if (args[0].type == RT_VAL_PTR) {
+                printf("%s", (char*)args[0].value.ptr);
+            } else if (args[0].type == RT_VAL_I32) {
+                printf("%d", args[0].value.i32);
+            } else if (args[0].type == RT_VAL_I64) {
+                printf("%lld", args[0].value.i64);
+            }
+            fflush(stdout);
+        }
+        return 0;
+    }
+
+    if (strcmp(func_name, "fopen") == 0) {
+        // fopen实现
+        if (arg_count >= 2 && args[0].type == RT_VAL_PTR && args[1].type == RT_VAL_PTR) {
+            const char* filename = (char*)args[0].value.ptr;
+            const char* mode = (char*)args[1].value.ptr;
+            FILE* fp = fopen(filename, mode);
+            printf("Runtime: fopen(%s, %s) = %p\n", filename, mode, fp);
+            return (int)(intptr_t)fp;
+        }
+        return 0;
+    }
+
+    if (strcmp(func_name, "fwrite") == 0) {
+        // fwrite实现
+        if (arg_count >= 4) {
+            void* ptr = args[0].value.ptr;
+            size_t size = args[1].value.i32;
+            size_t count = args[2].value.i32;
+            FILE* fp = (FILE*)(intptr_t)args[3].value.i32;
+
+            if (fp) {
+                return fwrite(ptr, size, count, fp);
+            }
+        }
+        return 0;
+    }
+
+    if (strcmp(func_name, "fclose") == 0) {
+        // fclose实现
+        if (arg_count >= 1) {
+            FILE* fp = (FILE*)(intptr_t)args[0].value.i32;
+            if (fp) {
+                return fclose(fp);
+            }
+        }
+        return 0;
+    }
+
+    // 未知函数
+    runtime_set_error(vm, "未知的原生函数: %s", func_name);
+    return -1;
 }
 
 // ===============================================

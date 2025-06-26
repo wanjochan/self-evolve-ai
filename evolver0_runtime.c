@@ -66,6 +66,14 @@ int evolver0_runtime_main(const unsigned char* astc_data, size_t astc_size) {
     return result;
 }
 
+// 编译服务参数结构
+typedef struct {
+    const char* source_code;
+    const char* filename;
+    char** output_data;
+    size_t* output_size;
+} CompileArgs;
+
 // Runtime系统调用接口
 int evolver0_runtime_syscall(int syscall_num, void* args) {
     switch (syscall_num) {
@@ -75,10 +83,74 @@ int evolver0_runtime_syscall(int syscall_num, void* args) {
         case 2: // sys_read
             printf("Runtime syscall: read\n");
             return 0;
+        case 3: // sys_compile_c_to_astc
+            printf("Runtime syscall: compile C to ASTC\n");
+            if (args) {
+                CompileArgs* compile_args = (CompileArgs*)args;
+                return runtime_compile_c_to_astc(compile_args->source_code,
+                                                compile_args->filename,
+                                                compile_args->output_data,
+                                                compile_args->output_size);
+            }
+            return -1;
+        case 4: // sys_file_read
+            printf("Runtime syscall: file read\n");
+            return 0;
+        case 5: // sys_file_write
+            printf("Runtime syscall: file write\n");
+            return 0;
         default:
             printf("Runtime syscall: unknown %d\n", syscall_num);
             return -1;
     }
+}
+
+// Runtime编译服务实现
+int runtime_compile_c_to_astc(const char* source_code, const char* filename, char** output_data, size_t* output_size) {
+    printf("Runtime: 编译C源码为ASTC格式\n");
+    printf("  源文件: %s\n", filename ? filename : "内存中的代码");
+    printf("  源码长度: %zu 字节\n", source_code ? strlen(source_code) : 0);
+
+    if (!source_code || !output_data || !output_size) {
+        printf("  错误: 无效的参数\n");
+        return -1;
+    }
+
+    // 使用c2astc库进行编译
+    C2AstcOptions options = c2astc_default_options();
+    struct ASTNode* ast = c2astc_convert(source_code, &options);
+
+    if (!ast) {
+        const char* error = c2astc_get_error();
+        printf("  编译失败: %s\n", error ? error : "未知错误");
+        return -1;
+    }
+
+    // 序列化AST为ASTC格式
+    unsigned char* astc_data = c2astc_serialize(ast, output_size);
+    if (!astc_data) {
+        printf("  序列化失败\n");
+        ast_free(ast);
+        return -1;
+    }
+
+    // 分配输出缓冲区并复制数据
+    *output_data = (char*)malloc(*output_size);
+    if (!*output_data) {
+        printf("  内存分配失败\n");
+        free(astc_data);
+        ast_free(ast);
+        return -1;
+    }
+
+    memcpy(*output_data, astc_data, *output_size);
+
+    // 清理
+    free(astc_data);
+    ast_free(ast);
+
+    printf("  ✅ 编译成功，生成 %zu 字节的ASTC数据\n", *output_size);
+    return 0;
 }
 
 // Runtime内存管理接口

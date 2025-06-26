@@ -105,23 +105,42 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
         return 1;
     }
     
-    // 验证Runtime格式
-    if (runtime_size < sizeof(RuntimeHeader)) {
+    // 验证Runtime格式 - 支持新的自包含格式
+    if (runtime_size < 64) {
         fprintf(stderr, "Error: Invalid Runtime file format\n");
         free(runtime_data);
         return 1;
     }
-    
-    RuntimeHeader* runtime_header = (RuntimeHeader*)runtime_data;
-    if (memcmp(runtime_header->magic, RUNTIME_MAGIC, 4) != 0) {
-        fprintf(stderr, "Error: Invalid Runtime magic number\n");
-        free(runtime_data);
-        return 1;
-    }
-    
-    if (options->verbose) {
-        printf("✓ Runtime loaded: %zu bytes, version %u\n", 
-               runtime_size, runtime_header->version);
+
+    // 检查新的自包含runtime格式
+    if (memcmp(runtime_data, "EVOLVER0_RUNTIME", 16) == 0) {
+        // 新格式：自包含的ASTC虚拟机
+        uint32_t astc_size = *((uint32_t*)((char*)runtime_data + 16));
+        uint32_t astc_offset = *((uint32_t*)((char*)runtime_data + 20));
+
+        if (options->verbose) {
+            printf("✓ Self-contained Runtime loaded: %zu bytes\n", runtime_size);
+            printf("  ASTC VM size: %u bytes at offset %u\n", astc_size, astc_offset);
+        }
+    } else {
+        // 旧格式：检查RuntimeHeader
+        if (runtime_size < sizeof(RuntimeHeader)) {
+            fprintf(stderr, "Error: Invalid Runtime file format\n");
+            free(runtime_data);
+            return 1;
+        }
+
+        RuntimeHeader* runtime_header = (RuntimeHeader*)runtime_data;
+        if (memcmp(runtime_header->magic, RUNTIME_MAGIC, 4) != 0) {
+            fprintf(stderr, "Error: Invalid Runtime magic number\n");
+            free(runtime_data);
+            return 1;
+        }
+
+        if (options->verbose) {
+            printf("✓ Legacy Runtime loaded: %zu bytes, version %u\n",
+                   runtime_size, runtime_header->version);
+        }
     }
     
     // 步骤2: 加载Program ASTC

@@ -1840,8 +1840,28 @@ static struct ASTNode* parse_declaration(Parser *parser) {
             int capacity = 0;
             
             do {
-                // 解析参数声明
-                struct ASTNode *param = parse_declaration(parser);
+                // 解析参数声明 - 简化版本，只处理 "type name" 格式
+                Token *type_token = peek(parser);
+                if (!type_token) break;
+
+                // 跳过类型token
+                advance(parser);
+
+                // 获取参数名
+                Token *name_token = peek(parser);
+                if (!name_token || name_token->type != TOKEN_IDENTIFIER) {
+                    printf("Expected parameter name\n");
+                    break;
+                }
+                advance(parser);
+
+                // 创建参数节点 (使用VAR_DECL结构)
+                struct ASTNode *param = ast_create_node(ASTC_VAR_DECL, type_token->line, type_token->column);
+                if (!param) break;
+
+                param->data.var_decl.name = strdup(name_token->value);
+                param->data.var_decl.type = NULL; // 简化，不处理复杂类型
+                param->data.var_decl.initializer = NULL;
                 if (!param) {
                     // 释放已分配的资源
                     for (int i = 0; i < param_count; i++) {
