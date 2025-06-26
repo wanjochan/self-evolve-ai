@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "c2astc.h"
 
 // 借鉴TinyCC的代码生成思路，实现我们自己的ASTC->x64编译器
@@ -48,6 +49,10 @@ void emit_int32(CodeGen* gen, int32_t value) {
 }
 
 // 前向声明
+int compile_c_to_runtime_bin(const char* c_file, const char* output_file);
+int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file);
+void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* node);
+void compile_function(CodeGen* gen, struct ASTNode* node);
 void compile_expression(CodeGen* gen, struct ASTNode* node);
 void compile_statement(CodeGen* gen, struct ASTNode* node);
 
@@ -101,6 +106,40 @@ void compile_statement(CodeGen* gen, struct ASTNode* node) {
     }
 }
 
+// 编译整个翻译单元（包含多个函数）
+void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* node) {
+    printf("Compiling runtime from translation unit...\n");
+
+    // 遍历翻译单元中的所有声明
+    if (node->type == ASTC_TRANSLATION_UNIT && node->data.translation_unit.declarations) {
+        int func_count = 0;
+
+        // 遍历声明数组
+        for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+            struct ASTNode* decl = node->data.translation_unit.declarations[i];
+
+            if (decl && decl->type == ASTC_FUNC_DECL) {
+                printf("  Compiling function: %s\n", decl->data.func_decl.name);
+
+                // 为每个函数生成标签和代码
+                if (strcmp(decl->data.func_decl.name, "evolver0_runtime_main") == 0) {
+                    // 这是主入口函数，放在开头
+                    compile_function(gen, decl);
+                    func_count++;
+                } else {
+                    // 其他函数
+                    compile_function(gen, decl);
+                    func_count++;
+                }
+            }
+        }
+
+        printf("  Compiled %d functions from translation unit\n", func_count);
+    } else {
+        printf("  Warning: Not a valid translation unit\n");
+    }
+}
+
 // 编译函数（借鉴TinyCC的函数编译）
 void compile_function(CodeGen* gen, struct ASTNode* node) {
     // 函数序言
@@ -147,18 +186,32 @@ uint8_t* generate_code(struct ASTNode* ast, size_t* code_size) {
     // 使用我们自己的编译器（借鉴TinyCC思路）将AST编译为x64机器码
     CodeGen* gen = codegen_init();
 
-    // 检查AST根节点是否是main函数
-    if (ast && ast->type == ASTC_FUNC_DECL &&
-        strcmp(ast->data.func_decl.name, "main") == 0) {
-        printf("Found main function, compiling...\n");
-        compile_function(gen, ast);
+    // 检查AST根节点 - Runtime应该包含多个函数，不只是main
+    printf("AST root type: %d (ASTC_TRANSLATION_UNIT=%d, ASTC_FUNC_DECL=%d)\n",
+           ast ? ast->type : -1, ASTC_TRANSLATION_UNIT, ASTC_FUNC_DECL);
+
+    if (ast && ast->type == ASTC_TRANSLATION_UNIT) {
+        printf("Found translation unit, compiling runtime functions...\n");
+        compile_runtime_from_translation_unit(gen, ast);
+    } else if (ast && ast->type == ASTC_FUNC_DECL) {
+        // 单个函数的情况
+        if (strcmp(ast->data.func_decl.name, "evolver0_runtime_main") == 0 ||
+            strcmp(ast->data.func_decl.name, "main") == 0) {
+            printf("Found runtime entry function: %s\n", ast->data.func_decl.name);
+            compile_function(gen, ast);
+        } else {
+            printf("Found function: %s, compiling...\n", ast->data.func_decl.name);
+            compile_function(gen, ast);
+        }
     } else {
-        printf("No main function found in AST root\n");
+        printf("Unexpected AST root type: %d\n", ast ? ast->type : -1);
+        printf("Expected ASTC_TRANSLATION_UNIT (%d) or ASTC_FUNC_DECL (%d)\n",
+               ASTC_TRANSLATION_UNIT, ASTC_FUNC_DECL);
     }
 
     if (gen->code_size == 0) {
-        printf("No main function found, generating default runtime...\n");
-        // 生成默认的runtime入口
+        printf("No functions compiled, generating minimal runtime stub...\n");
+        // 生成最小的runtime入口 - 接受两个参数(data, size)并返回42
         emit_byte(gen, 0x55);        // push rbp
         emit_byte(gen, 0x48);        // mov rbp, rsp
         emit_byte(gen, 0x89);
@@ -203,7 +256,7 @@ uint8_t* generate_code(struct ASTNode* ast, size_t* code_size) {
     memcpy(runtime_binary + header_size, runtime_machine_code, machine_code_size);
 
     // 清理CodeGen
-    free(gen->code);  // 注意：runtime_machine_code指向gen->code，所以先复制再释放
+    free(gen->code);
     free(gen);
 
     *code_size = total_size;
@@ -226,39 +279,121 @@ typedef struct {
     uint32_t entry_point;   // 入口点偏移
 } RuntimeHeader;
 
+// 编译C源码到Runtime.bin（使用TCC直接编译）
+int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
+    printf("Step 1: Compiling C source to object code using TCC...\n");
+
+    // 使用TCC编译C源码为独立可执行文件
+    char tcc_cmd[1024];
+    snprintf(tcc_cmd, sizeof(tcc_cmd),
+             ".\\tcc-win\\tcc\\tcc.exe -DEVOLVER0_RUNTIME_STANDALONE %s runtime.c c2astc.c -o temp_runtime.exe",
+             c_file);
+
+    printf("TCC command: %s\n", tcc_cmd);
+    int result = system(tcc_cmd);
+    if (result != 0) {
+        fprintf(stderr, "Error: TCC compilation failed\n");
+        return 1;
+    }
+
+    printf("Step 2: Reading compiled executable...\n");
+
+    // 读取编译后的可执行文件
+    FILE* exe_file = fopen("temp_runtime.exe", "rb");
+    if (!exe_file) {
+        fprintf(stderr, "Error: Cannot open compiled executable file\n");
+        return 1;
+    }
+
+    fseek(exe_file, 0, SEEK_END);
+    size_t exe_size = ftell(exe_file);
+    fseek(exe_file, 0, SEEK_SET);
+
+    uint8_t* exe_data = malloc(exe_size);
+    if (!exe_data) {
+        fprintf(stderr, "Error: Cannot allocate memory for executable data\n");
+        fclose(exe_file);
+        return 1;
+    }
+
+    fread(exe_data, 1, exe_size, exe_file);
+    fclose(exe_file);
+
+    printf("Step 3: Creating Runtime.bin with compiled code...\n");
+
+    // 创建Runtime.bin文件
+    FILE* file = fopen(output_file, "wb");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create output file: %s\n", output_file);
+        free(exe_data);
+        return 1;
+    }
+
+    // 简化方案：直接复制可执行文件作为Runtime.bin
+    // 这样Loader可以直接执行Runtime.bin作为独立进程
+    fwrite(exe_data, exe_size, 1, file);
+    fclose(file);
+
+    printf("✓ Runtime binary created: %s (%zu bytes)\n",
+           output_file, exe_size);
+    printf("  Standalone executable Runtime: %zu bytes\n", exe_size);
+    printf("  Runtime can be executed independently by Loader\n");
+
+    // 清理临时文件
+    remove("temp_runtime.exe");
+    free(exe_data);
+
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <runtime.astc> [output.bin]\n", argv[0]);
+        printf("Usage: %s <runtime.c|runtime.astc> [output.bin]\n", argv[0]);
+        printf("  If input is .c file: Compile C code directly to machine code\n");
+        printf("  If input is .astc file: Compile ASTC to machine code (experimental)\n");
         return 1;
     }
 
     const char* input_file = argv[1];
     const char* output_file = (argc > 2) ? argv[2] : "evolver0_runtime.bin";
 
-    printf("Building Runtime binary from ASTC...\n");
-    printf("Input: %s\n", input_file);
-    printf("Output: %s\n", output_file);
+    // Check if input is C file or ASTC file
+    const char* ext = strrchr(input_file, '.');
+    if (ext && strcmp(ext, ".c") == 0) {
+        printf("Building Runtime binary from C source...\n");
+        printf("Input: %s\n", input_file);
+        printf("Output: %s\n", output_file);
+        return compile_c_to_runtime_bin(input_file, output_file);
+    } else {
+        printf("Building Runtime binary from ASTC...\n");
+        printf("Input: %s\n", input_file);
+        printf("Output: %s\n", output_file);
+        return compile_astc_to_runtime_bin(input_file, output_file);
+    }
+}
 
+// 编译ASTC到Runtime.bin（原有的复杂方法）
+int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) {
     // 步骤1: 读取ASTC文件
-    FILE* astc_file = fopen(input_file, "rb");
-    if (!astc_file) {
-        fprintf(stderr, "Error: Cannot open ASTC file: %s\n", input_file);
+    FILE* astc_file_handle = fopen(astc_file, "rb");
+    if (!astc_file_handle) {
+        fprintf(stderr, "Error: Cannot open ASTC file: %s\n", astc_file);
         return 1;
     }
 
-    fseek(astc_file, 0, SEEK_END);
-    size_t astc_size = ftell(astc_file);
-    fseek(astc_file, 0, SEEK_SET);
+    fseek(astc_file_handle, 0, SEEK_END);
+    size_t astc_size = ftell(astc_file_handle);
+    fseek(astc_file_handle, 0, SEEK_SET);
 
     unsigned char* astc_data = malloc(astc_size);
     if (!astc_data) {
         fprintf(stderr, "Error: Cannot allocate memory for ASTC\n");
-        fclose(astc_file);
+        fclose(astc_file_handle);
         return 1;
     }
 
-    fread(astc_data, 1, astc_size, astc_file);
-    fclose(astc_file);
+    fread(astc_data, 1, astc_size, astc_file_handle);
+    fclose(astc_file_handle);
 
     printf("✓ ASTC file loaded: %zu bytes\n", astc_size);
 
@@ -271,8 +406,8 @@ int main(int argc, char* argv[]) {
     }
 
     free(astc_data);
-    
-    // 步骤2: 生成机器码
+
+    // 步骤3: 生成机器码
     size_t code_size;
     uint8_t* machine_code = generate_code(ast, &code_size);
     if (!machine_code) {
@@ -280,8 +415,8 @@ int main(int argc, char* argv[]) {
         ast_free(ast);
         return 1;
     }
-    
-    // 步骤3: 创建Runtime.bin文件
+
+    // 步骤4: 创建Runtime.bin文件
     FILE* file = fopen(output_file, "wb");
     if (!file) {
         fprintf(stderr, "Error: Cannot create output file: %s\n", output_file);
@@ -289,25 +424,25 @@ int main(int argc, char* argv[]) {
         ast_free(ast);
         return 1;
     }
-    
+
     // 创建Runtime头
     RuntimeHeader header;
     memcpy(header.magic, RUNTIME_MAGIC, 4);
     header.version = RUNTIME_VERSION;
     header.size = code_size;
     header.entry_point = 0; // 入口点在代码开始处
-    
+
     // 写入头部和机器码
     fwrite(&header, sizeof(RuntimeHeader), 1, file);
     fwrite(machine_code, code_size, 1, file);
     fclose(file);
-    
-    printf("✓ Runtime binary created: %s (%zu bytes)\n", 
+
+    printf("✓ Runtime binary created: %s (%zu bytes)\n",
            output_file, sizeof(RuntimeHeader) + code_size);
-    
+
     // 清理
     free(machine_code);
     ast_free(ast);
-    
+
     return 0;
 }

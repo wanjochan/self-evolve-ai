@@ -270,3 +270,44 @@ int main(int argc, char* argv[]) {
     return result;
 }
 #endif
+
+#ifdef EVOLVER0_RUNTIME_STANDALONE
+// 独立模式下的main函数 - 由Loader调用
+int main(int argc, char* argv[]) {
+    printf("=== Evolver0 Runtime Standalone Mode ===\n");
+
+    if (argc < 2) {
+        printf("Usage: %s <astc_file>\n", argv[0]);
+        printf("This Runtime binary should be called by evolver0_loader.exe\n");
+        return 1;
+    }
+
+    const char* astc_file = argv[1];
+    printf("Runtime executing ASTC file: %s\n", astc_file);
+
+    // 读取ASTC文件
+    FILE* file = fopen(astc_file, "rb");
+    if (!file) {
+        fprintf(stderr, "Runtime Error: Cannot open ASTC file: %s\n", astc_file);
+        return 1;
+    }
+
+    fseek(file, 0, SEEK_END);
+    size_t size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    unsigned char* data = malloc(size);
+    fread(data, 1, size, file);
+    fclose(file);
+
+    printf("Runtime: Loaded %zu bytes from %s\n", size, astc_file);
+
+    // 执行Runtime
+    int result = evolver0_runtime_main(data, size);
+
+    printf("Runtime: Execution completed with result: %d\n", result);
+
+    free(data);
+    return result;
+}
+#endif

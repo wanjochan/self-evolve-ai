@@ -108,15 +108,21 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
         return 1;
     }
     
-    // 验证Runtime格式 - 支持新的自包含格式
-    if (runtime_size < 64) {
-        fprintf(stderr, "Error: Invalid Runtime file format\n");
+    // 验证Runtime格式 - 支持多种格式
+    if (runtime_size < 16) {
+        fprintf(stderr, "Error: Runtime file too small\n");
         free(runtime_data);
         return 1;
     }
 
-    // 检查新的自包含runtime格式
-    if (memcmp(runtime_data, "EVOLVER0_RUNTIME", 16) == 0) {
+    // 检查PE可执行文件格式
+    if (memcmp(runtime_data, "MZ", 2) == 0) {
+        if (options->verbose) {
+            printf("✓ PE executable Runtime loaded: %zu bytes\n", runtime_size);
+        }
+    }
+    // 检查自包含runtime格式
+    else if (memcmp(runtime_data, "EVOLVER0_RUNTIME", 16) == 0) {
         // 新格式：自包含的ASTC虚拟机
         uint32_t astc_size = *((uint32_t*)((char*)runtime_data + 16));
         uint32_t astc_offset = *((uint32_t*)((char*)runtime_data + 20));
@@ -125,25 +131,19 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
             printf("✓ Self-contained Runtime loaded: %zu bytes\n", runtime_size);
             printf("  ASTC VM size: %u bytes at offset %u\n", astc_size, astc_offset);
         }
-    } else {
-        // 旧格式：检查RuntimeHeader
-        if (runtime_size < sizeof(RuntimeHeader)) {
-            fprintf(stderr, "Error: Invalid Runtime file format\n");
-            free(runtime_data);
-            return 1;
-        }
-
+    }
+    // 检查RTME格式
+    else if (runtime_size >= sizeof(RuntimeHeader) && memcmp(runtime_data, RUNTIME_MAGIC, 4) == 0) {
         RuntimeHeader* runtime_header = (RuntimeHeader*)runtime_data;
-        if (memcmp(runtime_header->magic, RUNTIME_MAGIC, 4) != 0) {
-            fprintf(stderr, "Error: Invalid Runtime magic number\n");
-            free(runtime_data);
-            return 1;
-        }
-
         if (options->verbose) {
-            printf("✓ Legacy Runtime loaded: %zu bytes, version %u\n",
+            printf("✓ RTME Runtime loaded: %zu bytes, version %u\n",
                    runtime_size, runtime_header->version);
         }
+    }
+    else {
+        fprintf(stderr, "Error: Unknown Runtime file format\n");
+        free(runtime_data);
+        return 1;
     }
     
     // 步骤2: 加载Program ASTC
@@ -197,14 +197,57 @@ static int load_and_execute_runtime(const LoaderOptions* options) {
     // 注意：这里不再直接包含runtime.h，而是加载独立的Runtime.bin
 
     // 检查Runtime.bin格式
-    if (memcmp(runtime_data, "RTME", 4) == 0) {
-        // 新的可执行Runtime格式
+    if (memcmp(runtime_data, "MZ", 2) == 0) {
+        // 新格式：完整的PE可执行文件
+        if (options->verbose) {
+            printf("✓ Standalone PE executable Runtime detected\n");
+            printf("  Runtime size: %zu bytes\n", runtime_size);
+            printf("Launching Runtime as independent process...\n");
+        }
+
+        // 将Runtime.bin写入临时文件并执行
+        const char* temp_runtime = "temp_evolver0_runtime.exe";
+        FILE* temp_file = fopen(temp_runtime, "wb");
+        if (!temp_file) {
+            fprintf(stderr, "Error: Cannot create temporary runtime file\n");
+            free(runtime_data);
+            free(program_data);
+            return 1;
+        }
+
+        fwrite(runtime_data, runtime_size, 1, temp_file);
+        fclose(temp_file);
+
+        // 构建命令行来执行Runtime
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "%s %s", temp_runtime, options->program_file);
+
+        if (options->verbose) {
+            printf("Executing: %s\n", cmd);
+        }
+
+        // 执行Runtime进程
+        int result = system(cmd);
+
+        // 清理临时文件
+        remove(temp_runtime);
+
+        if (options->verbose) {
+            printf("Runtime process completed with result: %d\n", result);
+        }
+
+        free(runtime_data);
+        free(program_data);
+        return result;
+
+    } else if (memcmp(runtime_data, "RTME", 4) == 0) {
+        // 旧的可执行Runtime格式
         uint32_t version = *((uint32_t*)((char*)runtime_data + 4));
         uint32_t code_size = *((uint32_t*)((char*)runtime_data + 8));
         uint32_t entry_offset = *((uint32_t*)((char*)runtime_data + 12));
 
         if (options->verbose) {
-            printf("✓ Executable Runtime detected\n");
+            printf("✓ Legacy RTME Runtime detected\n");
             printf("  Version: %u\n", version);
             printf("  Code size: %u bytes\n", code_size);
             printf("  Entry point offset: %u\n", entry_offset);
