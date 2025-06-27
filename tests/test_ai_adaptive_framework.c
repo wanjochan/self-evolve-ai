@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../ai_adaptive_framework.h"
+#include "ai_adaptive_framework.h"
 
 // 测试代码样本
 const char* test_scenarios[] = {
