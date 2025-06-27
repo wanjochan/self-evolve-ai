@@ -1,50 +1,82 @@
 # 自进化AI系统任务追踪
 
 ## 任务描述
-开发Self-Evolve AI系统，该系统基于三层架构（Loader、Runtime和Program），其核心是ASTC数据结构。当前已完成evolver0基础架构，正在评估完成度并规划后续发展。
+开发Self-Evolve AI系统，该系统基于三层架构（Loader、Runtime和Program），其核心是ASTC数据结构。
+
+**当前状态**: evolver0已重新整理完成，具有清晰的架构和完整的ASTC指令集。现在从evolver0重新出发，规划evolver1和evolver2的发展路径。
+
+**重要里程碑**:
+- ✅ evolver0基础架构完成 (规范的目录结构、完整ASTC指令集)
+- 🎯 下一步: 基于evolver0构建evolver1，实现功能增强
+- 🎯 最终目标: evolver2实现100%TinyCC独立
 
 ## 动态规划的任务分解图（辅助非线性规划）
 
 ```mermaid
 graph TD
-    A[A01-系统设计 95%] --> B[B01-核心架构 90%]
-    A --> C[C01-ASTC设计 85%]
+    A[A01-系统设计 100%] --> B[B01-evolver0基础架构 100%]
+    A --> C[C01-ASTC设计 100%]
 
-    B --> D[D01-Loader模块 95%]
-    B --> E[E01-Runtime模块 90%]
-    B --> F[F01-Program模块 85%]
-    B --> G[G01-Evolver0自举编译器 85%]
+    B --> D[D01-evolver0三层架构 100%]
+    B --> E[E01-目录结构规范 100%]
+    B --> F[F01-公共组件抽象 100%]
 
-    C --> G[G01-C2ASTC库 85%]
-    C --> H[H01-ASTC格式定义 85%]
+    C --> G[G01-完整ASTC指令集 100%]
+    C --> H[H01-词法语义分离 100%]
+    C --> I[I01-token-ASTC映射 100%]
 
-    G --> I[I01-词法分析器 100%]
-    G --> J[J01-语法分析器 100%]
-    G --> K[K01-ASTC生成 85%]
+    D --> J[J01-evolver0_loader 100%]
+    D --> K[K01-evolver0_runtime 100%]
+    D --> L[L01-evolver0_program 100%]
 
-    D --> M[M01-加载器功能 95%]
-    E --> N[N01-虚拟机实现 90%]
-    F --> O[O01-示例程序 85%]
+    E --> M[M01-src/tools/公共工具 100%]
+    E --> N[N01-src/runtime/公共运行时 100%]
 
-    G --> P[P01-测试框架 90%]
+    B --> O[O01-evolver1规划 0%]
+    O --> P[P01-evolver1三层架构 0%]
+    O --> Q[Q01-evolver1功能增强 0%]
+    O --> R[R01-evolver0→evolver1自举 0%]
 
-    G --> Q[Q01-真正自举编译 80%]
-    G --> R[R01-完整C语言支持 75%]
-    G --> S[S01-AI驱动进化 30%]
-    G --> T[T01-TinyCC独立性 60%]
-
-    T --> U[U01-program_c99真实编译 100%]
-    T --> V[V01-独立工具链 95%]
-    T --> W[W01-完全自举验证 50%]
+    O --> S[S01-evolver2规划 0%]
+    S --> T[T01-100%TinyCC独立 0%]
+    S --> U[U01-完整C99支持 0%]
+    S --> V[V01-真实代码生成 0%]
+    S --> W[W01-标准库支持 0%]
 ```
 
 ## 每个节点的具体任务描述
 
-### A01-系统设计 (85%)
-- 完成Self-Evolve AI系统的整体设计
-- 确定系统的三层架构：Loader、Runtime和Program
-- 定义各模块之间的交互接口
-- 建立系统演进路径
+### A01-系统设计 (100%) ✅
+- ✅ 完成Self-Evolve AI系统的整体设计
+- ✅ 确定系统的三层架构：Loader、Runtime和Program
+- ✅ 定义各模块之间的交互接口
+- ✅ 建立系统演进路径
+
+### B01-evolver0基础架构 (100%) ✅
+- ✅ 清晰的三层架构实现
+- ✅ 规范的目录结构 (src/evolver0/, src/tools/, src/runtime/)
+- ✅ 公共组件抽象和复用
+- ✅ 所有组件编译成功
+
+### C01-ASTC设计 (100%) ✅
+- ✅ 完整的ASTC指令集 (WebAssembly + C99扩展)
+- ✅ 词法层和语义层分离
+- ✅ token到ASTC的映射机制
+- ✅ 消除重复定义问题
+
+### O01-evolver1规划 (0%) 🎯
+- 🔄 基于evolver0创建src/evolver1/目录结构
+- 🔄 实现evolver1的三层架构组件
+- 🔄 增强ASTC虚拟机性能
+- 🔄 验证evolver0→evolver1自举编译
+
+### S01-evolver2规划 (0%) 🎯
+- 🔄 实现100%TinyCC独立编译
+- 🔄 支持完整的C99语言特性
+- 🔄 实现真实的代码生成（不再硬编码）
+- 🔄 建立完整的C标准库支持
+
+## 已完成的历史任务
 
 ### B01-核心架构 (85%)
 - 定义Loader、Runtime和Program三层架构的具体实现方式

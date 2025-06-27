@@ -37,7 +37,7 @@
 // 包含AST定义
 #include "astc.h"
 #include "c2astc.h"
-#include "evolver0_token.h"
+#include "token.h"
 
 // ===============================================
 // 错误处理

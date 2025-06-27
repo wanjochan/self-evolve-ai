@@ -1,9 +1,14 @@
 /**
- * evolver0_token.h - 词法标记定义
+ * token.h - 词法标记定义
+ *
+ * 这个文件只定义词法分析阶段的token类型
+ * 语义分析阶段的操作符定义在astc.h中
  */
 
-#ifndef EVOLVER0_TOKEN_H
-#define EVOLVER0_TOKEN_H
+#ifndef TOKEN_H
+#define TOKEN_H
+
+#include "astc.h"  // 引入ASTC定义，避免重复
 
 // 标记类型
 typedef enum {
@@ -133,4 +138,13 @@ typedef struct {
     const char *filename; // 源文件名
 } Token;
 
-#endif // EVOLVER0_TOKEN_H 
+// Token到ASTC操作符的映射函数
+ASTNodeType token_to_astc_op(TokenType token);
+
+// 检查token是否为操作符
+bool is_operator_token(TokenType token);
+
+// 获取操作符优先级
+int get_operator_precedence(TokenType token);
+
+#endif // TOKEN_H
