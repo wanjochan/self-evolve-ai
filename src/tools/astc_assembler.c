@@ -37,6 +37,133 @@ typedef struct {
 } ASTCAssembler;
 
 // ===============================================
+// 前向声明
+// ===============================================
+void emit_byte(ASTCAssembler* assembler, unsigned char byte);
+void emit_int32(ASTCAssembler* assembler, int32_t value);
+
+// ===============================================
+// PE文件格式生成
+// ===============================================
+
+// 生成正确的PE文件头
+void generate_pe_header(ASTCAssembler* assembler, size_t code_size) {
+    // 重新组织缓冲区，在开头插入PE头
+    unsigned char* old_code = assembler->code_buffer;
+    size_t old_size = assembler->code_size;
+
+    // 重新分配缓冲区
+    assembler->code_capacity = 4096 + old_size;
+    assembler->code_buffer = malloc(assembler->code_capacity);
+    assembler->code_size = 0;
+
+    // DOS头 (64字节)
+    emit_byte(assembler, 'M'); emit_byte(assembler, 'Z');  // DOS签名
+    emit_byte(assembler, 0x90); emit_byte(assembler, 0x00); // 最后页字节数
+    emit_byte(assembler, 0x03); emit_byte(assembler, 0x00); // 页数
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 重定位项
+    emit_byte(assembler, 0x04); emit_byte(assembler, 0x00); // 头部段数
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 最小额外段
+    emit_byte(assembler, 0xFF); emit_byte(assembler, 0xFF); // 最大额外段
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 初始SS
+    emit_byte(assembler, 0xB8); emit_byte(assembler, 0x00); // 初始SP
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 校验和
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 初始IP
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 初始CS
+    emit_byte(assembler, 0x40); emit_byte(assembler, 0x00); // 重定位表偏移
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 覆盖号
+    for (int i = 0; i < 8; i++) emit_byte(assembler, 0x00); // 保留字段
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // OEM标识
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // OEM信息
+    for (int i = 0; i < 20; i++) emit_byte(assembler, 0x00); // 保留字段2
+    emit_int32(assembler, 0x80); // PE头偏移
+
+    // DOS存根 (填充到0x80)
+    while (assembler->code_size < 0x80) {
+        emit_byte(assembler, 0x00);
+    }
+
+    // PE签名
+    emit_byte(assembler, 'P'); emit_byte(assembler, 'E');
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00);
+
+    // COFF文件头
+    emit_byte(assembler, 0x64); emit_byte(assembler, 0x86); // 机器类型 (AMD64)
+    emit_byte(assembler, 0x01); emit_byte(assembler, 0x00); // 节数量
+    emit_int32(assembler, 0); // 时间戳
+    emit_int32(assembler, 0); // 符号表偏移
+    emit_int32(assembler, 0); // 符号数量
+    emit_byte(assembler, 0xF0); emit_byte(assembler, 0x00); // 可选头大小
+    emit_byte(assembler, 0x02); emit_byte(assembler, 0x01); // 特征 (EXECUTABLE_IMAGE | 32BIT_MACHINE)
+
+    // 可选头 (PE32+)
+    emit_byte(assembler, 0x0B); emit_byte(assembler, 0x02); // 魔数 (PE32+)
+    emit_byte(assembler, 0x0E); emit_byte(assembler, 0x00); // 链接器版本
+    emit_int32(assembler, code_size); // 代码大小
+    emit_int32(assembler, 0); // 初始化数据大小
+    emit_int32(assembler, 0); // 未初始化数据大小
+    emit_int32(assembler, 0x1000); // 入口点地址
+    emit_int32(assembler, 0x1000); // 代码基址
+
+    // PE32+特有字段
+    emit_int32(assembler, 0x00400000); emit_int32(assembler, 0x00000000); // 镜像基址 (64位)
+    emit_int32(assembler, 0x1000); // 节对齐
+    emit_int32(assembler, 0x200); // 文件对齐
+    emit_byte(assembler, 0x06); emit_byte(assembler, 0x00); // 操作系统版本
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00);
+    emit_byte(assembler, 0x06); emit_byte(assembler, 0x00); // 镜像版本
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00);
+    emit_byte(assembler, 0x06); emit_byte(assembler, 0x00); // 子系统版本
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00);
+    emit_int32(assembler, 0); // Win32版本
+    emit_int32(assembler, 0x2000); // 镜像大小
+    emit_int32(assembler, 0x200); // 头部大小
+    emit_int32(assembler, 0); // 校验和
+    emit_byte(assembler, 0x03); emit_byte(assembler, 0x00); // 子系统 (CONSOLE)
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // DLL特征
+
+    // 栈和堆大小 (64位)
+    emit_int32(assembler, 0x100000); emit_int32(assembler, 0x00000000); // 栈保留大小
+    emit_int32(assembler, 0x1000); emit_int32(assembler, 0x00000000); // 栈提交大小
+    emit_int32(assembler, 0x100000); emit_int32(assembler, 0x00000000); // 堆保留大小
+    emit_int32(assembler, 0x1000); emit_int32(assembler, 0x00000000); // 堆提交大小
+    emit_int32(assembler, 0); // 加载器标志
+    emit_int32(assembler, 16); // 数据目录数量
+
+    // 数据目录 (16个条目，每个8字节)
+    for (int i = 0; i < 16; i++) {
+        emit_int32(assembler, 0); // RVA
+        emit_int32(assembler, 0); // 大小
+    }
+
+    // 节表 (.text节)
+    // 节名 (8字节)
+    emit_byte(assembler, '.'); emit_byte(assembler, 't'); emit_byte(assembler, 'e'); emit_byte(assembler, 'x');
+    emit_byte(assembler, 't'); emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); emit_byte(assembler, 0x00);
+    emit_int32(assembler, code_size); // 虚拟大小
+    emit_int32(assembler, 0x1000); // 虚拟地址
+    emit_int32(assembler, code_size); // 原始数据大小
+    emit_int32(assembler, 0x200); // 原始数据偏移
+    emit_int32(assembler, 0); // 重定位偏移
+    emit_int32(assembler, 0); // 行号偏移
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 重定位数量
+    emit_byte(assembler, 0x00); emit_byte(assembler, 0x00); // 行号数量
+    emit_int32(assembler, 0x60000020); // 特征 (CODE | EXECUTE | READ)
+
+    // 填充到文件对齐边界 (0x200)
+    while (assembler->code_size < 0x200) {
+        emit_byte(assembler, 0x00);
+    }
+
+    // 复制原始代码
+    for (size_t i = 0; i < old_size; i++) {
+        emit_byte(assembler, old_code[i]);
+    }
+
+    free(old_code);
+}
+
+// ===============================================
 // 机器码生成
 // ===============================================
 
@@ -200,37 +327,21 @@ int assemble_astc_file(const char* input_file, const char* output_file, TargetPl
     // 4. 生成机器码
     printf("开始生成机器码...\n");
     
-    // 生成简单的可执行文件头（PE格式简化版）
-    if (platform == TARGET_WINDOWS_X64) {
-        // DOS头
-        emit_byte(assembler, 'M'); emit_byte(assembler, 'Z');  // DOS签名
-        for (int i = 0; i < 58; i++) emit_byte(assembler, 0);  // DOS头填充
-        emit_int32(assembler, 0x80);  // PE头偏移
-        
-        // DOS存根
-        for (int i = 0; i < 64; i++) emit_byte(assembler, 0);
-        
-        // PE头
-        emit_byte(assembler, 'P'); emit_byte(assembler, 'E');
-        emit_byte(assembler, 0); emit_byte(assembler, 0);  // PE签名
-        
-        // 文件头
-        emit_byte(assembler, 0x64); emit_byte(assembler, 0x86);  // 机器类型 (x64)
-        emit_byte(assembler, 1); emit_byte(assembler, 0);        // 节数量
-        emit_int32(assembler, 0);  // 时间戳
-        emit_int32(assembler, 0);  // 符号表偏移
-        emit_int32(assembler, 0);  // 符号数量
-        emit_byte(assembler, 0xF0); emit_byte(assembler, 0);     // 可选头大小
-        emit_byte(assembler, 0x02); emit_byte(assembler, 0);     // 特征
-    }
-    
     // 处理AST生成代码
     if (!process_astc_node(assembler, ast)) {
         printf("错误: 机器码生成失败\n");
         free_assembler(assembler);
         return 1;
     }
-    
+
+    // 保存代码大小
+    size_t raw_code_size = assembler->code_size;
+
+    // 生成正确的PE格式
+    if (platform == TARGET_WINDOWS_X64) {
+        generate_pe_header(assembler, raw_code_size);
+    }
+
     // 5. 写入输出文件
     fwrite(assembler->code_buffer, 1, assembler->code_size, assembler->output);
     

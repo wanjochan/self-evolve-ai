@@ -1,8 +1,8 @@
-# evolver0 - Self-Evolving AI Compiler System
+# Self-Evolving AI Compiler System
 
-## 项目概述
+## 项目愿景
 
-evolver0是世界上第一个完全自举的AI编译器系统，具备真正的自我进化能力。该系统实现了完整的三层架构（Loader + Runtime + Program），脱离了对外部编译器（如TCC）的依赖，并集成了先进的AI驱动代码进化功能。
+完全自举的AI编译器系统，具备真正的自我进化能力。该系统实现了完整的三层架构（Loader + Runtime + Program），脱离对外部编译器的依赖，集成了先进的AI驱动代码进化功能。
 
 ## 重要文档
 
@@ -16,6 +16,8 @@ evolver0是世界上第一个完全自举的AI编译器系统，具备真正的�
 - rovodev-atlassian：不断审阅和评估更新 docs/revodev.md
 - gemini-cli-google：不断审阅和评估更新 docs/gemini.md
 - claude-code：不断审阅和评估更新 docs/claude.md
-- 类似地，cursor等也持续的评估更新 docs/{agentNae}.md
+- 类似地，cursor等也持续的评估更新 docs/{agentName}.md
 
 ![workmode](README.jpg)
+
+# JUST FOR FUN
