@@ -197,12 +197,17 @@ graph TD
 
 ## 当前工作重点
 
+### 🚨 紧急优先：TinyCC独立化 (0%完成)
+1. 🎯 **Runtime libc转发系统** - 在.rt中实现完整的libc转发
+2. 🎯 **增强ASTC虚拟机** - 支持完整的C语言执行
+3. 🎯 **c99编译器实现** - 生成c99.astc，完全替代TinyCC
+4. 🎯 **自举验证** - 使用自己的编译器重新编译evolver0
+
 ### 第一阶段：基础架构转换 (85%完成)
 1. ✅ **evolver0三层架构完成** - Loader、Runtime和Program正确协同工作
 2. ✅ **ASTC虚拟机完善** - 指令集执行效率优化，指令实现完整
 3. ✅ **自举编译验证** - evolver0成功编译生成evolver1
 4. 🔄 **Runtime命名规范化** - 从.bin转换为.rt格式
-5. 🎯 **Cosmopolitan Loader开发** - 实现跨架构单一加载器
 
 ## 目标成果
 
