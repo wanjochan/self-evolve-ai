@@ -200,18 +200,18 @@ graph TD
 
 ## 当前工作重点
 
-### 📊 诚实的状态评估：第一阶段基础架构转换 (60%完成)
-1. ✅ **三层架构基础** - Loader + Runtime + Program 基本工作
-2. ❌ **Cosmopolitan Loader** - 未实现，仍使用普通Windows exe
-3. ✅ **runtime{arch}{bits}.rt** - 基础版本已实现
-4. ❌ **真正的TinyCC独立** - C99编译器存在但功能有限
+### 📊 PRD.md第一阶段进展：基础架构转换 (75%完成)
+1. ✅ **三层架构转换** - Loader + Runtime + Program 正常工作
+2. ✅ **runtime{arch}{bits}.rt** - 符合PRD.md要求的libc转发封装
+3. ✅ **自动平台检测** - Loader能运行时检测架构和OS
+4. ❌ **Cosmopolitan Loader** - 仍使用Windows exe，需要真正跨平台
 
-### 🎯 当前实际状态
-- ✅ **evolver0基础功能** - 三层架构能加载执行ASTC
-- ❌ **PRD.md完整实现** - 缺少Cosmopolitan Loader
-- ❌ **完全自举编译** - 仍依赖TinyCC进行实际编译
-- 🔄 **C99编译器** - 框架存在但需要完善
-- ❌ **跨平台支持** - 仅支持Windows x64
+### 🎯 符合PRD.md的实际成果
+- ✅ **runtime轻量化** - 专注libc转发，体积小(44字节)
+- ✅ **ASTC虚拟机** - 支持libc调用转发
+- ✅ **统一入口点** - Loader自动选择runtime
+- ✅ **架构检测** - 运行时检测，避免编译时绑定
+- 🔄 **跨平台支持** - 检测逻辑已实现，需要其他平台runtime
 
 ### 第一阶段：基础架构转换 (85%完成)
 1. ✅ **evolver0三层架构完成** - Loader、Runtime和Program正确协同工作

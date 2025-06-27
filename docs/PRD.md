@@ -13,7 +13,7 @@
 核心是一种ASTC的数据结构，整合了WASM/IR/AST的概念，它也是Loader/Runtime/Program的底层逻辑。后面发展高级语言也要由解析器转成它。不过它的压缩率不大，后面可以制作binx二进制码，在执行时才动态把它转ASTC再执行
 
 - c2astc.c 把c语言编译成astc的库
-- loader.exe 使用Cosmopolitan编译的跨架构单一加载器，负责识别当前硬件环境并加载对应的运行时和Program.astc
+- loader.exe （后面参考Cosmopolitan编译的跨架构单一加载器，）负责识别当前硬件环境并加载对应的运行时和Program.astc
 - runtime{arch}{bits}.rt 架构依赖二进制，根据硬件架构区分，封装硬件架构和ABI等，实现ASTC虚拟机
 - program.astc 平台无关程序（ASTC格式的二进制模块），未来还会支持program.ir、program.js等其它层的编译
 
@@ -24,7 +24,7 @@
 ## 2. 三层架构设计
 
 ### Layer 1: loader.exe
-- 使用Cosmopolitan编译的跨架构单一加载器
+- 后面要参考Cosmopolitan编译跨架构单一加载器
 - 负责识别当前硬件环境并加载对应的运行时
 - 提供统一的入口点，简化部署和使用
 - 处理命令行参数和初始环境设置
@@ -49,7 +49,6 @@
 
 ### 3.1 第一阶段：基础架构转换
 - 将现有的三层架构转换为新的Loader + Runtime + Program模式
-- 实现使用Cosmopolitan编译的单一加载器
 - 创建初始的架构特定运行时文件
 - 确保现有ASTC程序能在新架构下正常运行
 

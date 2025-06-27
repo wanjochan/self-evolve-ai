@@ -131,7 +131,7 @@ PlatformInfo detect_platform(void) {
 
 // 构建runtime文件名
 void build_runtime_filename(PlatformInfo* info, char* filename, size_t size) {
-    snprintf(filename, size, "runtime%s_%d.rt", info->arch, info->bits);
+    snprintf(filename, size, "bin/runtime%s_%d.rt", info->arch, info->bits);
     info->runtime_file = filename;
 }
 
