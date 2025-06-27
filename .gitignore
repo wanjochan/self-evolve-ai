@@ -3,3 +3,4 @@ tcc/build/
 tcc/cross/temp/
 *.swp
 *.o
+nul
