@@ -5,12 +5,10 @@
  */
 
 #include "loader.h"
+#include "platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 // ===============================================
 // 文件加载函数 (从evolver0抽象)
@@ -78,11 +76,8 @@ int execute_runtime_with_program(void* runtime_data, size_t runtime_size,
             printf("Attempting to execute Runtime machine code...\n");
         }
         
-        int result;
-        
-        #ifdef _WIN32
-        // 在Windows上使用VirtualAlloc分配可执行内存
-        void* exec_mem = VirtualAlloc(NULL, code_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        // 使用平台抽象层分配可执行内存
+        void* exec_mem = platform_alloc_executable(code_size);
         if (!exec_mem) {
             fprintf(stderr, "Error: Failed to allocate executable memory\n");
             return 1;
@@ -100,22 +95,14 @@ int execute_runtime_with_program(void* runtime_data, size_t runtime_size,
         }
         
         // 调用Runtime执行Program
-        result = runtime_func(program_data, program_size);
+        int result = runtime_func(program_data, program_size);
         
         if (options->verbose) {
             printf("Runtime returned: %d\n", result);
         }
         
         // 清理可执行内存
-        VirtualFree(exec_mem, 0, MEM_RELEASE);
-        
-        #else
-        // 非Windows平台的简化实现
-        if (options->verbose) {
-            printf("Non-Windows platform: simulating execution\n");
-        }
-        result = 42;
-        #endif
+        platform_free_executable(exec_mem, code_size);
         
         if (options->verbose) {
             printf("✓ Pure Three-layer architecture executed successfully!\n");
