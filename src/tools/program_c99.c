@@ -329,10 +329,6 @@ int code_generation(CompilationUnit* unit, const char* output_file, const char* 
         printf("  main:\n");
         printf("    mov eax, 42\n");
         printf("    ret\n");
-            free(asm_code);
-        } else {
-            printf("  错误: 生成汇编代码失败\n");
-        }
 
         // 释放临时AST节点
         free(func_decl->data.func_decl.body->data.compound_stmt.statements);
