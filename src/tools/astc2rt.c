@@ -18,6 +18,8 @@
 #include <stdbool.h>
 #include "astc2rt.h"
 #include "c2astc.h"
+#include "codegen.h"
+#include "codegenx64_64.h"
 
 // ===============================================
 // 代码生成器实现
@@ -192,28 +194,28 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 // 公开API实现
 // ===============================================
 
-// ASTC JIT编译器 - 参考TinyCC的JIT设计
-// 将ASTC字节码指令翻译成对应的x64机器码
-void compile_astc_instruction(CodeGen* gen, uint8_t opcode, uint8_t* operands, size_t operand_count) {
+// ASTC JIT编译器 - 使用proper codegen架构
+// 将ASTC字节码指令翻译成汇编代码，然后编译成机器码
+void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t* operands, size_t operand_count) {
+    char temp_buffer[256];
+
     switch (opcode) {
         case 0x00: // NOP
-            emit_byte(gen, 0x90); // x64 NOP
+            codegen_append(cg, "    nop\n");
             break;
 
         case 0x01: // HALT
-            // 生成函数返回序列
-            emit_byte(gen, 0x5d); // pop rbp
-            emit_byte(gen, 0xc3); // ret
+            codegen_append(cg, "    mov rsp, rbp\n");
+            codegen_append(cg, "    pop rbp\n");
+            codegen_append(cg, "    ret\n");
             break;
 
         case 0x10: // CONST_I32
             if (operand_count >= 4) {
                 uint32_t value = *(uint32_t*)operands;
-                // mov eax, immediate32
-                emit_byte(gen, 0xb8);
-                emit_int32(gen, value);
-                // push rax (模拟栈操作)
-                emit_byte(gen, 0x50);
+                sprintf(temp_buffer, "    mov eax, %u\n", value);
+                codegen_append(cg, temp_buffer);
+                codegen_append(cg, "    push rax\n");
             }
             break;
 
