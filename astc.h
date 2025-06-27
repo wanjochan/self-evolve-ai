@@ -1,6 +1,9 @@
 #ifndef ASTC_H
 #define ASTC_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 /**
 以 WASM为蓝图，加入c99元素，设计ASTC数据结构
 以后考虑加入更多，比如兼容LLVM IR

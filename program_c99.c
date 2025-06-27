@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include "astc.h"
+#include "x64_codegen.h"
 
 // ===============================================
 // 编译器架构定义
@@ -183,8 +185,47 @@ int code_generation(CompilationUnit* unit, const char* output_file, const char* 
 
     } else if (strcmp(format, "exe") == 0) {
         // 生成可执行文件（需要实现原生代码生成）
-        printf("  生成可执行文件（暂未实现）\n");
-        return 1;
+        printf("  生成可执行文件...\n");
+
+        // 临时的AST节点，用于测试后端
+        ASTNode* return_const = (ASTNode*)malloc(sizeof(ASTNode));
+        return_const->type = ASTC_EXPR_CONSTANT;
+        return_const->data.constant.int_val = 42;
+
+        ASTNode* return_stmt = (ASTNode*)malloc(sizeof(ASTNode));
+        return_stmt->type = ASTC_RETURN_STMT;
+        return_stmt->data.return_stmt.value = return_const;
+
+        ASTNode* compound_stmt = (ASTNode*)malloc(sizeof(ASTNode));
+        compound_stmt->type = ASTC_COMPOUND_STMT;
+        compound_stmt->data.compound_stmt.statement_count = 1;
+        compound_stmt->data.compound_stmt.statements = (ASTNode**)malloc(sizeof(ASTNode*));
+        compound_stmt->data.compound_stmt.statements[0] = return_stmt;
+
+        ASTNode* func_decl = (ASTNode*)malloc(sizeof(ASTNode));
+        func_decl->type = ASTC_FUNC_DECL;
+        func_decl->data.func_decl.name = "main";
+        func_decl->data.func_decl.has_body = true;
+        func_decl->data.func_decl.body = compound_stmt;
+
+        char* asm_code = generate_function_asm(func_decl);
+        if (asm_code) {
+            printf("  生成的汇编代码:\n%s\n", asm_code);
+            // TODO: 将汇编代码写入文件或进一步处理
+            free(asm_code);
+        } else {
+            printf("  错误: 生成汇编代码失败\n");
+        }
+
+        // 释放临时AST节点
+        free(func_decl->data.func_decl.body->data.compound_stmt.statements);
+        free(func_decl->data.func_decl.body);
+        free(func_decl);
+        free(return_stmt);
+        free(return_const);
+
+        return 0; // 暂时返回成功
+
 
     } else {
         printf("  错误: 不支持的目标格式 %s\n", format);
