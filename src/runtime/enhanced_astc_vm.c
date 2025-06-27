@@ -212,11 +212,83 @@ int enhanced_astc_vm_step(EnhancedASTCVM* vm) {
             if (vm->pc + 4 > vm->code_size) return -1;
             uint32_t target = *(uint32_t*)(vm->code + vm->pc);
             vm->pc += 4;
-            
+
             ASTCValue condition = astc_vm_pop(vm);
             if (condition.value != 0) {
                 vm->pc = target;
             }
+            break;
+        }
+
+        case ASTC_JUMP_IF_NOT: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t target = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            ASTCValue condition = astc_vm_pop(vm);
+            if (condition.value == 0) {
+                vm->pc = target;
+            }
+            break;
+        }
+
+        case ASTC_CALL: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t target = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            // 保存当前状态到调用栈
+            if (vm->call_stack_top >= ASTC_VM_CALL_STACK_SIZE - 1) {
+                return -1; // 调用栈溢出
+            }
+
+            CallFrame frame;
+            frame.pc = vm->pc;
+            frame.sp = vm->stack_top;
+            frame.fp = vm->stack_top; // 简化的帧指针
+
+            vm->call_stack[++vm->call_stack_top] = frame;
+            vm->pc = target;
+            break;
+        }
+
+        case ASTC_LOAD_LOCAL: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            if (index >= ASTC_VM_LOCALS_SIZE) return -1;
+            astc_vm_push(vm, vm->locals[index]);
+            break;
+        }
+
+        case ASTC_STORE_LOCAL: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            if (index >= ASTC_VM_LOCALS_SIZE) return -1;
+            vm->locals[index] = astc_vm_pop(vm);
+            break;
+        }
+
+        case ASTC_LOAD_GLOBAL: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            if (index >= ASTC_VM_GLOBALS_SIZE) return -1;
+            astc_vm_push(vm, vm->globals[index]);
+            break;
+        }
+
+        case ASTC_STORE_GLOBAL: {
+            if (vm->pc + 4 > vm->code_size) return -1;
+            uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+            vm->pc += 4;
+
+            if (index >= ASTC_VM_GLOBALS_SIZE) return -1;
+            vm->globals[index] = astc_vm_pop(vm);
             break;
         }
         
