@@ -1976,17 +1976,29 @@ static struct ASTNode* parse_declaration(Parser *parser) {
             int capacity = 0;
             
             do {
-                // 解析参数声明 - 简化版本，只处理 "type name" 格式
+                // 解析参数声明 - 改进版本，处理复杂类型
                 Token *type_token = peek(parser);
                 if (!type_token) break;
 
-                // 跳过类型token
-                advance(parser);
+                // 跳过类型相关的tokens (可能有多个，如 void*, size_t等)
+                while (type_token && (
+                    type_token->type == TOKEN_VOID ||
+                    type_token->type == TOKEN_INT ||
+                    type_token->type == TOKEN_CHAR ||
+                    type_token->type == TOKEN_FLOAT ||
+                    type_token->type == TOKEN_DOUBLE ||
+                    type_token->type == TOKEN_SIGNED ||
+                    type_token->type == TOKEN_UNSIGNED ||
+                    type_token->type == TOKEN_IDENTIFIER ||  // 处理 size_t 等类型
+                    type_token->type == TOKEN_STAR)) {      // 处理指针 *
+                    advance(parser);
+                    type_token = peek(parser);
+                }
 
                 // 获取参数名
                 Token *name_token = peek(parser);
                 if (!name_token || name_token->type != TOKEN_IDENTIFIER) {
-                    printf("Expected parameter name\n");
+                    // 如果没有参数名，可能是 void 参数或其他情况，跳过
                     break;
                 }
                 advance(parser);

@@ -181,15 +181,15 @@ int generate_evolver1_loader() {
 // 生成evolver1_loader.c源码
 int generate_evolver1_loader_source() {
     // 读取evolver0_loader.c并生成增强版的evolver1_loader.c
-    FILE* input = fopen("evolver0_loader.c", "r");
+    FILE* input = fopen("src/evolver0/evolver0_loader.c", "r");
     if (!input) {
-        printf("无法读取evolver0_loader.c\n");
+        printf("无法读取src/evolver0/evolver0_loader.c\n");
         return 1;
     }
 
-    FILE* output = fopen("evolver1_loader.c", "w");
+    FILE* output = fopen("src/evolver1/evolver1_loader.c", "w");
     if (!output) {
-        printf("无法创建evolver1_loader.c\n");
+        printf("无法创建src/evolver1/evolver1_loader.c\n");
         fclose(input);
         return 1;
     }
@@ -225,7 +225,7 @@ int compile_evolver1_loader() {
 
     // 注意：在ASTC环境中，我们无法直接生成可执行文件
     // 但我们可以生成ASTC格式，然后由Runtime执行
-    int result = compile_c_to_astc("evolver1_loader.c", "evolver1_loader.astc");
+    int result = compile_c_to_astc("src/evolver1/evolver1_loader.c", "bin/evolver1_loader.astc");
     if (result != 0) {
         printf("evolver1_loader编译失败\n");
         return 1;
@@ -238,15 +238,15 @@ int compile_evolver1_loader() {
 // 生成evolver1_runtime
 int generate_evolver1_runtime() {
     // 读取evolver0_runtime.c并生成优化版的evolver1_runtime.c
-    FILE* input = fopen("evolver0_runtime.c", "r");
+    FILE* input = fopen("src/evolver0/evolver0_runtime.c", "r");
     if (!input) {
-        printf("无法读取evolver0_runtime.c\n");
+        printf("无法读取src/evolver0/evolver0_runtime.c\n");
         return 1;
     }
 
-    FILE* output = fopen("evolver1_runtime.c", "w");
+    FILE* output = fopen("src/evolver1/evolver1_runtime.c", "w");
     if (!output) {
-        printf("无法创建evolver1_runtime.c\n");
+        printf("无法创建src/evolver1/evolver1_runtime.c\n");
         fclose(input);
         return 1;
     }
@@ -273,7 +273,7 @@ int generate_evolver1_runtime() {
 
     // 编译evolver1_runtime.c为ASTC
     printf("编译evolver1_runtime.c...\n");
-    int result = compile_c_to_astc("evolver1_runtime.c", "evolver1_runtime.astc");
+    int result = compile_c_to_astc("src/evolver1/evolver1_runtime.c", "bin/evolver1_runtime.astc");
     if (result != 0) {
         printf("evolver1_runtime编译失败\n");
         return 1;
@@ -289,15 +289,15 @@ int generate_evolver1_program() {
     printf("开始自举编译evolver1_program...\n");
 
     // 读取当前的evolver0_program.c
-    FILE* input = fopen("evolver0_program.c", "r");
+    FILE* input = fopen("src/evolver0/evolver0_program.c", "r");
     if (!input) {
-        printf("无法读取evolver0_program.c\n");
+        printf("无法读取src/evolver0/evolver0_program.c\n");
         return 1;
     }
 
-    FILE* output = fopen("evolver1_program.c", "w");
+    FILE* output = fopen("src/evolver1/evolver1_program.c", "w");
     if (!output) {
-        printf("无法创建evolver1_program.c\n");
+        printf("无法创建src/evolver1/evolver1_program.c\n");
         fclose(input);
         return 1;
     }
@@ -337,7 +337,7 @@ int generate_evolver1_program() {
 
     // 编译evolver1_program.c为ASTC
     printf("编译evolver1_program.c...\n");
-    int result = compile_c_to_astc("evolver1_program.c", "evolver1_program.astc");
+    int result = compile_c_to_astc("src/evolver1/evolver1_program.c", "bin/evolver1_program.astc");
     if (result != 0) {
         printf("evolver1_program编译失败\n");
         return 1;
