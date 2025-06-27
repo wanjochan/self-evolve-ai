@@ -46,15 +46,16 @@ void emit_int32(ASTCAssembler* assembler, int32_t value);
 // PE文件格式生成
 // ===============================================
 
-// 生成正确的PE文件头
+// 生成正确的PE文件头 (基于深入研究修复)
 void generate_pe_header(ASTCAssembler* assembler, size_t code_size) {
     // 重新组织缓冲区，在开头插入PE头
     unsigned char* old_code = assembler->code_buffer;
     size_t old_size = assembler->code_size;
 
-    // 重新分配缓冲区
-    assembler->code_capacity = 4096 + old_size;
+    // 重新分配缓冲区 (1024字节头部 + 代码)
+    assembler->code_capacity = 1024 + old_size;
     assembler->code_buffer = malloc(assembler->code_capacity);
+    memset(assembler->code_buffer, 0, assembler->code_capacity);
     assembler->code_size = 0;
 
     // DOS头 (64字节)

@@ -1,8 +1,8 @@
-# Self-Evolving AI Compiler System
+# Self-Evolving AI
 
 ## 项目愿景
 
-完全自举的AI编译器系统，具备真正的自我进化能力。该系统实现了完整的三层架构（Loader + Runtime + Program），脱离对外部编译器的依赖，集成了先进的AI驱动代码进化功能。
+自举的AI系统，自我进化能力。采用三层架构（Loader + Runtime + Program），脱离对外部编译器依赖，集成AI驱动代码进化功能
 
 ## 重要文档
 

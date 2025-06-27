@@ -38,89 +38,153 @@
 *   **进化路径**: 与 `Runtime` 进化类似。一旦 `program_c99` 具备了强大的代码生成能力，就能用它将 `loader.c` 源码直接编译成各平台原生的可执行文件。
 *   **最终目标**: 系统能自主生成引导加载程序，彻底摆脱对任何外部工具链的依赖，实现100%的自我闭环。
 
-## 5. 代码审阅意见：`src/ai` 目录
+## 6. 代码审阅意见：`src/evolver0` 目录
 
-`src/ai` 目录包含了核心的 AI 组件：`ai_adaptive_framework`、`ai_evolution`、`ai_learning` 和 `ai_optimizer`。这些模块旨在协同工作，以实现 AI 编译器系统的自我进化能力。
+`src/evolver0` 目录包含了“Evolver0”自举编译器的核心组件。这包括词法分析器、语法分析器、AST 定义、代码生成器以及 PE/ELF/Mach-O 可执行文件生成模块。它还包含 `evolver0_loader.c`、`evolver0_runtime.c` 和 `evolver0_program.c`，这些对于三层架构至关重要。
 
 **总体观察：**
 
-*   **模块化：** 代码结构良好，划分为清晰的模块，每个模块都有明确的职责（适应性框架、进化、学习、优化）。这有助于维护性，并允许独立开发和测试每个组件。
-*   **C 语言使用：** 代码使用 C 语言编写，遵循过程式编程风格。这与项目构建自举编译器系统的目标一致，其中低级控制和效率至关重要。
-*   **模拟功能：** 许多函数，特别是在 `ai_evolution.c`、`ai_learning.c` 和 `ai_optimizer.c` 中，包含“模拟”逻辑（例如，`ai_evolution_evaluate` 使用 `strlen` 和 `random_double` 来模拟性能指标，`ai_optimizer_apply_optimization` 使用 `snprintf` 预置注释）。这对于演示概念的初始原型来说是可以理解的，但为了实现真正的自我进化，这些模拟功能需要被实际的编译器/运行时交互所取代。
-*   **内存管理：** 动态内存分配一致使用 `malloc` 和 `free`。确保所有分配的内存都得到正确释放以防止内存泄漏至关重要，尤其是在一个长期运行的自我进化系统中。`cleanup` 函数是一个好的开始。
-*   **错误处理：** 存在基本的错误处理（例如，`malloc` 后检查 `NULL` 指针）。随着系统的成熟，可能需要更健壮的错误处理和报告机制。
-*   **日志/调试：** `printf` 语句被广泛用于日志和调试。这对于开发很有帮助，但应在生产环境中替换为更结构化的日志系统。
+*   **自举核心：** 该目录代表了自进化 AI 编译器的核心。目标是编译自身（`evolver0_program.c`）以生成 `evolver1`，从而消除对 TCC 等外部编译器的依赖。
+*   **模块化设计：** 编译器组件（词法分析器、语法分析器、代码生成器、AST、可执行文件格式生成器）被分离到单独的 `.inc.c` 文件中，然后包含在 `evolver0.c` 中。这种模块化有利于组织，但与传统的独立编译单元相比，使用 `.inc.c` 文件（在编译期间有效地复制粘贴代码）可能会使调试和模块的独立编译更具挑战性。
+*   **C 语言实现：** 整个编译器都用 C 语言编写，这与项目从最小 C 基础自举的目标一致。
+*   **平台特定可执行文件生成：** 包含 `evolver0_elf.inc.c`、`evolver0_pe.inc.c` 和 `evolver0_macho.inc.c` 表明了跨平台可执行文件生成的雄心，这对于自举编译器来说是一项艰巨的任务。
+*   **基于 AST 的编译：** 编译器使用抽象语法树（AST）作为中间表示，这是一种标准且健壮的编译器方法。
+*   **自举的简化：** 词法分析器、语法分析器和代码生成器的当前实现似乎经过简化，专注于自举所需的最小 C 子集。这对于初始的“evolver0”阶段来说是一种务实的方法。
 
 **具体模块反馈：**
 
-1.  **`ai_adaptive_framework` (ai_adaptive_framework.c/.h)：**
-    *   该模块充当协调器，整合了进化、学习和优化引擎。
-    *   它定义了 `EnvironmentContext`、`AdaptationStrategy` 和 `EvolutionGoals` 等关键概念，这些对于指导自我进化过程至关重要。
-    *   `ai_adaptive_evolve` 函数概述了核心的适应性循环：监控、决策、应用、评估、记录、学习、调整。这是一个良好的高层设计。
-    *   `ai_adaptive_generate_recommendations` 函数是一个很好的补充，根据当前状态和历史提供见解。
+1.  **`evolver0.c`：** 作为编译器的主入口点，协调词法分析、语法分析和代码生成阶段。它处理命令行参数和文件 I/O。平台特定可执行文件生成函数（`write_elf_file`、`write_pe_file_wrapper`、`write_macho_file`）的集成结构良好。
 
-2.  **`ai_evolution` (ai_evolution.c/.h)：**
-    *   实现了类似遗传算法的代码变体进化过程。
-    *   `ai_evolution_evaluate` 函数目前使用 `c2astc_convert` 进行编译，这是迈向真正集成的好一步。然而，性能指标仍然主要是模拟的。
-    *   `ai_evolution_mutate` 函数非常基础（添加注释）。对于真正的代码进化，这需要更加复杂，涉及 AST 转换、代码生成等。
-    *   `ai_evolution_adapt_parameters` 函数展示了自我适应进化参数的尝试，这是一个很好的概念。
+2.  **`evolver0_token.h`：** 定义了词法分析器的标记类型。它涵盖了 C 语言标记的良好范围，包括关键字、运算符和字面量。
 
-3.  **`ai_learning` (ai_learning.c/.h)：**
-    *   专注于从执行结果中学习，识别错误和性能模式。
-    *   `KnowledgeBase` 结构是存储学习信息的良好想法。
-    *   模式匹配（`strstr`）非常简单。对于真正的代码分析，这将需要更高级的技术（例如，AST 匹配、静态分析）。
-    *   `ai_learning_learn_pattern` 和 `ai_learning_analyze_errors`/`ai_learning_analyze_performance` 函数为学习奠定了基础，但实际的学习逻辑是初步的。
+3.  **`evolver0_lexer.inc.c`：**
+    *   实现了对 C 源代码进行词法分析的基本词法分析器。
+    *   处理空白、注释（单行和多行）、数字（十进制和十六进制）、字符串、字符、标识符以及各种运算符/标点符号。
+    *   包含基本的预处理器指令扫描（`#include`、`#define` 等），但实际的预处理器逻辑并未在此处完全实现。这对于最小编译器来说是一种常见方法，其中完整的预处理器可能是稍后添加的功能，或者在早期阶段由外部工具处理。
+    *   错误处理存在但很基础（例如，用于错误消息的 `snprintf`，`error_count`）。
 
-4.  **`ai_optimizer` (ai_optimizer.c/.h)：**
-    *   负责根据学习到的规则和策略应用优化。
-    *   `OptimizationRule` 和 `OptimizationSuggestion` 结构定义良好。
-    *   `ai_optimizer_auto_optimize` 函数分派到特定的优化函数（性能、内存、大小、可读性）。
-    *   当前的优化实现大多是占位符（例如，添加注释、简单的公式替换）。这些需要被实际的代码转换所取代，这些转换会修改 AST 或生成优化的机器代码。
-    *   `ai_optimizer_learn_pattern` 函数对于自我改进方面至关重要，允许优化器学习新规则。
+4.  **`evolver0_ast.inc.c`：**
+    *   定义了抽象语法树（AST）节点结构和用于创建和释放 AST 节点的函数。
+    *   涵盖了各种 C 构造，如表达式（二元、一元、赋值、调用）、语句（复合、if、while、for、return、break、continue、goto、label、表达式）、声明（变量、函数、参数）和字面量。
+    *   包含 `TypeInfo` 用于基本类型信息（void、char、int、pointer、array、function）。这对于语义分析和代码生成至关重要。
+    *   `ast_print` 函数对于调试和可视化解析后的 AST 很有用。
 
-**改进建议：**
+5.  **`evolver0_parser.inc.c`：**
+    *   实现了递归下降解析器，用于从词法分析器生成的标记构建 AST。
+    *   处理表达式的运算符优先级和结合性。
+    *   包含基本的符号表管理（`add_symbol`、`find_symbol`），但它经过简化，可能需要扩展以支持更复杂的 C 功能（例如，作用域管理、类型检查）。
+    *   实现了错误恢复（`synchronize`），允许解析器在遇到错误后继续，这对于健壮性很有利。
+    *   使用全局变量（`g_in_loop`、`g_in_switch`、`g_error_count`）作为解析器状态是一种常见的 C 模式，但如果需要可重入或线程安全，可能会使解析器变得复杂。
 
-1.  **用真实实现替换模拟逻辑：** 这是最关键的一步。
-    *   **性能评估：** 与实际执行环境（例如，沙盒、虚拟机或 `runtime` 模块）集成，以获取真实的性能指标（执行时间、内存使用）。
-    *   **代码转换/变异：** 为 `ai_evolution` 和 `ai_optimizer` 开发健壮的 AST（抽象语法树）操作能力。这对于有意义的代码更改至关重要，而不仅仅是字符串操作。
-    *   **模式识别：** 为 `ai_learning` 和 `ai_optimizer` 实现更高级的代码分析技术（例如，使用适当的解析器构建 AST，然后遍历和匹配 AST 上的模式）。
+6.  **`evolver0_codegen.inc.c`：**
+    *   从 AST 生成 x86-64 汇编代码。
+    *   包含用于发出各种 x86-64 指令（MOV、PUSH、POP、ADD、SUB、IMUL、IDIV、CMP、SETcc、JMP、Jcc、CALL、RET、SYSCALL）的函数。
+    *   管理标签和重定位，这对于生成带有跳转和函数调用的正确可执行代码至关重要。
+    *   处理栈上的局部变量分配。
+    *   `gen_function` 和 `gen_translation_unit` 函数构建了整个代码生成过程。
+    *   `_start` 函数的生成用于 `main` 函数调用和 `exit` 系统调用是处理可执行文件入口点的一个很好的例子。
+    *   `disassemble_code` 函数是一个有价值的调试工具。
 
-2.  **增强学习和适应性：**
-    *   **反馈循环：** 加强 `ai_optimizer`、`ai_evolution` 和 `ai_learning` 之间的反馈循环。学习引擎应根据应用更改的成功/失败持续改进优化规则和进化策略。
-    *   **强化学习：** 考虑引入强化学习技术来指导进化和优化过程，使 AI 能够通过试错学习最佳策略。
+7.  **`evolver0_elf.inc.c`、`evolver0_pe.inc.c`、`evolver0_macho.inc.c`：**
+    *   这些模块负责生成平台特定的可执行文件格式（Linux 的 ELF、Windows 的 PE、macOS 的 Mach-O）。
+    *   它们定义了相应的头结构，并提供了填充这些头和写入可执行文件的函数。
+    *   `create_elf_executable`、`write_pe_file` 和 `create_macho64_executable` 函数封装了创建最终可执行文件的逻辑。
+    *   `create_elf_executable` 中的 `chmod` 调用对于在 Linux 上设置可执行权限很重要。
+    *   `create_elf_executable_with_data` 函数尝试处理数据段，这对于更复杂的程序很重要。
 
-3.  **健壮性和错误处理：**
-    *   **内存安全：** 实施更严格的内存管理，可能使用自定义分配器或智能指针（如果使用 C++，但对于 C，仔细的手动管理是关键）。考虑使用 Valgrind 等工具进行内存泄漏检测。
-    *   **输入验证：** 为所有函数添加更全面的输入验证，以防止因无效输入而导致的崩溃。
-    *   **结构化日志：** 用适当的日志框架替换 `printf`，该框架允许不同的日志级别（调试、信息、警告、错误）和可配置的输出。
+8.  **`evolver0_loader.c` 和 `evolver0_loader_fixed.c`：**
+    *   这些文件实现了三层架构的“加载器”层。
+    *   `evolver0_loader.c` 尝试加载并直接执行 `runtime.bin` 作为机器代码，这是一种非常底层且可能不安全的操作。它包含 Windows 的平台特定代码（`VirtualAlloc`、`VirtualFree`）。
+    *   `evolver0_loader_fixed.c` 是一个“修复”版本，它使用库调用（`runtime_init`、`runtime_load_program`、`runtime_execute`）与运行时交互，这是一种更安全、更可移植的方法。这对于健壮性和可维护性来说是一个显著的改进。
 
-4.  **测试：**
-    *   为每个模块开发全面的单元测试，以确保正确性并防止系统进化时的回归。
-    *   实施集成测试以验证不同 AI 组件之间的交互。
+9.  **`evolver0_runtime.c`：**
+    *   实现了“运行时”层，它本质上是一个 ASTC（抽象语法树代码）虚拟机。
+    *   它使用 `c2astc_deserialize` 加载 ASTC 程序并使用 `runtime_execute` 运行它。
+    *   包含一个 `evolver0_runtime_syscall` 函数，这是 ASTC 程序与底层系统交互（例如，文件 I/O、编译服务）的关键接口。`sys_compile_c_to_astc` 系统调用对于自举尤其重要。
+    *   `evolver0_runtime_main` 函数作为运行时被加载器加载时的入口点。
+    *   独立执行的 `_start` 函数也存在。
 
-## 4. 行动计划：实现完全自举
+10. **`evolver0_program.c`：**
+    *   这是“程序”层，包含最终将自举的编译器核心逻辑。
+    *   它包含 `compile_c_to_astc`，该函数使用 `c2astc` 库（可能是编译器本身）将 C 源代码编译为 ASTC。
+    *   `self_bootstrap` 函数概述了生成 `evolver1_loader`、`evolver1_runtime` 和 `evolver1_program` 的过程。这是实现自我进化最关键的部分。
+    *   `generate_evolver1_loader_source`、`generate_evolver1_runtime` 和 `generate_evolver1_program` 函数目前通过文件复制和简单的字符串操作执行简化的“生成”。对于真正的自举，这些函数需要使用编译器自身的代码生成能力来生成下一代组件。
+    *   `validate_evolver1` 函数对于验证自举过程的成功很重要。
 
-为 `augmentcode` 提供以下聚焦于核心自举任务的行动计划，以替代TCC：
+11. **`evolver0_program_minimal.c`：** 一个非常简单的程序（`return 42;`），用于测试编译器的最小功能。
 
-**核心目标**：让 `loader` + `runtime` + `program` 的组合体，能够编译出它自己的新版本，特别是 `loader` 和 `runtime`。
+12. **`evolver1_program.c`：** 该文件代表自举过程的*目标*。它概述了 `evolver1` 的功能（更完整的 C 支持、优化器、跨平台编译）。此处的 `self_bootstrap` 函数描述了 `evolver1` 到 `evolver2` 的自举。
 
-**第一阶段：范围定义 (Scope Definition)**
-*   **任务**: 精确分析 `evolver0_loader.c` 和 `runtime.c` 的源码，列出其中使用的所有C语言特性（如具体的数据类型、语句、表达式、库函数调用等）。
-*   **目的**: 明确 `program_c99` 需要支持的最小C语言特性集，避免实现一个完整的C99编译器，从而极大缩减工作量。
+**改进建议和下一步：**
 
-**第二阶段：目标后端开发 (Targeted Backend)**
-*   **任务**: 为 `program_c99` 开发一个代码生成后端，该后端**仅需**将第一阶段分析出的C语言特性所对应的ASTC节点，翻译成目标平台的汇编代码。
-*   **目的**: 快速实现一个“最小可用后端”，能处理我们自己的代码即可。
+1.  **完整的预处理器实现：** 当前的词法分析器只扫描预处理器指令。需要一个完整的预处理器（处理 `#include`、`#define`、条件编译）才能编译真实的 C 代码。这可以是一个单独的模块。
+2.  **语义分析：** 解析器目前执行基本的符号表管理。需要一个完整的语义分析阶段来执行类型检查、确保正确的变量使用并解析函数调用。这将涉及丰富 `TypeInfo` 结构并在 AST 上添加专门的语义分析过程。
+3.  **高级代码生成：** 当前的 x86-64 代码生成是基本的。对于生产就绪的编译器，它需要：
+    *   **寄存器分配：** 更复杂的寄存器分配算法，以优化寄存器使用并最大程度地减少内存访问。
+    *   **指令选择：** 更好的指令选择，以生成更高效的机器代码。
+    *   **优化过程：** 在生成机器代码之前，在 AST 或中间表示（IR）上实现各种优化过程（例如，常量折叠、死代码消除、循环优化）。
+    *   **调用约定：** 完全支持标准调用约定（Linux 的 System V AMD64 ABI，Windows 的 Microsoft x64 调用约定）。
+4.  **健壮的可执行文件生成：** 尽管存在 PE/ELF/Mach-O 生成模块，但它们经过简化。需要对其进行健壮化，以处理更复杂的场景（例如，多个节、重定位表、符号表、动态链接）。
+5.  **`evolver0_program.c` 中的真正自举：** `evolver0_program.c` 中的 `generate_evolver1_loader_source`、`generate_evolver1_runtime` 和 `generate_evolver1_program` 函数目前依赖于文件复制和简单的字符串操作。对于真正的自举，这些函数应该：
+    *   读取下一代组件的 C 源代码（例如，`evolver1_loader.c`）。
+    *   使用*当前* `evolver0` 编译器的词法分析器、语法分析器和代码生成器将这些源文件编译为各自的 ASTC 或本机可执行文件格式。
+    *   这是实现完全自我进化的核心挑战和最重要的一步。
+6.  **跨平台编译：** `evolver1_program.c` 提到了跨平台编译。这将涉及在编译器本身中为不同的架构（x86-64、ARM64 等）提供不同的代码生成后端。
+7.  **错误报告和诊断：** 改进词法分析器、语法分析器和代码生成器的错误消息，使其更易于用户理解，并提供精确的位置信息和修复错误的建议。
+8.  **测试框架：** 为编译器开发一个全面的测试套件，包括每个模块（词法分析器、语法分析器、代码生成器）的单元测试以及整个编译管道的集成测试。这对于确保编译器进化时的正确性至关重要。
 
-**第三阶段：自举验证 (The Bootstrapping Act)**
-*   **步骤1 (编译新编译器)**: 使用旧系统 (`evolver0`) 将 `program_c99.c` 编译成 `program_c99.astc`。
-*   **步骤2 (启动新编译器)**: 启动新系统 (`loader` + `runtime` + `program_c99.astc`)。
-*   **步骤3 (编译新Loader)**: 将 `evolver0_loader.c` 作为输入，喂给新系统，验证其能否成功生成一个新的、功能正确的 `loader.exe`。
-*   **步骤4 (编译新Runtime)**: 将 `runtime.c` 作为输入，喂给新系统，验证其能否成功生成一个新的 `runtime.bin`。
+## 7. 代码审阅意见：`src/runtime` 目录
 
-一旦步骤3和4成功，项目即达成**完全自举**，TCC依赖将被彻底移除。
+`src/runtime` 目录包含了 ASTC (Abstract Syntax Tree Code) 虚拟机的核心组件，这是三层架构的关键部分。它包括 `runtime.c`、`runtime.h`、`astc.h`、`loader.h` 和 `program.h`。
 
----
-## 用户偏好
+**总体观察：**
 
-*   **语言风格**: 回答应保持精简 (concise) 和精确 (precise) 的中文.
+*   **ASTC 虚拟机：** `runtime.c` 和 `runtime.h` 文件实现了一个基本的 ASTC 虚拟机，能够执行表示为 ASTC 节点的程序。这是自进化 AI 编译器的基础，因为它提供了生成代码的执行环境。
+*   **内存管理：** `RuntimeMemory` 结构和相关函数（`runtime_allocate`、`runtime_free`）提供了一个简化的内存管理系统，包括栈和堆。`runtime_free` 目前是一个空操作，表明内存释放采用简化方法，这对于长期运行或内存密集型程序可能是一个问题。
+*   **函数和全局变量表：** 运行时维护函数和全局变量表，允许符号查找和执行。
+*   **基本系统调用：** `runtime_call_native_function` 和 `runtime_syscall_read_file`/`write_file`/`copy_file` 函数为 ASTC 程序与宿主系统交互提供了基本接口。`printf` 实现是原生函数集成的一个很好的例子。
+*   **ASTC 定义：** `astc.h` 定义了 `ASTNodeType` 枚举和 `ASTNode` 结构，它们是表示抽象语法树代码的核心数据结构。它结合了 WebAssembly 指令码和 C 特定 AST 节点类型，表明了一种混合方法。
+*   **加载器和程序接口：** `loader.h` 和 `program.h` 分别定义了加载器和程序层的接口，突出了它们在整体架构中的作用。它们依赖于 `astc.h` 和 `runtime.h` 来实现其功能。
+*   **错误处理：** 使用 `runtime_set_error` 和 `runtime_get_error` 存在基本的错误处理。
+
+**具体模块反馈：**
+
+1.  **`runtime.h` 和 `runtime.c`：**
+    *   **`RuntimeVM` 结构：** 虚拟机状态的结构定义良好，包括内存、函数表、全局变量和调用帧。
+    *   **`runtime_init` 和 `runtime_destroy`：** VM 的正确初始化和清理函数。
+    *   **`runtime_load_program`：** 此函数负责通过遍历 ASTC 根节点来填充 VM 的函数和全局变量表。它处理函数声明和全局变量声明。
+    *   **`runtime_execute`：** 主执行循环，查找并执行入口点函数（通常是“main”）。
+    *   **`runtime_execute_function`：** 处理单个函数的执行，包括创建调用帧和管理局部变量。当前局部变量管理（对 `locals` 和 `local_map` 使用 `realloc`）的实现对于函数内频繁的变量声明可能效率低下。
+    *   **`runtime_execute_statement`：** 解释和执行不同类型的 ASTC 语句（复合、表达式、返回、if、while、for、var_decl）。`for` 循环实现正确处理初始化、条件、主体和增量。
+    *   **`runtime_evaluate_expression`：** 评估各种 ASTC 表达式（标识符、常量、字符串字面量、一元/二元操作、函数调用、数组下标、成员访问）。二元和一元操作处理基本的算术和逻辑操作。
+    *   **原生函数调用：** `runtime_call_native_function` 提供了一种调用宿主系统函数（如 `printf`、`fopen`、`fwrite`、`fclose`）的机制。`printf` 实现是一个简化版本。
+    *   **系统调用：** `runtime_syscall_read_file`、`runtime_syscall_write_file`、`runtime_syscall_copy_file` 为 ASTC 程序提供了基本的文件 I/O 功能。
+    *   **局限性：** `runtime_free` 是一个空操作，这意味着通过 `runtime_allocate` 分配的内存从未真正释放，可能导致长期运行程序中的内存泄漏。`ASTC_OP_ADDR` 和 `ASTC_OP_DEREF`（取地址和解引用）运算符被标记为“尚未实现”或具有简化实现，这限制了可执行 C 程序的复杂性。结构成员访问也未完全实现。
+
+2.  **`astc.h`：**
+    *   **`ASTNodeType`：** 一个全面的枚举，定义了 ASTC 的各种节点类型。它巧妙地将 WebAssembly 操作码与 C 特定 AST 节点结合起来，反映了项目的混合方法。对于旨在连接 C 和类似 VM 的中间表示的自进化编译器来说，这是一个很好的设计选择。
+    *   **`ASTNode` 结构：** 一个灵活的基于联合的结构，用于保存不同 AST 节点类型的数据。这通过为不同节点类型叠加不同数据结构来有效利用内存。
+    *   **缺少 `ast_create_node` 实现：** 尽管声明了 `ast_create_node`，但其实现不在 `astc.h` 或 `runtime.c` 中。它可能在 `evolver0_ast.inc.c` 中，后者由 `evolver0.c` 包含。这突出了模块之间的相互关联性。
+
+3.  **`loader.h`：**
+    *   定义了 `Loader` 结构及其接口，负责加载 ASTC 程序并使用 `RuntimeVM` 运行它们。
+    *   包括用于初始化/销毁加载器、从文件或内存加载程序、运行程序以及注册标准库函数的函数。
+
+4.  **`program.h`：**
+    *   定义了 `Program` 结构及其接口，表示一个 ASTC 程序。
+    *   包括用于从 C 源代码创建程序、添加函数和全局变量以及序列化/保存程序的函数。
+
+**改进建议和下一步：**
+
+1.  **完整的内存管理：** 为堆实现一个适当的内存管理系统，包括 `runtime_free`，并可能包括垃圾回收器或更复杂的内存分配器，以防止内存泄漏并提高效率。
+2.  **完整的 C 语言支持：**
+    *   **指针和数组：** 完全实现 `ASTC_OP_ADDR`（取地址）和 `ASTC_OP_DEREF`（解引用）运算符，以及健壮的数组下标。这对于支持更复杂的 C 程序至关重要。
+    *   **结构体和联合体：** 实现对结构体和联合体声明、成员访问和内存布局的支持。
+    *   **类型系统：** 增强类型系统以处理更复杂的 C 类型（例如，多维数组、函数指针、`const`/`volatile` 限定符）。
+3.  **健壮的系统调用接口：** 扩展系统调用接口，以包含 C 程序所需的更多功能（例如，来自宿主的动态内存分配、更多文件 I/O 操作、进程控制）。
+4.  **错误报告：** 改进运行时中错误消息的粒度和细节，提供更多上下文以进行调试。
+5.  **性能优化：**
+    *   **JIT 编译：** 如 `PRD.md` 中所述，为运行时实现 JIT（即时）编译将显著提高执行性能。这将涉及在运行时将 ASTC 转换为本机机器代码。
+    *   **解释器优化：** 即使没有 JIT，也可以通过各种技术（如操作码缓存、直接线程或优化 AST 遍历）来提高解释器性能。
+6.  **标准库集成：** 扩展向运行时注册的原生函数集，以提供更完整的 C 标准库。
+7.  **测试：** 为运行时开发全面的单元测试，涵盖所有 ASTC 节点类型、操作和系统调用。这对于确保 VM 在编译器进化时的正确性和稳定性至关重要。
