@@ -17,3 +17,5 @@ evolver0是世界上第一个完全自举的AI编译器系统，具备真正的�
 - gemini-cli-google：不断审阅和评估更新 docs/gemini.md
 - claude-code：不断审阅和评估更新 docs/claude.md
 - 类似地，cursor等也持续的评估更新 docs/{agentNae}.md
+
+![workmode](README.jpg)
