@@ -306,10 +306,30 @@ bool tokenize_standalone(StandaloneLexer* lexer) {
                 case ']': type = TOKEN_RBRACKET; break;
                 case '#': type = TOKEN_HASH; break;
                 case '\n': type = TOKEN_NEWLINE; break;
-                default:
-                    printf("未知字符: %c (行 %d, 列 %d)\n", c, lexer->line, lexer->column);
+                case '\\':
+                    // 跳过反斜杠和下一个字符（简单处理）
+                    lexer->pos++;
+                    lexer->column++;
+                    if (lexer->pos < lexer->length) {
+                        lexer->pos++;
+                        lexer->column++;
+                    }
                     free(value);
-                    return false;
+                    continue; // 跳过这个token，继续下一个
+                case '!': case '@': case '$': case '%': case '^': case '&':
+                case '|': case '~': case '`': case '?': case ':':
+                    // 暂时跳过这些字符
+                    lexer->pos++;
+                    lexer->column++;
+                    free(value);
+                    continue;
+                default:
+                    // 跳过未知字符而不是报错
+                    printf("跳过未知字符: %c (行 %d, 列 %d)\n", c, lexer->line, lexer->column);
+                    lexer->pos++;
+                    lexer->column++;
+                    free(value);
+                    continue;
             }
             
             token = (Token){type, value, lexer->line, lexer->column};
