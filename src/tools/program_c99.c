@@ -553,8 +553,11 @@ int parse_arguments(int argc, char* argv[], C99CompilerOptions* options) {
         } else if (argv[i][0] != '-') {
             if (!options->input_file) {
                 options->input_file = argv[i];
+            } else if (!options->output_file || strcmp(options->output_file, "output.astc") == 0) {
+                // 如果还没有指定输出文件，将第二个参数作为输出文件
+                options->output_file = argv[i];
             } else {
-                printf("错误: 只能指定一个输入文件\n");
+                printf("错误: 只能指定一个输入文件和一个输出文件\n");
                 return 1;
             }
         } else {
