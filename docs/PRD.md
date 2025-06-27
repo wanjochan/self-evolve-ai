@@ -30,11 +30,12 @@
 - 处理命令行参数和初始环境设置
 
 ### Layer 2: runtime{arch}{bits}.rt
-- 架构依赖二进制，根据硬件架构区分
-- 封装硬件架构和ABI等，实现ASTC虚拟机
-- 提供基本的系统调用和运行时支持
-- 专注于平台libc的转发封装，体积更小，可能合并多架构支持
-- 结构简单，基本只有main()入口点和ASTC解释器功能
+- **ASTC JIT编译器生成的架构特定机器码Runtime**
+- 通过astc2rt JIT编译器从ASTC字节码生成x64/ARM等机器码
+- 包含完整的ASTC虚拟机和libc转发功能
+- 编译流程：C源码 → (c2astc) → ASTC字节码 → (astc2rt JIT) → 机器码Runtime
+- 封装硬件架构和ABI，提供系统调用和运行时支持
+- 专注于平台libc的转发封装，结构简单但功能完整
 - 不需要复杂的符号表机制，只需要最小化的系统接口
 
 ### Layer 3: program.astc

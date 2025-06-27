@@ -5,24 +5,22 @@
  */
 
 /**
- * evolver0_loader.c - Loader层实现 (三层架构的第一层)
- * 
+ * evolver0_loader.c - 跨平台Loader实现 (PRD.md三层架构第一层)
+ *
  * 职责：
- * 1. 加载Runtime-{arch}二进制
- * 2. 加载Program.astc文件
- * 3. 处理操作系统接口和PE/ELF/MachO头
- * 4. 启动Runtime并传递Program
- * 
- * 这是plan.md中定义的Loader+Runtime+Program三层架构的正确实现
+ * 1. 自动检测硬件架构和操作系统
+ * 2. 自动选择对应的runtime{arch}{bits}.rt文件
+ * 3. 加载Program.astc文件
+ * 4. 提供统一的入口点，简化部署和使用
+ * 5. 启动Runtime并传递Program
+ *
+ * 符合PRD.md要求：单一加载器，跨架构支持
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 #include <stdbool.h>
 #include <time.h>
 #include "../runtime/platform.h"
@@ -47,6 +45,101 @@ typedef struct {
     uint32_t size;          // 代码大小
     uint32_t entry_point;   // 入口点偏移
 } RuntimeHeader;
+
+// ===============================================
+// 架构检测和Runtime选择
+// ===============================================
+
+// 运行时检测操作系统
+const char* detect_operating_system(void) {
+    // 通过文件系统特征检测操作系统
+    FILE* f;
+
+    // 检测Windows - 尝试访问Windows特有的文件
+    f = fopen("C:\\Windows\\System32\\kernel32.dll", "rb");
+    if (f) {
+        fclose(f);
+        return "windows";
+    }
+
+    // 检测Linux - 尝试访问Linux特有的文件
+    f = fopen("/proc/version", "r");
+    if (f) {
+        fclose(f);
+        return "linux";
+    }
+
+    // 检测macOS - 尝试访问macOS特有的文件
+    f = fopen("/System/Library/CoreServices/SystemVersion.plist", "r");
+    if (f) {
+        fclose(f);
+        return "macos";
+    }
+
+    return "unknown";
+}
+
+// 运行时检测CPU架构
+const char* detect_cpu_architecture(void) {
+    const char* os = detect_operating_system();
+
+    if (strcmp(os, "windows") == 0) {
+        // Windows: 尝试调用GetNativeSystemInfo (如果可用)
+        // 这里需要动态加载kernel32.dll来避免编译时依赖
+        // 暂时用简单方法
+        return sizeof(void*) == 8 ? "x64" : "x86";
+    } else if (strcmp(os, "linux") == 0) {
+        // Linux: 读取 /proc/cpuinfo
+        FILE* f = fopen("/proc/cpuinfo", "r");
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof(line), f)) {
+                if (strstr(line, "aarch64") || strstr(line, "arm64")) {
+                    fclose(f);
+                    return "arm64";
+                }
+                if (strstr(line, "armv7") || strstr(line, "armv6")) {
+                    fclose(f);
+                    return "arm";
+                }
+            }
+            fclose(f);
+        }
+        return sizeof(void*) == 8 ? "x64" : "x86";
+    } else {
+        // 其他系统，使用指针大小推测
+        return sizeof(void*) == 8 ? "x64" : "x86";
+    }
+}
+
+typedef struct {
+    const char* arch;           // 架构名称 (x64, arm64, etc.)
+    const char* os;             // 操作系统 (windows, linux, macos)
+    int bits;                   // 位数 (32, 64)
+    const char* runtime_file;   // 自动选择的runtime文件
+} PlatformInfo;
+
+// 运行时检测当前平台架构
+PlatformInfo detect_platform(void) {
+    PlatformInfo info = {0};
+
+    // 运行时检测架构 - 通过指针大小和CPU特性
+    info.bits = sizeof(void*) * 8;  // 32位或64位
+
+    // 运行时检测CPU架构
+    info.arch = detect_cpu_architecture();
+
+    // 运行时检测操作系统
+    info.os = detect_operating_system();
+
+    return info;
+}
+
+// 构建runtime文件名
+void build_runtime_filename(PlatformInfo* info, char* filename, size_t size) {
+    snprintf(filename, size, "bin/runtime%s_%d.rt", info->arch, info->bits);
+    info->runtime_file = filename;
+}
 
 // ===============================================
 // 加载器选项
@@ -362,7 +455,9 @@ static int load_and_execute_runtime(const LoaderOptions* options, PerformanceSta
 
 static void print_usage(const char* program_name) {
     // evolver1增强: 添加详细日志
-    printf("用法: %s [选项] <runtime.rt> <program.astc>\n\n", program_name);
+    printf("用法: %s [选项] <program.astc>\n\n", program_name);
+    // evolver1增强: 添加详细日志
+    printf("PRD.md三层架构统一加载器 - 自动检测平台并选择Runtime\n\n");
     // evolver1增强: 添加详细日志
     printf("选项:\n");
     // evolver1增强: 添加详细日志
@@ -372,13 +467,17 @@ static void print_usage(const char* program_name) {
     // evolver1增强: 添加详细日志
     printf("  -p, --performance 显示性能统计\n");
     // evolver1增强: 添加详细日志
+    printf("  -r, --runtime     手动指定runtime文件 (覆盖自动检测)\n");
+    // evolver1增强: 添加详细日志
     printf("  -h, --help        显示帮助信息\n\n");
     // evolver1增强: 添加详细日志
     printf("示例:\n");
     // evolver1增强: 添加详细日志
-    printf("  %s runtimex64_64.rt evolver0_program.astc\n", program_name);
+    printf("  %s evolver0_program.astc                    # 自动检测平台\n", program_name);
     // evolver1增强: 添加详细日志
-    printf("  %s -v -d runtimex64_64.rt evolver0_program.astc\n", program_name);
+    printf("  %s -v evolver0_program.astc                 # 详细输出\n", program_name);
+    // evolver1增强: 添加详细日志
+    printf("  %s -r custom.rt evolver0_program.astc       # 手动指定runtime\n", program_name);
 }
 
 static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
@@ -400,28 +499,51 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
         else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--performance") == 0) {
             options->performance = true;
         }
+        else if (strcmp(argv[i], "-r") == 0 || strcmp(argv[i], "--runtime") == 0) {
+            if (i + 1 < argc) {
+                options->runtime_file = argv[++i];
+            } else {
+                fprintf(stderr, "错误: -r 选项需要指定runtime文件\n");
+                return false;
+            }
+        }
         else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return false;
         }
         else if (argv[i][0] != '-') {
-            // 非选项参数，按顺序为runtime_file和program_file
-            if (!options->runtime_file) {
-                options->runtime_file = argv[i];
-            }
-            else if (!options->program_file) {
+            // 非选项参数，只有program_file
+            if (!options->program_file) {
                 options->program_file = argv[i];
+            } else {
+                fprintf(stderr, "错误: 多余的参数: %s\n", argv[i]);
+                return false;
             }
         }
     }
     
     // 验证必需的参数
-    if (!options->runtime_file || !options->program_file) {
-        fprintf(stderr, "错误: 必须指定Runtime和Program文件\n");
+    if (!options->program_file) {
+        fprintf(stderr, "错误: 必须指定Program文件\n");
         print_usage(argv[0]);
         return false;
     }
-    
+
+    // 如果没有手动指定runtime，则自动检测
+    static char auto_runtime_filename[256];
+    if (!options->runtime_file) {
+        PlatformInfo platform = detect_platform();
+        build_runtime_filename(&platform, auto_runtime_filename, sizeof(auto_runtime_filename));
+        options->runtime_file = auto_runtime_filename;
+
+        if (options->verbose) {
+    // evolver1增强: 添加详细日志
+            printf("自动检测平台: %s %s %d位\n", platform.os, platform.arch, platform.bits);
+    // evolver1增强: 添加详细日志
+            printf("自动选择Runtime: %s\n", options->runtime_file);
+        }
+    }
+
     // 验证文件存在
     if (!file_exists(options->runtime_file)) {
         fprintf(stderr, "错误: Runtime文件不存在: %s\n", options->runtime_file);
