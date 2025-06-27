@@ -237,7 +237,7 @@ static int load_and_execute_runtime(const LoaderOptions* options, PerformanceSta
 
     int result = 0;
     
-    // 检查Runtime.bin格式
+    // 检查Runtime.rt格式
     if (memcmp(runtime_data, "RTME", 4) == 0) {
         // 有效的RTME格式Runtime
         RuntimeHeader* runtime_header = (RuntimeHeader*)runtime_data;
@@ -337,15 +337,15 @@ static int load_and_execute_runtime(const LoaderOptions* options, PerformanceSta
 // ===============================================
 
 static void print_usage(const char* program_name) {
-    printf("用法: %s [选项] <runtime.bin> <program.astc>\n\n", program_name);
+    printf("用法: %s [选项] <runtime.rt> <program.astc>\n\n", program_name);
     printf("选项:\n");
     printf("  -v, --verbose     显示详细输出\n");
     printf("  -d, --debug       启用调试模式\n");
     printf("  -p, --performance 显示性能统计\n");
     printf("  -h, --help        显示帮助信息\n\n");
     printf("示例:\n");
-    printf("  %s evolver0_runtime.bin evolver0_program.astc\n", program_name);
-    printf("  %s -v -d evolver0_runtime.bin evolver0_program.astc\n", program_name);
+    printf("  %s runtimex64_64.rt evolver0_program.astc\n", program_name);
+    printf("  %s -v -d runtimex64_64.rt evolver0_program.astc\n", program_name);
 }
 
 static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
