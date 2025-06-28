@@ -431,10 +431,38 @@ static int load_and_execute_runtime(const LoaderOptions* options, PerformanceSta
     }
     else if (memcmp(runtime_data, "MZ", 2) == 0) {
         // Windows PE可执行文件格式
-        fprintf(stderr, "错误: 直接执行PE文件尚未实现，请使用RTME格式\n");
-        free(runtime_data);
-        free(program_data);
-        return 1;
+        if (options->verbose) {
+            printf("调用PE Runtime执行...\n");
+        }
+
+        // 创建临时文件来保存Runtime
+        char temp_runtime_path[256];
+        sprintf(temp_runtime_path, "temp_runtime_%d.exe", (int)time(NULL));
+
+        FILE* temp_fp = fopen(temp_runtime_path, "wb");
+        if (!temp_fp) {
+            fprintf(stderr, "错误: 无法创建临时Runtime文件\n");
+            free(runtime_data);
+            free(program_data);
+            return 1;
+        }
+
+        fwrite(runtime_data, 1, runtime_size, temp_fp);
+        fclose(temp_fp);
+
+        // 构建命令行来执行Runtime
+        char command[512];
+        sprintf(command, "%s \"%s\"", temp_runtime_path, options->program_file);
+
+        if (options->verbose) {
+            printf("执行命令: %s\n", command);
+        }
+
+        // 执行Runtime
+        result = system(command);
+
+        // 清理临时文件
+        remove(temp_runtime_path);
     }
     else {
         fprintf(stderr, "错误: 无法执行未知格式的Runtime\n");

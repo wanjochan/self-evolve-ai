@@ -356,9 +356,12 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
             
         case 0xF0: // LIBC_CALL - C99标准库调用
             {
+                printf("DEBUG: LIBC_CALL instruction executed\n");
                 uint16_t func_id = c99_vm_pop(vm);
                 uint16_t arg_count = c99_vm_pop(vm);
+                printf("DEBUG: func_id=0x%04X, arg_count=%d\n", func_id, arg_count);
                 execute_libc_call(vm, func_id, arg_count);
+                printf("DEBUG: LIBC_CALL completed\n");
             }
             break;
             
