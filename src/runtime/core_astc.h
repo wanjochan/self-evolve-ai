@@ -371,6 +371,8 @@ typedef struct ASTNode {
             struct ASTNode *callee;
             struct ASTNode **args;
             int arg_count;
+            bool is_libc_call;      // 标记是否为libc函数调用
+            uint16_t libc_func_id;  // libc函数ID（如果是libc调用）
         } call_expr;
         
         // 翻译单元

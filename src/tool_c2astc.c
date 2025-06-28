@@ -41,11 +41,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // 序列化ASTC
+    // 将AST转换为ASTC字节码
     size_t astc_data_size;
-    unsigned char* astc_data = c2astc_serialize(ast, &astc_data_size);
+    unsigned char* astc_data = ast_to_astc_bytecode(ast, &astc_data_size);
     if (!astc_data) {
-        fprintf(stderr, "Error: Failed to serialize: %s\n", c2astc_get_error());
+        fprintf(stderr, "Error: Failed to generate ASTC bytecode: %s\n", c2astc_get_error());
         ast_free(ast);
         return 1;
     }

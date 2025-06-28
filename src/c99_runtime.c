@@ -240,7 +240,7 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
     
     uint8_t opcode = vm->code[vm->pc++];
     vm->instruction_count++;
-    
+
     switch (opcode) {
         case 0x00: // NOP
             break;
@@ -368,6 +368,9 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
 int c99_runtime_main(void* program_data, size_t program_size) {
     // 初始化libc转发系统
     libc_forward_init();
+
+    // 简单的调试输出
+    printf("C99 Runtime called with %zu bytes\n", program_size);
     
     if (!program_data || program_size == 0) {
         libc_forward_cleanup();
@@ -426,10 +429,54 @@ int c99_runtime_main(void* program_data, size_t program_size) {
 // ===============================================
 
 /**
- * Runtime入口点 - 由Loader通过函数指针调用
- * 这个函数会被编译成.rt文件的入口点
+ * Runtime入口点 - 支持命令行调用和函数指针调用
  */
-int main(void* program_data, size_t program_size) {
-    // 直接调用Runtime主函数
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <program.astc>\n", argv[0]);
+        return 1;
+    }
+
+    // 读取ASTC文件
+    FILE* file = fopen(argv[1], "rb");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot open file: %s\n", argv[1]);
+        return 1;
+    }
+
+    // 获取文件大小
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // 读取文件内容
+    void* program_data = malloc(file_size);
+    if (!program_data) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        fclose(file);
+        return 1;
+    }
+
+    size_t read_size = fread(program_data, 1, file_size, file);
+    fclose(file);
+
+    if (read_size != file_size) {
+        fprintf(stderr, "Error: Failed to read file completely\n");
+        free(program_data);
+        return 1;
+    }
+
+    // 调用Runtime主函数
+    int result = c99_runtime_main(program_data, file_size);
+
+    // 清理
+    free(program_data);
+    return result;
+}
+
+/**
+ * Runtime函数指针入口点 - 由Loader调用
+ */
+int runtime_entry(void* program_data, size_t program_size) {
     return c99_runtime_main(program_data, program_size);
 }

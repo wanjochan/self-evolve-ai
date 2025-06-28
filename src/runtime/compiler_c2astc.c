@@ -977,6 +977,20 @@ static struct ASTNode* create_unary_expr(ASTNodeType op, struct ASTNode *operand
     return node;
 }
 
+// libc函数ID映射
+static uint16_t get_libc_func_id(const char* func_name) {
+    if (strcmp(func_name, "printf") == 0) return 0x0030;
+    if (strcmp(func_name, "fprintf") == 0) return 0x0031;
+    if (strcmp(func_name, "sprintf") == 0) return 0x0032;
+    if (strcmp(func_name, "scanf") == 0) return 0x0033;
+    if (strcmp(func_name, "malloc") == 0) return 0x0050;
+    if (strcmp(func_name, "free") == 0) return 0x0053;
+    if (strcmp(func_name, "strlen") == 0) return 0x0060;
+    if (strcmp(func_name, "strcpy") == 0) return 0x0061;
+    if (strcmp(func_name, "strcmp") == 0) return 0x0065;
+    return 0x0000; // 未知函数
+}
+
 // 创建函数调用表达式节点
 static struct ASTNode* create_call_expr(struct ASTNode *callee, struct ASTNode **args, int arg_count, int line, int column) {
     struct ASTNode *node = ast_create_node(ASTC_CALL_EXPR, line, column);
@@ -984,6 +998,19 @@ static struct ASTNode* create_call_expr(struct ASTNode *callee, struct ASTNode *
         node->data.call_expr.callee = callee;
         node->data.call_expr.args = args;
         node->data.call_expr.arg_count = arg_count;
+        node->data.call_expr.is_libc_call = false;
+        node->data.call_expr.libc_func_id = 0;
+
+        // 检查是否为libc函数调用
+        if (callee && callee->type == ASTC_EXPR_IDENTIFIER) {
+            const char* func_name = callee->data.identifier.name;
+            uint16_t func_id = get_libc_func_id(func_name);
+            if (func_id != 0) {
+                node->data.call_expr.is_libc_call = true;
+                node->data.call_expr.libc_func_id = func_id;
+                printf("Detected libc function call: %s (ID: 0x%04X)\n", func_name, func_id);
+            }
+        }
     }
     return node;
 }
@@ -2495,6 +2522,14 @@ unsigned char* c2astc_serialize(struct ASTNode *node, size_t *out_size) {
             // 写入参数数量
             *((int*)(buffer + pos)) = node->data.call_expr.arg_count;
             pos += 4;
+
+            // 写入libc调用标记
+            *((char*)(buffer + pos)) = node->data.call_expr.is_libc_call ? 1 : 0;
+            pos += 1;
+
+            // 写入libc函数ID
+            *((uint16_t*)(buffer + pos)) = node->data.call_expr.libc_func_id;
+            pos += 2;
             
             // 递归序列化参数
             for (int i = 0; i < node->data.call_expr.arg_count; i++) {
@@ -3358,6 +3393,22 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size) {
             if (pos + 4 <= size) {
                 node->data.call_expr.arg_count = *((int*)(binary + pos));
                 pos += 4;
+
+                // 读取libc调用标记
+                if (pos + 1 <= size) {
+                    node->data.call_expr.is_libc_call = (*((char*)(binary + pos))) != 0;
+                    pos += 1;
+                } else {
+                    node->data.call_expr.is_libc_call = false;
+                }
+
+                // 读取libc函数ID
+                if (pos + 2 <= size) {
+                    node->data.call_expr.libc_func_id = *((uint16_t*)(binary + pos));
+                    pos += 2;
+                } else {
+                    node->data.call_expr.libc_func_id = 0;
+                }
                 
                 if (node->data.call_expr.arg_count > 0) {
                     // 分配参数数组
@@ -4981,4 +5032,171 @@ struct ASTNode* create_unary_op_node(int op, struct ASTNode *operand, int line, 
     return node;
 }
 
+// ===============================================
+// AST到ASTC字节码转换
+// ===============================================
 
+// 字节码生成器
+typedef struct {
+    uint8_t* code;
+    size_t size;
+    size_t capacity;
+} BytecodeGen;
+
+// 初始化字节码生成器
+void bytecode_init(BytecodeGen* gen) {
+    gen->code = malloc(1024);
+    gen->size = 0;
+    gen->capacity = 1024;
+}
+
+// 释放字节码生成器
+void bytecode_free(BytecodeGen* gen) {
+    if (gen->code) {
+        free(gen->code);
+        gen->code = NULL;
+    }
+    gen->size = 0;
+    gen->capacity = 0;
+}
+
+// 写入字节
+void bytecode_emit_byte(BytecodeGen* gen, uint8_t byte) {
+    if (gen->size >= gen->capacity) {
+        gen->capacity *= 2;
+        gen->code = realloc(gen->code, gen->capacity);
+    }
+    gen->code[gen->size++] = byte;
+}
+
+// 写入32位整数（小端序）
+void bytecode_emit_uint32(BytecodeGen* gen, uint32_t value) {
+    bytecode_emit_byte(gen, value & 0xFF);
+    bytecode_emit_byte(gen, (value >> 8) & 0xFF);
+    bytecode_emit_byte(gen, (value >> 16) & 0xFF);
+    bytecode_emit_byte(gen, (value >> 24) & 0xFF);
+}
+
+// 写入16位整数（小端序）
+void bytecode_emit_uint16(BytecodeGen* gen, uint16_t value) {
+    bytecode_emit_byte(gen, value & 0xFF);
+    bytecode_emit_byte(gen, (value >> 8) & 0xFF);
+}
+
+// 将AST节点转换为ASTC字节码
+int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
+    if (!node || !gen) {
+        return 1;
+    }
+
+    switch (node->type) {
+        case ASTC_TRANSLATION_UNIT:
+            // 处理翻译单元中的所有声明
+            for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                ast_node_to_bytecode(node->data.translation_unit.declarations[i], gen);
+            }
+            break;
+
+        case ASTC_FUNC_DECL:
+            // 处理函数声明
+            if (node->data.func_decl.has_body) {
+                ast_node_to_bytecode(node->data.func_decl.body, gen);
+            }
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            // 处理复合语句中的所有语句
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                ast_node_to_bytecode(node->data.compound_stmt.statements[i], gen);
+            }
+            break;
+
+        case ASTC_EXPR_STMT:
+            // 处理表达式语句
+            ast_node_to_bytecode(node->data.expr_stmt.expr, gen);
+            break;
+
+        case ASTC_CALL_EXPR:
+            // 处理函数调用表达式
+            if (node->data.call_expr.is_libc_call) {
+                printf("Generating ASTC bytecode: LIBC_CALL 0x%04X with %d args\n",
+                       node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
+
+                // 暂时简化：不传递参数，只测试LIBC_CALL机制
+                // TODO: 实现字符串参数的正确处理
+
+                // 生成参数数量到栈（暂时设为0）
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, 0);   // 0个参数
+
+                // 生成函数ID到栈
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, node->data.call_expr.libc_func_id);
+
+                // 生成LIBC_CALL指令
+                bytecode_emit_byte(gen, 0xF0);  // LIBC_CALL
+            } else {
+                printf("Warning: Non-libc function call not implemented\n");
+            }
+            break;
+
+        case ASTC_RETURN_STMT:
+            // 处理return语句
+            if (node->data.return_stmt.value) {
+                ast_node_to_bytecode(node->data.return_stmt.value, gen);
+            } else {
+                // 返回0
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, 0);
+            }
+            bytecode_emit_byte(gen, 0x01);  // HALT
+            break;
+
+        case ASTC_EXPR_CONSTANT:
+            // 处理常量表达式
+            if (node->data.constant.type == ASTC_TYPE_INT) {
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, (uint32_t)node->data.constant.int_val);
+            }
+            break;
+
+        default:
+            // 其他节点类型暂时忽略
+            printf("Ignoring AST node type: %d\n", node->type);
+            break;
+    }
+
+    return 0;
+}
+
+// 将AST转换为ASTC字节码
+unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
+    if (!ast || !out_size) {
+        set_error("Invalid parameters for bytecode generation");
+        return NULL;
+    }
+
+    BytecodeGen gen;
+    bytecode_init(&gen);
+
+    printf("Converting AST to ASTC bytecode...\n");
+
+    // 转换AST节点为字节码
+    if (ast_node_to_bytecode(ast, &gen) != 0) {
+        bytecode_free(&gen);
+        set_error("Failed to convert AST to bytecode");
+        return NULL;
+    }
+
+    // 如果没有显式的HALT指令，添加一个
+    if (gen.size == 0 || gen.code[gen.size - 1] != 0x01) {
+        bytecode_emit_byte(&gen, 0x10);  // CONST_I32
+        bytecode_emit_uint32(&gen, 0);   // 返回值0
+        bytecode_emit_byte(&gen, 0x01);  // HALT
+    }
+
+    printf("Generated %zu bytes of ASTC bytecode\n", gen.size);
+
+    *out_size = gen.size;
+    return gen.code;  // 调用者负责释放内存
+}

@@ -26,6 +26,9 @@
 #include "compiler_codegen.h"
 #include "compiler_codegen_x64.h"
 
+// 前向声明
+int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen);
+
 // ===============================================
 // 代码生成器实现
 // ===============================================
@@ -359,35 +362,48 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
     // 生成函数序言
     x64_emit_function_prologue(gen);
 
-    // 编译ASTC指令序列
-    uint8_t* code = astc_data + 16;
-    size_t code_size = astc_size - 16;
-    size_t pc = 0;
+    // 尝试反序列化AST
+    uint8_t* ast_data = astc_data + 16;
+    size_t ast_data_size = astc_size - 16;
 
-    while (pc < code_size) {
-        uint8_t opcode = code[pc++];
+    struct ASTNode* ast = c2astc_deserialize(ast_data, ast_data_size);
+    if (ast) {
+        printf("JIT compiling AST to x64 machine code...\n");
+        // 编译AST节点到机器码
+        compile_ast_node_to_machine_code(ast, gen);
+        ast_free(ast);
+    } else {
+        printf("Warning: Failed to deserialize AST, trying bytecode mode...\n");
+        // 回退到字节码模式
+        uint8_t* code = astc_data + 16;
+        size_t code_size = astc_size - 16;
+        size_t pc = 0;
 
-        // 根据指令类型确定操作数长度
-        size_t operand_len = 0;
-        switch (opcode) {
-            case 0x10: operand_len = 4; break; // CONST_I32
-            case 0xF0: operand_len = 4; break; // LIBC_CALL
-            default: operand_len = 0; break;
+        while (pc < code_size) {
+            uint8_t opcode = code[pc++];
+
+            // 根据指令类型确定操作数长度
+            size_t operand_len = 0;
+            switch (opcode) {
+                case 0x10: operand_len = 4; break; // CONST_I32
+                case 0xF0: operand_len = 4; break; // LIBC_CALL
+                default: operand_len = 0; break;
+            }
+
+            uint8_t* operands = (pc + operand_len <= code_size) ? &code[pc] : NULL;
+
+            // JIT编译这条指令到机器码
+            compile_astc_instruction_to_machine_code(gen, opcode, operands, operand_len);
+
+            pc += operand_len;
         }
-
-        uint8_t* operands = (pc + operand_len <= code_size) ? &code[pc] : NULL;
-
-        // JIT编译这条指令到机器码
-        compile_astc_instruction_to_machine_code(gen, opcode, operands, operand_len);
-
-        pc += operand_len;
     }
 
     // 如果没有显式的HALT，添加默认返回
     x64_emit_function_epilogue(gen);
 
     printf("JIT compilation completed: %zu ASTC bytes → %zu machine code bytes\n",
-           code_size, gen->code_size);
+           ast_data_size, gen->code_size);
 
     return 0;
 }
@@ -516,4 +532,87 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
     ast_free(ast);
 
     return result;
-} 
+}
+
+// 编译AST节点到机器码
+int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
+    if (!node || !gen) {
+        return 1;
+    }
+
+    switch (node->type) {
+        case ASTC_TRANSLATION_UNIT:
+            // 编译翻译单元中的所有声明
+            for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                compile_ast_node_to_machine_code(node->data.translation_unit.declarations[i], gen);
+            }
+            break;
+
+        case ASTC_FUNC_DECL:
+            // 编译函数声明
+            if (node->data.func_decl.has_body) {
+                compile_ast_node_to_machine_code(node->data.func_decl.body, gen);
+            }
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            // 编译复合语句中的所有语句
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                compile_ast_node_to_machine_code(node->data.compound_stmt.statements[i], gen);
+            }
+            break;
+
+        case ASTC_EXPR_STMT:
+            // 编译表达式语句
+            compile_ast_node_to_machine_code(node->data.expr_stmt.expr, gen);
+            break;
+
+        case ASTC_CALL_EXPR:
+            // 编译函数调用表达式
+            printf("Found function call expression\n");
+
+            // 检查AST中的libc标记
+            if (node->data.call_expr.is_libc_call) {
+                printf("Generating LIBC_CALL with ID: 0x%04X, args: %d\n",
+                       node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
+
+                // 生成LIBC_CALL指令
+                x64_emit_libc_call(gen, node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
+            } else {
+                // 普通函数调用
+                if (node->data.call_expr.callee &&
+                    node->data.call_expr.callee->type == ASTC_EXPR_IDENTIFIER) {
+                    const char* func_name = node->data.call_expr.callee->data.identifier.name;
+                    printf("Regular function call: %s\n", func_name);
+                    // TODO: 处理普通函数调用
+                }
+            }
+            break;
+
+        case ASTC_RETURN_STMT:
+            // 编译return语句
+            if (node->data.return_stmt.value) {
+                compile_ast_node_to_machine_code(node->data.return_stmt.value, gen);
+                x64_emit_halt_with_return_value(gen);
+            } else {
+                // 返回0
+                x64_emit_const_i32(gen, 0);
+                x64_emit_halt_with_return_value(gen);
+            }
+            break;
+
+        case ASTC_EXPR_CONSTANT:
+            // 编译常量表达式
+            if (node->data.constant.type == ASTC_TYPE_INT) {
+                x64_emit_const_i32(gen, (uint32_t)node->data.constant.int_val);
+            }
+            break;
+
+        default:
+            // 其他节点类型暂时忽略
+            printf("Ignoring AST node type: %d\n", node->type);
+            break;
+    }
+
+    return 0;
+}

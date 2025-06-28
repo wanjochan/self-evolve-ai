@@ -87,6 +87,15 @@ struct ASTNode* c2astc_deserialize(const unsigned char *binary, size_t size);
 unsigned char* c2astc(struct ASTNode *node, const C2AstcOptions *options, size_t *out_size);
 
 /**
+ * 将AST转换为ASTC字节码
+ *
+ * @param ast AST根节点
+ * @param out_size 输出字节码大小
+ * @return 生成的ASTC字节码，失败返回NULL
+ */
+unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size);
+
+/**
  * 释放由库分配的内存
  * 
  * @param ptr 指向由库分配的内存的指针
