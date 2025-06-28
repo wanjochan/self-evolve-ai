@@ -157,7 +157,7 @@ void c99_vm_init(C99VirtualMachine* vm, uint8_t* code, size_t code_size) {
     // 初始化配置
     vm->config.heap_size = 1024 * 1024;  // 1MB堆
     vm->config.stack_size = 64 * 1024;   // 64KB栈
-    vm->config.debug_mode = false;
+    vm->config.debug_mode = true;
     vm->config.memory_tracking = false;
     vm->config.performance_monitoring = false;
     

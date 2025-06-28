@@ -5153,7 +5153,7 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
 
                 // 生成变量存储指令（简化实现）
                 // TODO: 实现真正的变量存储机制
-                bytecode_emit_byte(gen, 0x20);  // STORE_VAR
+                bytecode_emit_byte(gen, 0x61);  // STORE_LOCAL
                 bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
             }
             break;
@@ -5267,43 +5267,50 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             // 生成操作指令
             switch (node->data.binary_op.op) {
                 case ASTC_OP_ADD:
-                    bytecode_emit_byte(gen, 0x60);  // ADD
+                    bytecode_emit_byte(gen, 0x20);  // ADD
                     break;
                 case ASTC_OP_SUB:
-                    bytecode_emit_byte(gen, 0x61);  // SUB
+                    bytecode_emit_byte(gen, 0x21);  // SUB
                     break;
                 case ASTC_OP_MUL:
-                    bytecode_emit_byte(gen, 0x62);  // MUL
+                    bytecode_emit_byte(gen, 0x22);  // MUL
                     break;
                 case ASTC_OP_DIV:
-                    bytecode_emit_byte(gen, 0x63);  // DIV
+                    bytecode_emit_byte(gen, 0x23);  // DIV
                     break;
-                case ASTC_OP_LT:
-                    bytecode_emit_byte(gen, 0x64);  // LESS_THAN
-                    break;
-                case ASTC_OP_LE:
-                    bytecode_emit_byte(gen, 0x65);  // LESS_EQUAL
-                    break;
-                case ASTC_OP_GT:
-                    bytecode_emit_byte(gen, 0x66);  // GREATER_THAN
-                    break;
-                case ASTC_OP_GE:
-                    bytecode_emit_byte(gen, 0x67);  // GREATER_EQUAL
+                case ASTC_OP_MOD:
+                    bytecode_emit_byte(gen, 0x24);  // MOD
                     break;
                 case ASTC_OP_EQ:
-                    bytecode_emit_byte(gen, 0x68);  // EQUAL
+                    bytecode_emit_byte(gen, 0x30);  // EQ
                     break;
                 case ASTC_OP_NE:
-                    bytecode_emit_byte(gen, 0x69);  // NOT_EQUAL
+                    bytecode_emit_byte(gen, 0x31);  // NE
                     break;
-                case ASTC_OP_ASSIGN:
-                    bytecode_emit_byte(gen, 0x6A);  // ASSIGN
+                case ASTC_OP_LT:
+                    bytecode_emit_byte(gen, 0x32);  // LT
+                    break;
+                case ASTC_OP_LE:
+                    bytecode_emit_byte(gen, 0x33);  // LE
+                    break;
+                case ASTC_OP_GT:
+                    bytecode_emit_byte(gen, 0x34);  // GT
+                    break;
+                case ASTC_OP_GE:
+                    bytecode_emit_byte(gen, 0x35);  // GE
                     break;
                 case ASTC_OP_LOGICAL_AND:
-                    bytecode_emit_byte(gen, 0x6B);  // LOGICAL_AND
+                    bytecode_emit_byte(gen, 0x40);  // AND
                     break;
                 case ASTC_OP_LOGICAL_OR:
-                    bytecode_emit_byte(gen, 0x6C);  // LOGICAL_OR
+                    bytecode_emit_byte(gen, 0x41);  // OR
+                    break;
+                case ASTC_OP_ASSIGN:
+                    // 赋值操作：右值已经在栈上，现在需要存储到左值
+                    // 简化实现：假设左值是变量，使用STORE_LOCAL
+                    printf("Processing assignment operation\n");
+                    bytecode_emit_byte(gen, 0x61);  // STORE_LOCAL
+                    bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
                     break;
                 default:
                     printf("Warning: Unsupported binary operation: %d (0x%X)\n", node->data.binary_op.op, node->data.binary_op.op);
@@ -5330,8 +5337,8 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
                 ast_node_to_bytecode(node->data.if_stmt.condition, gen);
             }
 
-            // 生成条件跳转指令
-            bytecode_emit_byte(gen, 0x40);  // JUMP_IF_FALSE
+            // 生成条件跳转指令 (条件为0时跳转)
+            bytecode_emit_byte(gen, 0x51);  // JZ
             size_t jump_addr_pos = gen->size;
             bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
 
@@ -5344,7 +5351,7 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             size_t else_jump_pos = 0;
             if (node->data.if_stmt.else_branch) {
                 // 生成跳过else分支的跳转
-                bytecode_emit_byte(gen, 0x41);  // JUMP
+                bytecode_emit_byte(gen, 0x50);  // JMP
                 else_jump_pos = gen->size;
                 bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
             }
@@ -5373,7 +5380,7 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
 
             // 生成条件跳转指令（条件为假时跳出循环）
-            bytecode_emit_byte(gen, 0x40);  // JUMP_IF_FALSE
+            bytecode_emit_byte(gen, 0x51);  // JZ
             size_t jump_out_pos = gen->size;
             bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
 
@@ -5383,7 +5390,7 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
 
             // 生成跳回循环开始的指令
-            bytecode_emit_byte(gen, 0x41);  // JUMP
+            bytecode_emit_byte(gen, 0x50);  // JMP
             bytecode_emit_uint32(gen, (uint32_t)loop_start);
 
             // 填充跳出循环的地址
@@ -5401,17 +5408,21 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
 
             // 生成操作指令
             switch (node->data.unary_op.op) {
-                case ASTC_OP_NEG:
-                    bytecode_emit_byte(gen, 0x50);  // NEGATE
-                    break;
                 case ASTC_OP_NOT:
-                    bytecode_emit_byte(gen, 0x51);  // LOGICAL_NOT
+                    bytecode_emit_byte(gen, 0x42);  // NOT
+                    break;
+                case ASTC_OP_NEG:
+                    // 负号：0 - operand
+                    bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                    bytecode_emit_uint32(gen, 0);   // 推入0
+                    // 交换栈顶两个元素，然后减法
+                    bytecode_emit_byte(gen, 0x21);  // SUB (0 - operand)
                     break;
                 case ASTC_OP_DEREF:
-                    bytecode_emit_byte(gen, 0x52);  // DEREFERENCE
+                    printf("Warning: Dereference operation not yet implemented\n");
                     break;
                 case ASTC_OP_ADDR:
-                    bytecode_emit_byte(gen, 0x53);  // ADDRESS_OF
+                    printf("Warning: Address-of operation not yet implemented\n");
                     break;
                 default:
                     printf("Warning: Unsupported unary operation: %d\n", node->data.unary_op.op);
@@ -5496,6 +5507,46 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             // TODO: 处理成员名称
             bytecode_emit_byte(gen, 0x74);  // MEMBER_ACCESS
+            break;
+
+        case ASTC_STRUCT_DECL:
+            // 处理结构体声明
+            printf("Processing struct declaration\n");
+            // 结构体声明在编译时处理，运行时不需要特殊指令
+            // 只需要处理成员声明
+            for (int i = 0; i < node->data.struct_decl.member_count; i++) {
+                ast_node_to_bytecode(node->data.struct_decl.members[i], gen);
+            }
+            break;
+
+        case ASTC_UNION_DECL:
+            // 处理联合体声明
+            printf("Processing union declaration\n");
+            // 联合体声明在编译时处理，运行时不需要特殊指令
+            for (int i = 0; i < node->data.union_decl.member_count; i++) {
+                ast_node_to_bytecode(node->data.union_decl.members[i], gen);
+            }
+            break;
+
+        case ASTC_POINTER_TYPE:
+            // 处理指针类型
+            printf("Processing pointer type\n");
+            // 指针类型在编译时处理，运行时不需要特殊指令
+            if (node->data.pointer_type.base_type) {
+                ast_node_to_bytecode(node->data.pointer_type.base_type, gen);
+            }
+            break;
+
+        case ASTC_ARRAY_TYPE:
+            // 处理数组类型
+            printf("Processing array type\n");
+            // 数组类型在编译时处理，运行时不需要特殊指令
+            if (node->data.array_type.element_type) {
+                ast_node_to_bytecode(node->data.array_type.element_type, gen);
+            }
+            if (node->data.array_type.size_expr) {
+                ast_node_to_bytecode(node->data.array_type.size_expr, gen);
+            }
             break;
 
         default:

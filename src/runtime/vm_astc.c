@@ -1341,11 +1341,255 @@ int astc_execute_instruction(ASTCVirtualMachine* vm) {
             }
             break;
 
+        case 0x12: // CONST_STRING
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t str_len = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+
+                if (vm->pc + str_len <= vm->code_size) {
+                    // 将字符串地址推入栈
+                    astc_vm_push(vm, (uint32_t)(vm->code + vm->pc));
+                    vm->pc += str_len;
+                } else {
+                    // 字符串数据不完整，推入NULL
+                    astc_vm_push(vm, 0);
+                }
+            }
+            break;
+
         case 0x20: // ADD
             {
                 uint32_t b = astc_vm_pop(vm);
                 uint32_t a = astc_vm_pop(vm);
                 astc_vm_push(vm, a + b);
+            }
+            break;
+
+        case 0x21: // SUB
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, a - b);
+            }
+            break;
+
+        case 0x22: // MUL
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, a * b);
+            }
+            break;
+
+        case 0x23: // DIV
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                if (b != 0) {
+                    astc_vm_push(vm, a / b);
+                } else {
+                    // 除零错误，停止执行
+                    vm->running = false;
+                    return -1;
+                }
+            }
+            break;
+
+        case 0x24: // MOD
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                if (b != 0) {
+                    astc_vm_push(vm, a % b);
+                } else {
+                    vm->running = false;
+                    return -1;
+                }
+            }
+            break;
+
+        // 比较指令
+        case 0x30: // EQ (==)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a == b) ? 1 : 0);
+            }
+            break;
+
+        case 0x31: // NE (!=)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a != b) ? 1 : 0);
+            }
+            break;
+
+        case 0x32: // LT (<)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a < b) ? 1 : 0);
+            }
+            break;
+
+        case 0x33: // LE (<=)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a <= b) ? 1 : 0);
+            }
+            break;
+
+        case 0x34: // GT (>)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a > b) ? 1 : 0);
+            }
+            break;
+
+        case 0x35: // GE (>=)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a >= b) ? 1 : 0);
+            }
+            break;
+
+        // 逻辑指令
+        case 0x40: // AND (&&)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a && b) ? 1 : 0);
+            }
+            break;
+
+        case 0x41: // OR (||)
+            {
+                uint32_t b = astc_vm_pop(vm);
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (a || b) ? 1 : 0);
+            }
+            break;
+
+        case 0x42: // NOT (!)
+            {
+                uint32_t a = astc_vm_pop(vm);
+                astc_vm_push(vm, (!a) ? 1 : 0);
+            }
+            break;
+
+        // 跳转指令
+        case 0x50: // JMP - 无条件跳转
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc = offset;
+            }
+            break;
+
+        case 0x51: // JZ - 零跳转
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t condition = astc_vm_pop(vm);
+                if (condition == 0) {
+                    vm->pc = offset;
+                }
+            }
+            break;
+
+        case 0x52: // JNZ - 非零跳转
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t condition = astc_vm_pop(vm);
+                if (condition != 0) {
+                    vm->pc = offset;
+                }
+            }
+            break;
+
+        // 变量操作指令
+        case 0x60: // LOAD_LOCAL - 加载局部变量
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                if (index < 512) {
+                    astc_vm_push(vm, vm->locals[index]);
+                }
+            }
+            break;
+
+        case 0x61: // STORE_LOCAL - 存储局部变量
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                if (index < 512) {
+                    vm->locals[index] = astc_vm_pop(vm);
+                }
+            }
+            break;
+
+        case 0x62: // LOAD_GLOBAL - 加载全局变量
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                if (index < 1024) {
+                    astc_vm_push(vm, vm->globals[index]);
+                }
+            }
+            break;
+
+        case 0x63: // STORE_GLOBAL - 存储全局变量
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                if (index < 1024) {
+                    vm->globals[index] = astc_vm_pop(vm);
+                }
+            }
+            break;
+
+        // 数组和结构体操作指令
+        case 0x72: // ARRAY_ACCESS - 数组访问
+            {
+                uint32_t index = astc_vm_pop(vm);
+                uint32_t array_addr = astc_vm_pop(vm);
+                // 简化实现：假设数组元素是32位整数
+                uint32_t *array = (uint32_t*)array_addr;
+                if (array && index < 1024) { // 简单边界检查
+                    astc_vm_push(vm, array[index]);
+                } else {
+                    astc_vm_push(vm, 0); // 错误时返回0
+                }
+            }
+            break;
+
+        case 0x73: // PTR_MEMBER_ACCESS - 指针成员访问
+            {
+                uint32_t ptr_addr = astc_vm_pop(vm);
+                // 简化实现：暂时只支持基本的指针解引用
+                uint32_t *ptr = (uint32_t*)ptr_addr;
+                if (ptr) {
+                    astc_vm_push(vm, *ptr);
+                } else {
+                    astc_vm_push(vm, 0);
+                }
+            }
+            break;
+
+        case 0x74: // MEMBER_ACCESS - 成员访问
+            {
+                uint32_t obj_addr = astc_vm_pop(vm);
+                // 简化实现：假设访问第一个成员
+                uint32_t *obj = (uint32_t*)obj_addr;
+                if (obj) {
+                    astc_vm_push(vm, *obj);
+                } else {
+                    astc_vm_push(vm, 0);
+                }
             }
             break;
 
