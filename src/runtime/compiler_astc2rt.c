@@ -265,6 +265,36 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             }
             break;
 
+        case 0xF1: // USER_CALL
+            x64_emit_user_call(gen);
+            break;
+
+        // Arithmetic operations
+        case 0x60: // ADD
+            x64_emit_add(gen);
+            break;
+
+        case 0x61: // SUB
+            x64_emit_sub(gen);
+            break;
+
+        case 0x62: // MUL
+            x64_emit_mul(gen);
+            break;
+
+        case 0x63: // DIV
+            x64_emit_div(gen);
+            break;
+
+        // Comparison operations
+        case 0x64: // LESS_THAN
+            x64_emit_less_than(gen);
+            break;
+
+        case 0x68: // EQUAL
+            x64_emit_equal(gen);
+            break;
+
         default:
             // 未知指令，生成nop
             x64_emit_nop(gen);

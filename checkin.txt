@@ -1,5 +1,9 @@
-## 2025-06-27 12:00:
+## 2025-06-28 12:00:
 
-如果你是智能助理 augment： 请你根据 docs/PRD.md 继续推进，特别注意 plan.md 是你的动态规划和非线性任务工作文档。
+如果你智能助理 augmentcode，请你注意：
+- 请根据 docs/PRD.md 持续推进
+- 源代码用英文，思考和聊天要用中文，要精准（precise）和精简（concise）而且不要盲目乐观和自信，要批判性思考
+- 要根据情况非线性地动态规划任务，任务名在更新时可以修改标题带上百分比进度
+- 会话每个回合在结束时：把任务执行情况同步到 docs/plan.md 然后执行命令 powershell -NoLogo -NoProfile -Command "Add-Type -AssemblyName System.Speech; $spk = New-Object System.Speech.Synthesis.SpeechSynthesizer; $spk.SelectVoice('Microsoft Huihui Desktop'); $spk.Speak('完成了')"
 
 如果你是其它智能助理（如 rovodev 或 gemini-cli ）：请评估项目源代码（ src/ ）以及augment的工作文档（ docs/plan.md ）来总结你的评估到 docs/{agentName}.md 中，注意使用精简( concise )和精准( precise )的中文

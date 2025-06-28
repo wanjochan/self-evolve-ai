@@ -5142,6 +5142,22 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             break;
 
+        case ASTC_VAR_DECL:
+            // 处理变量声明
+            printf("Processing variable declaration\n");
+
+            // 如果有初始化表达式，生成初始化代码
+            if (node->data.var_decl.initializer) {
+                // 生成初始化表达式的字节码
+                ast_node_to_bytecode(node->data.var_decl.initializer, gen);
+
+                // 生成变量存储指令（简化实现）
+                // TODO: 实现真正的变量存储机制
+                bytecode_emit_byte(gen, 0x20);  // STORE_VAR
+                bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
+            }
+            break;
+
         case ASTC_COMPOUND_STMT:
             // 处理复合语句中的所有语句
             for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
@@ -5151,7 +5167,10 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
 
         case ASTC_EXPR_STMT:
             // 处理表达式语句
-            ast_node_to_bytecode(node->data.expr_stmt.expr, gen);
+            printf("Processing expression statement\n");
+            if (node->data.expr_stmt.expr) {
+                ast_node_to_bytecode(node->data.expr_stmt.expr, gen);
+            }
             break;
 
         case ASTC_CALL_EXPR:
@@ -5182,7 +5201,32 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
                 // 生成LIBC_CALL指令
                 bytecode_emit_byte(gen, 0xF0);  // LIBC_CALL
             } else {
-                printf("Warning: Non-libc function call not implemented\n");
+                // 处理用户定义函数调用
+                printf("Generating ASTC bytecode: USER_CALL with %d args\n",
+                       node->data.call_expr.arg_count);
+
+                // 生成参数到栈（从右到左）
+                for (int i = node->data.call_expr.arg_count - 1; i >= 0; i--) {
+                    if (node->data.call_expr.args[i]) {
+                        ast_node_to_bytecode(node->data.call_expr.args[i], gen);
+                    } else {
+                        // 空参数，推入0
+                        bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                        bytecode_emit_uint32(gen, 0);
+                    }
+                }
+
+                // 生成参数数量到栈
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, node->data.call_expr.arg_count);
+
+                // 生成函数哈希（简化实现）
+                uint32_t func_hash = 0x12345678;  // 固定哈希值，TODO: 从callee获取函数名
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, func_hash);
+
+                // 生成USER_CALL指令
+                bytecode_emit_byte(gen, 0xF1);  // USER_CALL
             }
             break;
 
@@ -5206,6 +5250,175 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             break;
 
+        case ASTC_BINARY_OP:
+            // 处理二元操作
+            printf("Processing binary operation\n");
+
+            // 生成左操作数
+            if (node->data.binary_op.left) {
+                ast_node_to_bytecode(node->data.binary_op.left, gen);
+            }
+
+            // 生成右操作数
+            if (node->data.binary_op.right) {
+                ast_node_to_bytecode(node->data.binary_op.right, gen);
+            }
+
+            // 生成操作指令
+            switch (node->data.binary_op.op) {
+                case ASTC_OP_ADD:
+                    bytecode_emit_byte(gen, 0x60);  // ADD
+                    break;
+                case ASTC_OP_SUB:
+                    bytecode_emit_byte(gen, 0x61);  // SUB
+                    break;
+                case ASTC_OP_MUL:
+                    bytecode_emit_byte(gen, 0x62);  // MUL
+                    break;
+                case ASTC_OP_DIV:
+                    bytecode_emit_byte(gen, 0x63);  // DIV
+                    break;
+                case ASTC_OP_LT:
+                    bytecode_emit_byte(gen, 0x64);  // LESS_THAN
+                    break;
+                case ASTC_OP_LE:
+                    bytecode_emit_byte(gen, 0x65);  // LESS_EQUAL
+                    break;
+                case ASTC_OP_GT:
+                    bytecode_emit_byte(gen, 0x66);  // GREATER_THAN
+                    break;
+                case ASTC_OP_GE:
+                    bytecode_emit_byte(gen, 0x67);  // GREATER_EQUAL
+                    break;
+                case ASTC_OP_EQ:
+                    bytecode_emit_byte(gen, 0x68);  // EQUAL
+                    break;
+                case ASTC_OP_NE:
+                    bytecode_emit_byte(gen, 0x69);  // NOT_EQUAL
+                    break;
+                case ASTC_OP_ASSIGN:
+                    bytecode_emit_byte(gen, 0x6A);  // ASSIGN
+                    break;
+                case ASTC_OP_LOGICAL_AND:
+                    bytecode_emit_byte(gen, 0x6B);  // LOGICAL_AND
+                    break;
+                case ASTC_OP_LOGICAL_OR:
+                    bytecode_emit_byte(gen, 0x6C);  // LOGICAL_OR
+                    break;
+                default:
+                    printf("Warning: Unsupported binary operation: %d (0x%X)\n", node->data.binary_op.op, node->data.binary_op.op);
+                    break;
+            }
+            break;
+
+        case ASTC_EXPR_IDENTIFIER:
+            // 处理标识符表达式（变量引用）
+            printf("Processing identifier expression\n");
+
+            // 生成变量加载指令（简化实现）
+            // TODO: 实现真正的变量查找机制
+            bytecode_emit_byte(gen, 0x21);  // LOAD_VAR
+            bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
+            break;
+
+        case ASTC_IF_STMT:
+            // 处理if语句
+            printf("Processing if statement\n");
+
+            // 生成条件表达式
+            if (node->data.if_stmt.condition) {
+                ast_node_to_bytecode(node->data.if_stmt.condition, gen);
+            }
+
+            // 生成条件跳转指令
+            bytecode_emit_byte(gen, 0x40);  // JUMP_IF_FALSE
+            size_t jump_addr_pos = gen->size;
+            bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
+
+            // 生成then分支
+            if (node->data.if_stmt.then_branch) {
+                ast_node_to_bytecode(node->data.if_stmt.then_branch, gen);
+            }
+
+            // 如果有else分支
+            size_t else_jump_pos = 0;
+            if (node->data.if_stmt.else_branch) {
+                // 生成跳过else分支的跳转
+                bytecode_emit_byte(gen, 0x41);  // JUMP
+                else_jump_pos = gen->size;
+                bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
+            }
+
+            // 填充条件跳转地址
+            *(uint32_t*)(gen->code + jump_addr_pos) = (uint32_t)gen->size;
+
+            // 生成else分支
+            if (node->data.if_stmt.else_branch) {
+                ast_node_to_bytecode(node->data.if_stmt.else_branch, gen);
+                // 填充else跳转地址
+                *(uint32_t*)(gen->code + else_jump_pos) = (uint32_t)gen->size;
+            }
+            break;
+
+        case ASTC_WHILE_STMT:
+            // 处理while语句
+            printf("Processing while statement\n");
+
+            // 记录循环开始位置
+            size_t loop_start = gen->size;
+
+            // 生成条件表达式
+            if (node->data.while_stmt.condition) {
+                ast_node_to_bytecode(node->data.while_stmt.condition, gen);
+            }
+
+            // 生成条件跳转指令（条件为假时跳出循环）
+            bytecode_emit_byte(gen, 0x40);  // JUMP_IF_FALSE
+            size_t jump_out_pos = gen->size;
+            bytecode_emit_uint32(gen, 0);   // 跳转地址（稍后填充）
+
+            // 生成循环体
+            if (node->data.while_stmt.body) {
+                ast_node_to_bytecode(node->data.while_stmt.body, gen);
+            }
+
+            // 生成跳回循环开始的指令
+            bytecode_emit_byte(gen, 0x41);  // JUMP
+            bytecode_emit_uint32(gen, (uint32_t)loop_start);
+
+            // 填充跳出循环的地址
+            *(uint32_t*)(gen->code + jump_out_pos) = (uint32_t)gen->size;
+            break;
+
+        case ASTC_UNARY_OP:
+            // 处理一元操作
+            printf("Processing unary operation\n");
+
+            // 生成操作数
+            if (node->data.unary_op.operand) {
+                ast_node_to_bytecode(node->data.unary_op.operand, gen);
+            }
+
+            // 生成操作指令
+            switch (node->data.unary_op.op) {
+                case ASTC_OP_NEG:
+                    bytecode_emit_byte(gen, 0x50);  // NEGATE
+                    break;
+                case ASTC_OP_NOT:
+                    bytecode_emit_byte(gen, 0x51);  // LOGICAL_NOT
+                    break;
+                case ASTC_OP_DEREF:
+                    bytecode_emit_byte(gen, 0x52);  // DEREFERENCE
+                    break;
+                case ASTC_OP_ADDR:
+                    bytecode_emit_byte(gen, 0x53);  // ADDRESS_OF
+                    break;
+                default:
+                    printf("Warning: Unsupported unary operation: %d\n", node->data.unary_op.op);
+                    break;
+            }
+            break;
+
         case ASTC_EXPR_STRING_LITERAL:
             // 处理字符串字面量
             printf("Generating string literal: \"%s\"\n", node->data.string_literal.value);
@@ -5223,9 +5436,71 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             break;
 
+        case ASTC_BREAK_STMT:
+            // 处理break语句
+            printf("Processing break statement\n");
+            bytecode_emit_byte(gen, 0x70);  // BREAK
+            break;
+
+        case ASTC_CONTINUE_STMT:
+            // 处理continue语句
+            printf("Processing continue statement\n");
+            bytecode_emit_byte(gen, 0x71);  // CONTINUE
+            break;
+
+        case ASTC_FOR_STMT:
+            // 处理for循环
+            printf("Processing for statement\n");
+            // TODO: 实现完整的for循环支持
+            if (node->data.for_stmt.init) {
+                ast_node_to_bytecode(node->data.for_stmt.init, gen);
+            }
+            if (node->data.for_stmt.condition) {
+                ast_node_to_bytecode(node->data.for_stmt.condition, gen);
+            }
+            if (node->data.for_stmt.body) {
+                ast_node_to_bytecode(node->data.for_stmt.body, gen);
+            }
+            if (node->data.for_stmt.increment) {
+                ast_node_to_bytecode(node->data.for_stmt.increment, gen);
+            }
+            break;
+
+        case ASTC_EXPR_ARRAY_SUBSCRIPT:
+            // 处理数组下标访问
+            printf("Processing array subscript\n");
+            if (node->data.array_subscript.array) {
+                ast_node_to_bytecode(node->data.array_subscript.array, gen);
+            }
+            if (node->data.array_subscript.index) {
+                ast_node_to_bytecode(node->data.array_subscript.index, gen);
+            }
+            bytecode_emit_byte(gen, 0x72);  // ARRAY_ACCESS
+            break;
+
+        case ASTC_EXPR_PTR_MEMBER_ACCESS:
+            // 处理指针成员访问 (->)
+            printf("Processing pointer member access\n");
+            if (node->data.member_access.object) {
+                ast_node_to_bytecode(node->data.member_access.object, gen);
+            }
+            // TODO: 处理成员名称
+            bytecode_emit_byte(gen, 0x73);  // PTR_MEMBER_ACCESS
+            break;
+
+        case ASTC_EXPR_MEMBER_ACCESS:
+            // 处理成员访问 (.)
+            printf("Processing member access\n");
+            if (node->data.member_access.object) {
+                ast_node_to_bytecode(node->data.member_access.object, gen);
+            }
+            // TODO: 处理成员名称
+            bytecode_emit_byte(gen, 0x74);  // MEMBER_ACCESS
+            break;
+
         default:
             // 其他节点类型暂时忽略
-            printf("Ignoring AST node type: %d\n", node->type);
+            printf("Ignoring AST node type: %d (0x%X)\n", node->type, node->type);
             break;
     }
 

@@ -118,6 +118,90 @@ void x64_emit_libc_call(CodeGen* gen, uint16_t func_id, uint16_t arg_count) {
     emit_byte(gen, 0x50);        // push rax
 }
 
+void x64_emit_user_call(CodeGen* gen) {
+    // 简化实现：用户函数调用
+    // TODO: 实现真正的函数调用机制
+
+    // 暂时返回固定值42
+    emit_byte(gen, 0xb8);        // mov eax, 42
+    emit_int32(gen, 42);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+// Arithmetic operations
+void x64_emit_add(CodeGen* gen) {
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x48);        // add rax, rbx
+    emit_byte(gen, 0x01);
+    emit_byte(gen, 0xd8);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+void x64_emit_sub(CodeGen* gen) {
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // sub rax, rbx
+    emit_byte(gen, 0x29);
+    emit_byte(gen, 0xd8);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+void x64_emit_mul(CodeGen* gen) {
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // imul rax, rbx
+    emit_byte(gen, 0x0f);
+    emit_byte(gen, 0xaf);
+    emit_byte(gen, 0xc3);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+void x64_emit_div(CodeGen* gen) {
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // xor rdx, rdx
+    emit_byte(gen, 0x31);
+    emit_byte(gen, 0xd2);
+    emit_byte(gen, 0x48);        // idiv rbx
+    emit_byte(gen, 0xf7);
+    emit_byte(gen, 0xfb);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+// Comparison operations
+void x64_emit_less_than(CodeGen* gen) {
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // cmp rax, rbx
+    emit_byte(gen, 0x39);
+    emit_byte(gen, 0xd8);
+    emit_byte(gen, 0x0f);        // setl al
+    emit_byte(gen, 0x9c);
+    emit_byte(gen, 0xc0);
+    emit_byte(gen, 0x48);        // movzx rax, al
+    emit_byte(gen, 0x0f);
+    emit_byte(gen, 0xb6);
+    emit_byte(gen, 0xc0);
+    emit_byte(gen, 0x50);        // push rax
+}
+
+void x64_emit_equal(CodeGen* gen) {
+    emit_byte(gen, 0x5b);        // pop rbx
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // cmp rax, rbx
+    emit_byte(gen, 0x39);
+    emit_byte(gen, 0xd8);
+    emit_byte(gen, 0x0f);        // sete al
+    emit_byte(gen, 0x94);
+    emit_byte(gen, 0xc0);
+    emit_byte(gen, 0x48);        // movzx rax, al
+    emit_byte(gen, 0x0f);
+    emit_byte(gen, 0xb6);
+    emit_byte(gen, 0xc0);
+    emit_byte(gen, 0x50);        // push rax
+}
+
 void x64_emit_function_prologue(CodeGen* gen) {
     // 标准x64函数序言 (Microsoft x64调用约定)
     emit_byte(gen, 0x55);        // push rbp

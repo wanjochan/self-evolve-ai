@@ -278,43 +278,30 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
                 }
             }
             break;
-            
-        case 0x20: // ADD
-            {
-                uint32_t b = c99_vm_pop(vm);
-                uint32_t a = c99_vm_pop(vm);
-                c99_vm_push(vm, a + b);
+
+        // Variable operations
+        case 0x20: // STORE_VAR
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t var_index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t value = c99_vm_pop(vm);
+                // TODO: Implement variable storage
+                printf("DEBUG: STORE_VAR[%d] = %d\n", var_index, value);
+            }
+            break;
+
+        case 0x21: // LOAD_VAR
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t var_index = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                // TODO: Implement variable loading
+                printf("DEBUG: LOAD_VAR[%d]\n", var_index);
+                c99_vm_push(vm, 42); // Placeholder value
             }
             break;
             
-        case 0x21: // SUB
-            {
-                uint32_t b = c99_vm_pop(vm);
-                uint32_t a = c99_vm_pop(vm);
-                c99_vm_push(vm, a - b);
-            }
-            break;
-            
-        case 0x22: // MUL
-            {
-                uint32_t b = c99_vm_pop(vm);
-                uint32_t a = c99_vm_pop(vm);
-                c99_vm_push(vm, a * b);
-            }
-            break;
-            
-        case 0x23: // DIV
-            {
-                uint32_t b = c99_vm_pop(vm);
-                uint32_t a = c99_vm_pop(vm);
-                if (b != 0) {
-                    c99_vm_push(vm, a / b);
-                } else {
-                    fprintf(stderr, "Runtime Error: Division by zero\n");
-                    vm->running = false;
-                }
-            }
-            break;
+
+
             
         case 0x30: // LOAD_LOCAL
             if (vm->pc < vm->code_size) {
@@ -353,7 +340,172 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
                 }
             }
             break;
-            
+
+        // Arithmetic operations
+        case 0x60: // ADD
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a + b);
+            }
+            break;
+
+        case 0x61: // SUB
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a - b);
+            }
+            break;
+
+        case 0x62: // MUL
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a * b);
+            }
+            break;
+
+        case 0x63: // DIV
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                if (b != 0) {
+                    c99_vm_push(vm, a / b);
+                } else {
+                    printf("Runtime Error: Division by zero\n");
+                    vm->running = 0;
+                }
+            }
+            break;
+
+        // Comparison operations
+        case 0x64: // LESS_THAN
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a < b ? 1 : 0);
+            }
+            break;
+
+        case 0x65: // LESS_EQUAL
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a <= b ? 1 : 0);
+            }
+            break;
+
+        case 0x66: // GREATER_THAN
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a > b ? 1 : 0);
+            }
+            break;
+
+        case 0x67: // GREATER_EQUAL
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a >= b ? 1 : 0);
+            }
+            break;
+
+        case 0x68: // EQUAL
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a == b ? 1 : 0);
+            }
+            break;
+
+        case 0x69: // NOT_EQUAL
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, a != b ? 1 : 0);
+            }
+            break;
+
+        case 0x6A: // ASSIGN
+            {
+                uint32_t value = c99_vm_pop(vm);
+                uint32_t addr = c99_vm_pop(vm);
+                // TODO: Implement memory assignment
+                printf("DEBUG: ASSIGN [%d] = %d\n", addr, value);
+                c99_vm_push(vm, value);
+            }
+            break;
+
+        case 0x6B: // LOGICAL_AND
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, (a && b) ? 1 : 0);
+            }
+            break;
+
+        case 0x6C: // LOGICAL_OR
+            {
+                uint32_t b = c99_vm_pop(vm);
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, (a || b) ? 1 : 0);
+            }
+            break;
+
+        // Control flow operations
+        case 0x40: // JUMP_IF_FALSE
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t jump_addr = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t condition = c99_vm_pop(vm);
+                if (!condition) {
+                    vm->pc = jump_addr;
+                }
+            }
+            break;
+
+        case 0x41: // JUMP
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t jump_addr = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc = jump_addr;
+            }
+            break;
+
+        // Unary operations
+        case 0x50: // NEGATE
+            {
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, -(int32_t)a);
+            }
+            break;
+
+        case 0x51: // LOGICAL_NOT
+            {
+                uint32_t a = c99_vm_pop(vm);
+                c99_vm_push(vm, !a ? 1 : 0);
+            }
+            break;
+
+        case 0x52: // DEREFERENCE
+            {
+                uint32_t addr = c99_vm_pop(vm);
+                // TODO: Implement memory dereference
+                printf("DEBUG: DEREFERENCE [%d]\n", addr);
+                c99_vm_push(vm, 42); // Placeholder
+            }
+            break;
+
+        case 0x53: // ADDRESS_OF
+            {
+                uint32_t var_index = c99_vm_pop(vm);
+                // TODO: Implement address calculation
+                printf("DEBUG: ADDRESS_OF var[%d]\n", var_index);
+                c99_vm_push(vm, 0x1000 + var_index); // Placeholder address
+            }
+            break;
+
         case 0xF0: // LIBC_CALL - C99标准库调用
             {
                 printf("DEBUG: LIBC_CALL instruction executed\n");
@@ -362,6 +514,20 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
                 printf("DEBUG: func_id=0x%04X, arg_count=%d\n", func_id, arg_count);
                 execute_libc_call(vm, func_id, arg_count);
                 printf("DEBUG: LIBC_CALL completed\n");
+            }
+            break;
+
+        case 0xF1: // USER_CALL - 用户定义函数调用
+            {
+                printf("DEBUG: USER_CALL instruction executed\n");
+                uint32_t func_hash = c99_vm_pop(vm);
+                uint32_t arg_count = c99_vm_pop(vm);
+                printf("DEBUG: func_hash=0x%08X, arg_count=%d\n", func_hash, arg_count);
+
+                // 简化实现：暂时返回固定值
+                // TODO: 实现真正的函数调用机制
+                printf("DEBUG: USER_CALL not fully implemented, returning 0\n");
+                c99_vm_push(vm, 0);
             }
             break;
             
