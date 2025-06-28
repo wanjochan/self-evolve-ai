@@ -14,6 +14,11 @@
  * - 实现ASTC虚拟机
  */
 
+// TODO: [Module] 添加全局符号表管理系统
+// TODO: [Module] 实现模块加载/卸载机制
+// TODO: [Module] 支持运行时动态链接
+// TODO: [Module] 设计模块版本控制和兼容性检查
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

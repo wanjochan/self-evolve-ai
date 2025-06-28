@@ -37,18 +37,18 @@ typedef struct {
 } RuntimeHeader;
 
 /**
- * 初始化代码生成器
+ * 初始化ASTC代码生成器
  *
  * @return 初始化的代码生成器
  */
-CodeGen* codegen_init(void);
+CodeGen* astc_codegen_init(void);
 
 /**
- * 释放代码生成器资源
+ * 释放ASTC代码生成器资源
  *
  * @param gen 代码生成器
  */
-void codegen_free(CodeGen* gen);
+void astc_codegen_free(CodeGen* gen);
 
 /**
  * 输出一个字节到代码缓冲区

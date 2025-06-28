@@ -1,5 +1,5 @@
 /**
- * evolver0_program.c - 第零代Program实现
+ * evolver0.c - 第零代Program实现
  *
  * 这是evolver0的Program层，包含编译器的核心逻辑
  * 编译为ASTC格式，由evolver0_runtime执行
@@ -181,9 +181,9 @@ int generate_evolver1_loader() {
 // 生成evolver1_loader.c源码
 int generate_evolver1_loader_source() {
     // 读取evolver0_loader.c并生成增强版的evolver1_loader.c
-    FILE* input = fopen("src/evolver0/evolver0_loader.c", "r");
+    FILE* input = fopen("src/runtime/loader.c", "r");
     if (!input) {
-        printf("无法读取src/evolver0/evolver0_loader.c\n");
+        printf("无法读取src/runtime/loader.c\n");
         return 1;
     }
 
@@ -201,7 +201,7 @@ int generate_evolver1_loader_source() {
     fprintf(output, " * 增强功能：更好的错误处理、性能优化\n");
     fprintf(output, " */\n\n");
 
-    // 复制evolver0_loader.c的内容，并进行增强
+    // 复制loader.c的内容，并进行增强
     char buffer[1024];
     while (fgets(buffer, sizeof(buffer), input)) {
         // 简单的增强：添加更多调试信息
@@ -237,10 +237,10 @@ int compile_evolver1_loader() {
 
 // 生成evolver1_runtime
 int generate_evolver1_runtime() {
-    // 读取evolver0_runtime.c并生成优化版的evolver1_runtime.c
-    FILE* input = fopen("src/evolver0/evolver0_runtime.c", "r");
+    // 读取runtime.c并生成优化版的evolver1_runtime.c
+    FILE* input = fopen("src/runtime/runtime.c", "r");
     if (!input) {
-        printf("无法读取src/evolver0/evolver0_runtime.c\n");
+        printf("无法读取src/runtime/runtime.c\n");
         return 1;
     }
 
@@ -258,7 +258,7 @@ int generate_evolver1_runtime() {
     fprintf(output, " * 优化功能：更快的AST执行、改进的内存管理\n");
     fprintf(output, " */\n\n");
 
-    // 复制并优化evolver0_runtime.c的内容
+    // 复制并优化runtime.c的内容
     char buffer[1024];
     while (fgets(buffer, sizeof(buffer), input)) {
         // 添加性能优化标记
@@ -288,10 +288,10 @@ int generate_evolver1_program() {
     // 这是自举的核心：编译自己生成下一代
     printf("开始自举编译evolver1_program...\n");
 
-    // 读取当前的evolver0_program.c
-    FILE* input = fopen("src/evolver0/evolver0_program.c", "r");
+    // 读取当前的evolver0.c
+    FILE* input = fopen("src/evolver0.c", "r");
     if (!input) {
-        printf("无法读取src/evolver0/evolver0_program.c\n");
+        printf("无法读取src/evolver0.c\n");
         return 1;
     }
 
@@ -309,7 +309,7 @@ int generate_evolver1_program() {
     fprintf(output, " * 扩展功能：更完整的C语言支持、优化器模块\n");
     fprintf(output, " */\n\n");
 
-    // 复制并扩展evolver0_program.c的内容
+    // 复制并扩展evolver0.c的内容
     char buffer[1024];
     bool in_main_function = false;
 
@@ -382,7 +382,7 @@ int validate_evolver1() {
 // 验证evolver1_loader
 int validate_evolver1_loader() {
     // 检查evolver1_loader.astc是否存在
-    FILE* fp = fopen("evolver1_loader.astc", "rb");
+    FILE* fp = fopen("bin/evolver1_loader.astc", "rb");
     if (!fp) {
         printf("evolver1_loader.astc文件不存在\n");
         return 1;
@@ -405,7 +405,7 @@ int validate_evolver1_loader() {
 // 验证evolver1_runtime
 int validate_evolver1_runtime() {
     // 检查evolver1_runtime.astc是否存在
-    FILE* fp = fopen("evolver1_runtime.astc", "rb");
+    FILE* fp = fopen("bin/evolver1_runtime.astc", "rb");
     if (!fp) {
         printf("evolver1_runtime.astc文件不存在\n");
         return 1;
@@ -428,7 +428,7 @@ int validate_evolver1_runtime() {
 // 验证evolver1_program
 int validate_evolver1_program() {
     // 检查evolver1_program.astc是否存在
-    FILE* fp = fopen("evolver1_program.astc", "rb");
+    FILE* fp = fopen("bin/evolver1_program.astc", "rb");
     if (!fp) {
         printf("evolver1_program.astc文件不存在\n");
         return 1;
@@ -453,27 +453,6 @@ int validate_jit_optimization() {
     // 在evolver1中，JIT优化是一个框架功能
     // 这里验证优化框架是否正确集成
     printf("✓ JIT编译优化框架验证通过\n");
-    return 0;
-}
-
-
-
-
-
-// 这些函数在当前简化实现中不需要
-// 因为我们专注于验证自举编译的核心逻辑
-
-// 生成Program ASTC
-int generate_program(const char* output_file) {
-    printf("Generating Program: %s\n", output_file);
-
-    // 编译当前的evolver0_program.c为ASTC
-    if (compile_c_to_astc("evolver0_program.c", output_file) != 0) {
-        printf("Error: Cannot compile program\n");
-        return 1;
-    }
-
-    printf("✓ Program generated: %s\n", output_file);
     return 0;
 }
 
@@ -529,13 +508,13 @@ int self_bootstrap_compile(const CompilerOptions* options) {
 int normal_compile(const CompilerOptions* options) {
     printf("=== Evolver0 Normal Compilation ===\n");
     printf("Input: %s\n", options->input_file);
-    
+
     // 编译输入文件
     if (compile_c_to_astc(options->input_file, options->output_program) != 0) {
         fprintf(stderr, "Compilation failed\n");
         return 1;
     }
-    
+
     printf("✓ Compilation completed successfully\n");
     return 0;
 }
@@ -546,18 +525,18 @@ int normal_compile(const CompilerOptions* options) {
 
 void print_usage(void) {
     printf("Evolver0 Program - Self-Bootstrapping Compiler Core\n");
-    printf("Usage: evolver0_program [options] [input.c]\n");
+    printf("Usage: evolver0 [options] [input.c]\n");
     printf("Options:\n");
     printf("  --self-compile    Perform self-bootstrap compilation\n");
     printf("  --verbose         Verbose output\n");
     printf("  --help            Show this help\n");
     printf("\n");
     printf("Self-Bootstrap Mode:\n");
-    printf("  evolver0_program --self-compile\n");
+    printf("  evolver0 --self-compile\n");
     printf("  This will compile evolver0 itself to generate evolver1\n");
     printf("\n");
     printf("Normal Mode:\n");
-    printf("  evolver0_program input.c\n");
+    printf("  evolver0 input.c\n");
     printf("  This will compile input.c to ASTC format\n");
 }
 
@@ -569,7 +548,7 @@ int parse_arguments(int argc, char* argv[], CompilerOptions* options) {
     options->output_program = "output.astc";
     options->verbose = false;
     options->self_compile = false;
-    
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0) {
             print_usage();
@@ -590,14 +569,14 @@ int parse_arguments(int argc, char* argv[], CompilerOptions* options) {
             return 1;
         }
     }
-    
+
     // 验证参数
     if (!options->self_compile && !options->input_file) {
         fprintf(stderr, "Error: No input file specified\n");
         print_usage();
         return 1;
     }
-    
+
     return 0;
 }
 

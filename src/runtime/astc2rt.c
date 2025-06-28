@@ -11,6 +11,11 @@
  * 4. 输出完整的Runtime.rt文件
  */
 
+// TODO: [Module] 实现延迟链接和符号解析机制
+// TODO: [Module] 支持增量编译和代码缓存策略
+// TODO: [Module] 添加跨模块优化支持
+// TODO: [Module] JIT编译中实现动态符号查找
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,13 +24,13 @@
 #include "astc2rt.h"
 #include "c2astc.h"
 #include "codegen.h"
-#include "codegenx64_64.h"
+#include "codegen_x64_64.h"
 
 // ===============================================
 // 代码生成器实现
 // ===============================================
 
-CodeGen* codegen_init(void) {
+CodeGen* old_codegen_init(void) {
     CodeGen* gen = malloc(sizeof(CodeGen));
     if (!gen) return NULL;
 
@@ -39,7 +44,31 @@ CodeGen* codegen_init(void) {
     return gen;
 }
 
-void codegen_free(CodeGen* gen) {
+// 新的ASTC代码生成器实现
+CodeGen* astc_codegen_init(void) {
+    CodeGen* gen = malloc(sizeof(CodeGen));
+    if (!gen) return NULL;
+
+    gen->code_capacity = 4096;
+    gen->code = malloc(gen->code_capacity);
+    if (!gen->code) {
+        free(gen);
+        return NULL;
+    }
+
+    gen->code_size = 0;
+    return gen;
+}
+
+void astc_codegen_free(CodeGen* gen) {
+    if (!gen) return;
+    if (gen->code) {
+        free(gen->code);
+    }
+    free(gen);
+}
+
+void old_codegen_free(CodeGen* gen) {
     if (gen) {
         if (gen->code) {
             free(gen->code);
@@ -194,61 +223,50 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 // 公开API实现
 // ===============================================
 
-// ASTC JIT编译器 - 使用proper codegen架构
-// 将ASTC字节码指令翻译成汇编代码，然后编译成机器码
+// ASTC JIT编译器 - 将ASTC字节码指令翻译成汇编代码
+// 使用符合命名规范的proper codegen架构
 void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t* operands, size_t operand_count) {
     char temp_buffer[256];
 
     switch (opcode) {
         case 0x00: // NOP
-            codegen_append(cg, "    nop\n");
+            codegen_append_public(cg, "    nop\n");
             break;
 
         case 0x01: // HALT
-            codegen_append(cg, "    mov rsp, rbp\n");
-            codegen_append(cg, "    pop rbp\n");
-            codegen_append(cg, "    ret\n");
+            codegen_append_public(cg, "    mov rsp, rbp\n");
+            codegen_append_public(cg, "    pop rbp\n");
+            codegen_append_public(cg, "    ret\n");
             break;
 
         case 0x10: // CONST_I32
             if (operand_count >= 4) {
                 uint32_t value = *(uint32_t*)operands;
                 sprintf(temp_buffer, "    mov eax, %u\n", value);
-                codegen_append(cg, temp_buffer);
-                codegen_append(cg, "    push rax\n");
+                codegen_append_public(cg, temp_buffer);
+                codegen_append_public(cg, "    push rax\n");
             }
             break;
 
         case 0x20: // ADD
-            // pop rbx (第二个操作数)
-            emit_byte(gen, 0x5b);
-            // pop rax (第一个操作数)
-            emit_byte(gen, 0x58);
-            // add rax, rbx
-            emit_byte(gen, 0x48);
-            emit_byte(gen, 0x01);
-            emit_byte(gen, 0xd8);
-            // push rax (结果)
-            emit_byte(gen, 0x50);
+            codegen_append_public(cg, "    pop rbx\n");
+            codegen_append_public(cg, "    pop rax\n");
+            codegen_append_public(cg, "    add rax, rbx\n");
+            codegen_append_public(cg, "    push rax\n");
             break;
 
         case 0x21: // SUB
-            emit_byte(gen, 0x5b); // pop rbx
-            emit_byte(gen, 0x58); // pop rax
-            emit_byte(gen, 0x48); // sub rax, rbx
-            emit_byte(gen, 0x29);
-            emit_byte(gen, 0xd8);
-            emit_byte(gen, 0x50); // push rax
+            codegen_append_public(cg, "    pop rbx\n");
+            codegen_append_public(cg, "    pop rax\n");
+            codegen_append_public(cg, "    sub rax, rbx\n");
+            codegen_append_public(cg, "    push rax\n");
             break;
 
         case 0x22: // MUL
-            emit_byte(gen, 0x5b); // pop rbx
-            emit_byte(gen, 0x58); // pop rax
-            emit_byte(gen, 0x48); // imul rax, rbx
-            emit_byte(gen, 0x0f);
-            emit_byte(gen, 0xaf);
-            emit_byte(gen, 0xc3);
-            emit_byte(gen, 0x50); // push rax
+            codegen_append_public(cg, "    pop rbx\n");
+            codegen_append_public(cg, "    pop rax\n");
+            codegen_append_public(cg, "    imul rax, rbx\n");
+            codegen_append_public(cg, "    push rax\n");
             break;
 
         case 0xF0: // LIBC_CALL
@@ -261,22 +279,16 @@ void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t*
 
                 // 根据func_id生成对应的libc调用
                 if (func_id == 0x0030) { // LIBC_PRINTF
-                    // 生成printf调用的机器码
-                    // mov rdi, format_string_addr
-                    emit_byte(gen, 0x48);
-                    emit_byte(gen, 0xbf);
-                    emit_int64(gen, 0); // 占位符，实际需要字符串地址
-
-                    // call printf (需要链接时解析)
-                    emit_byte(gen, 0xe8);
-                    emit_int32(gen, 0); // 占位符，需要重定位
+                    sprintf(temp_buffer, "    ; LIBC_PRINTF call (func_id=%u, args=%u)\n", func_id, arg_count);
+                    codegen_append_public(cg, temp_buffer);
+                    codegen_append_public(cg, "    call printf\n");
                 }
             }
             break;
 
         default:
             // 未知指令，生成NOP
-            emit_byte(gen, 0x90);
+            codegen_append_public(cg, "    nop\n");
             break;
     }
 }
@@ -323,7 +335,7 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
         uint8_t* operands = (pc + operand_len <= code_size) ? &code[pc] : NULL;
 
         // JIT编译这条指令
-        compile_astc_instruction(gen, opcode, operands, operand_len);
+        compile_astc_instruction_to_asm(gen, opcode, operands, operand_len);
 
         pc += operand_len;
     }
@@ -397,7 +409,7 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
     printf("ASTC file size: %zu bytes\n", astc_size);
 
     // 创建代码生成器
-    CodeGen* gen = codegen_init();
+    CodeGen* gen = old_codegen_init();
     if (!gen) {
         printf("Error: Failed to initialize code generator\n");
         free(astc_data);
@@ -408,7 +420,7 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
     if (compile_astc_to_machine_code(astc_data, astc_size, gen) != 0) {
         printf("Error: JIT compilation failed\n");
         free(astc_data);
-        codegen_free(gen);
+        old_codegen_free(gen);
         return 1;
     }
 
@@ -418,7 +430,7 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
     int result = generate_runtime_file(gen->code, gen->code_size, output_file);
 
     // 释放资源
-    codegen_free(gen);
+    old_codegen_free(gen);
 
     return result;
 }
@@ -434,7 +446,7 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
     }
 
     // 创建代码生成器
-    CodeGen* gen = codegen_init();
+    CodeGen* gen = old_codegen_init();
     if (!gen) {
         printf("Error: Failed to initialize code generator\n");
         ast_free(ast);
@@ -460,7 +472,7 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
     int result = generate_runtime_file(gen->code, gen->code_size, output_file);
 
     // 释放资源
-    codegen_free(gen);
+    old_codegen_free(gen);
     ast_free(ast);
 
     return result;

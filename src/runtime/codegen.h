@@ -23,4 +23,7 @@ int codegen_generate_translation_unit(CodeGenerator* cg, ASTNode* unit_node);
 // 生成单个函数的汇编代码
 int codegen_generate_function(CodeGenerator* cg, ASTNode* func_node);
 
+// 向缓冲区追加字符串 (公开版本)
+void codegen_append_public(CodeGenerator* cg, const char* str);
+
 #endif // CODEGEN_H

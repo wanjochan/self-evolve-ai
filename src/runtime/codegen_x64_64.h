@@ -6,4 +6,4 @@
 // 生成单个函数的x86-64汇编代码
 char* generate_function_asm(ASTNode* func_node);
 
-#endif //X64_CODEGEN_H
+#endif // CODEGENX64_64_H

@@ -1,4 +1,4 @@
-#include "program_c99_codegen.h"
+#include "codegen.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,4 +114,9 @@ static void codegen_append(CodeGenerator* cg, const char* str) {
     }
     strcat(cg->buffer, str);
     cg->buffer_offset += str_len;
+}
+
+// 公开版本的codegen_append
+void codegen_append_public(CodeGenerator* cg, const char* str) {
+    codegen_append(cg, str);
 }

@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "c2astc.h"
+#include "../runtime/c2astc.h"
 
 #define ASTC_MAGIC "ASTC"
 #define ASTC_VERSION 1

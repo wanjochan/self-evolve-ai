@@ -1,5 +1,5 @@
 /**
- * evolver0_loader.c - 跨平台Loader实现 (PRD.md三层架构第一层)
+ * loader.c - 跨平台Loader实现 (PRD.md三层架构第一层)
  *
  * 职责：
  * 1. 自动检测硬件架构和操作系统
@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
-#include "../runtime/platform.h"
+#include "platform.h"
 
 // ===============================================
 // 文件格式定义
@@ -451,7 +451,7 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
     options->verbose = false;
     options->debug = false;
     options->performance = false;
-    
+
     // 遍历命令行参数
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
@@ -485,7 +485,7 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
             }
         }
     }
-    
+
     // 验证必需的参数
     if (!options->program_file) {
         fprintf(stderr, "错误: 必须指定Program文件\n");
@@ -511,49 +511,49 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
         fprintf(stderr, "错误: Runtime文件不存在: %s\n", options->runtime_file);
         return false;
     }
-    
+
     if (!file_exists(options->program_file)) {
         fprintf(stderr, "错误: Program文件不存在: %s\n", options->program_file);
         return false;
     }
-    
+
     return true;
 }
 
 int main(int argc, char* argv[]) {
     LoaderOptions options;
     PerformanceStats stats = {0};
-    
+
     // 记录启动时间
     stats.start_time = clock();
-    
+
     // 解析命令行参数
     if (!parse_arguments(argc, argv, &options)) {
         return 1;
     }
-    
+
     // 如果启用了性能统计，则收集统计数据
     PerformanceStats* stats_ptr = options.performance ? &stats : NULL;
-    
+
     // 执行Loader主要逻辑
     int result = load_and_execute_runtime(&options, stats_ptr);
-    
+
     // 记录结束时间
     if (stats_ptr) {
         stats.end_time = clock();
-        
+
         // 输出性能统计
         printf("\n===== 性能统计 =====\n");
-        printf("加载Runtime耗时: %.2f ms\n", 
+        printf("加载Runtime耗时: %.2f ms\n",
                (double)(stats.load_runtime_time) * 1000 / CLOCKS_PER_SEC);
-        printf("加载Program耗时: %.2f ms\n", 
+        printf("加载Program耗时: %.2f ms\n",
                (double)(stats.load_program_time) * 1000 / CLOCKS_PER_SEC);
-        printf("执行程序耗时: %.2f ms\n", 
+        printf("执行程序耗时: %.2f ms\n",
                (double)(stats.execute_time) * 1000 / CLOCKS_PER_SEC);
-        printf("总耗时: %.2f ms\n", 
+        printf("总耗时: %.2f ms\n",
                (double)(stats.end_time - stats.start_time) * 1000 / CLOCKS_PER_SEC);
         printf("=====================\n");
     }
-    
+
     return result;
 }

@@ -17,6 +17,11 @@
  * 符合PRD.md要求：单一加载器，跨架构支持
  */
 
+// TODO: [Module] 支持多模块依赖加载
+// TODO: [Module] 实现模块搜索路径设置
+// TODO: [Module] 添加模块缓存机制
+// TODO: [Module] 设计模块预加载和懒加载策略
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
