@@ -135,6 +135,39 @@ void build_runtime_filename(PlatformInfo* info, char* filename, size_t size) {
     info->runtime_file = filename;
 }
 
+// 根据程序文件名构建对应的runtime文件名
+void build_runtime_filename_for_program(PlatformInfo* info, const char* program_file, char* filename, size_t size) {
+    // 从程序文件名推断runtime名称
+    // 例如: evolver0_program.astc -> evolver0_runtime_x64_64.rt
+    //      c99_program.astc -> c99_runtime_x64_64.rt
+
+    const char* basename = strrchr(program_file, '/');
+    if (!basename) basename = strrchr(program_file, '\\');
+    if (!basename) basename = program_file;
+    else basename++; // 跳过路径分隔符
+
+    // 查找程序名称前缀
+    char runtime_prefix[128] = {0};
+    const char* program_suffix = "_program.astc";
+    const char* program_pos = strstr(basename, program_suffix);
+
+    if (program_pos) {
+        // 提取前缀 (例如: "evolver0" 或 "c99")
+        size_t prefix_len = program_pos - basename;
+        if (prefix_len < sizeof(runtime_prefix)) {
+            strncpy(runtime_prefix, basename, prefix_len);
+            runtime_prefix[prefix_len] = '\0';
+        }
+    } else {
+        // 如果没有找到标准后缀，使用默认前缀
+        strcpy(runtime_prefix, "evolver0");
+    }
+
+    // 构建runtime文件名: {prefix}_runtime_{arch}_{bits}.rt
+    snprintf(filename, size, "bin/%s_runtime_%s_%d.rt", runtime_prefix, info->arch, info->bits);
+    info->runtime_file = filename;
+}
+
 // ===============================================
 // 加载器选项
 // ===============================================
@@ -497,7 +530,7 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
     static char auto_runtime_filename[256];
     if (!options->runtime_file) {
         PlatformInfo platform = detect_platform();
-        build_runtime_filename(&platform, auto_runtime_filename, sizeof(auto_runtime_filename));
+        build_runtime_filename_for_program(&platform, options->program_file, auto_runtime_filename, sizeof(auto_runtime_filename));
         options->runtime_file = auto_runtime_filename;
 
         if (options->verbose) {

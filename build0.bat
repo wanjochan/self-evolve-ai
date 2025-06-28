@@ -41,13 +41,13 @@ if %ERRORLEVEL% neq 0 (
 )
 echo SUCCESS: evolver0_runtime.astc generated
 
-echo Generating runtimex64_64.rt...
-bin\tool_astc2rt.exe bin\evolver0_runtime.astc bin\runtimex64_64.rt
+echo Generating evolver0_runtime_x64_64.rt...
+bin\tool_astc2rt.exe bin\evolver0_runtime.astc bin\evolver0_runtime_x64_64.rt
 if %ERRORLEVEL% neq 0 (
-    echo ERROR: runtimex64_64.rt generation failed!
+    echo ERROR: evolver0_runtime_x64_64.rt generation failed!
     exit /b 5
 )
-echo SUCCESS: runtimex64_64.rt generated
+echo SUCCESS: evolver0_runtime_x64_64.rt generated
 
 echo.
 echo === Step 4: Build Program Layer ===
@@ -76,7 +76,7 @@ echo SUCCESS: evolver0 three-layer architecture built successfully!
 echo.
 echo Generated components:
 echo   - Loader Layer: bin\evolver0_loader.exe
-echo   - Runtime Layer: bin\runtimex64_64.rt
+echo   - Runtime Layer: bin\evolver0_runtime_x64_64.rt
 echo   - Program Layer: bin\evolver0_program.astc
 echo.
 echo evolver0 system is ready for self-bootstrap compilation!
