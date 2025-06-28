@@ -14,12 +14,12 @@
 
 - c2astc.c 把c语言编译成astc的库
 - loader.exe （后面参考Cosmopolitan编译的跨架构单一加载器，）负责识别当前硬件环境并加载对应的运行时和Program.astc
-- runtime{arch}{bits}.rt 架构依赖二进制，根据硬件架构区分，封装硬件架构和ABI等，实现ASTC虚拟机
+- runtime_{arch}_{bits}.rt 架构依赖二进制，根据硬件架构区分，封装硬件架构和ABI等，实现ASTC虚拟机
 - program.astc 平台无关程序（ASTC格式的二进制模块），未来还会支持program.ir、program.js等其它层的编译
 
 注意：Runtime和Program两种编译的二进制是不一样的。Program编译的是ASTC，Runtime编译的是平台适配的二进制（由ASTC再编译成机器码，且不需要PE/ELF/MACHO头）
 
-其中 loader.exe + runtime{arch}{bits}.rt 或 loader.exe + runtime{arch}{bits}.bin 构成了最小化的跨平台执行环境，类似于一个微型的虚拟机，可以执行ASTC格式的程序。
+其中 loader.exe + runtime{arch}{bits}.rt 或 loader.exe + runtime_{arch}_{bits}.rt 构成了最小化的跨平台执行环境，类似于一个微型的虚拟机，可以执行ASTC格式的程序。
 
 ## 2. 三层架构设计
 
