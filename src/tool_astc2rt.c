@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../runtime/astc2rt.h"
+#include "runtime/compiler_astc2rt.h"
 
 static void print_usage(const char* program_name) {
     printf("Usage: %s <input_file> <output_file>\n\n", program_name);

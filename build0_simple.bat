@@ -64,11 +64,10 @@ echo === Step 5: System Test ===
 echo Testing evolver0 three-layer architecture...
 bin\evolver0_loader.exe bin\evolver0_program.astc
 if %ERRORLEVEL% neq 0 (
-    echo WARNING: evolver0 system test failed - but build is complete
-    echo Note: Runtime execution may need debugging
-) else (
-    echo SUCCESS: evolver0 system test passed
+    echo ERROR: evolver0 system test failed!
+    exit /b 7
 )
+echo SUCCESS: evolver0 system test passed
 
 echo.
 echo === Build Complete ===

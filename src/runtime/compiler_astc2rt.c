@@ -21,10 +21,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "astc2rt.h"
-#include "c2astc.h"
-#include "codegen.h"
-#include "codegen_x64_64.h"
+#include "compiler_astc2rt.h"
+#include "compiler_c2astc.h"
+#include "compiler_codegen.h"
+#include "compiler_codegen_x64.h"
 
 // ===============================================
 // 代码生成器实现

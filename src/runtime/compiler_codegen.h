@@ -1,7 +1,7 @@
 #ifndef CODEGEN_H
 #define CODEGEN_H
 
-#include "astc.h"
+#include "core_astc.h"
 
 // 代码生成器结构
 typedef struct {

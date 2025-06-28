@@ -35,9 +35,9 @@
 #include <ctype.h>
 
 // 包含AST定义
-#include "astc.h"
-#include "c2astc.h"
-#include "token.h"
+#include "core_astc.h"
+#include "compiler_c2astc.h"
+#include "compiler_token.h"
 
 // ===============================================
 // 错误处理
@@ -136,7 +136,7 @@ static const char* preprocessor_find_macro(Preprocessor* pp, const char* name) {
 // ===============================================
 
 // Token结构定义
-// 使用evolver0_token.h中的Token结构
+// 使用compiler_token.h中的Token结构
 
 // 创建Token
 static Token* create_token(TokenType type, const char *value, int line, int column, const char *filename) {

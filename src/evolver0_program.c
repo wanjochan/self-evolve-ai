@@ -1,5 +1,5 @@
 /**
- * evolver0.c - 第零代Program实现
+ * evolver0_program.c - 第零代Program层实现
  *
  * 这是evolver0的Program层，包含编译器的核心逻辑
  * 编译为ASTC格式，由evolver0_runtime执行

@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "c2astc.h"
+#include "compiler_c2astc.h"
 
 #ifdef __cplusplus
 extern "C" {

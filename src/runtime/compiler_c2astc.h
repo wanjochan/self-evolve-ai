@@ -6,7 +6,7 @@
 #define C2ASTC_H
 
 #include <stdbool.h>
-#include "astc.h"
+#include "core_astc.h"
 
 #ifdef __cplusplus
 extern "C" {
