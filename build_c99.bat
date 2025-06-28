@@ -41,13 +41,13 @@ if %ERRORLEVEL% neq 0 (
 )
 echo SUCCESS: c99_runtime.astc generated
 
-echo Generating c99_runtime_x64_64.rt...
+echo JIT compiling to c99_runtime_x64_64.rt...
 bin\tool_astc2rt.exe bin\c99_runtime.astc bin\c99_runtime_x64_64.rt
 if %ERRORLEVEL% neq 0 (
     echo ERROR: c99_runtime_x64_64.rt generation failed!
     exit /b 5
 )
-echo SUCCESS: c99_runtime_x64_64.rt generated
+echo SUCCESS: c99_runtime_x64_64.rt generated (pure machine code)
 
 echo.
 echo === Step 4: Build C99 Program Layer ===

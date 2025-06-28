@@ -223,6 +223,52 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 // 公开API实现
 // ===============================================
 
+// ASTC JIT编译器 - 将ASTC字节码指令翻译成二进制机器码
+// 使用架构特定的codegen函数，支持跨平台
+void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint8_t* operands, size_t operand_len) {
+    switch (opcode) {
+        case 0x00: // NOP
+            x64_emit_nop(gen);
+            break;
+
+        case 0x01: // HALT
+            x64_emit_halt_with_return_value(gen);
+            break;
+
+        case 0x10: // CONST_I32
+            if (operand_len >= 4) {
+                uint32_t value = *(uint32_t*)operands;
+                x64_emit_const_i32(gen, value);
+            }
+            break;
+
+        case 0x20: // ADD
+            x64_emit_binary_op_add(gen);
+            break;
+
+        case 0x21: // SUB
+            x64_emit_binary_op_sub(gen);
+            break;
+
+        case 0x22: // MUL
+            x64_emit_binary_op_mul(gen);
+            break;
+
+        case 0xF0: // LIBC_CALL
+            if (operand_len >= 4) {
+                uint16_t func_id = *(uint16_t*)operands;
+                uint16_t arg_count = *(uint16_t*)(operands + 2);
+                x64_emit_libc_call(gen, func_id, arg_count);
+            }
+            break;
+
+        default:
+            // 未知指令，生成nop
+            x64_emit_nop(gen);
+            break;
+    }
+}
+
 // ASTC JIT编译器 - 将ASTC字节码指令翻译成汇编代码
 // 使用符合命名规范的proper codegen架构
 void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t* operands, size_t operand_count) {
@@ -311,10 +357,7 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
     printf("ASTC version: %u, data_size: %u, entry_point: %u\n", version, data_size, entry_point);
 
     // 生成函数序言
-    emit_byte(gen, 0x55);        // push rbp
-    emit_byte(gen, 0x48);        // mov rbp, rsp
-    emit_byte(gen, 0x89);
-    emit_byte(gen, 0xe5);
+    x64_emit_function_prologue(gen);
 
     // 编译ASTC指令序列
     uint8_t* code = astc_data + 16;
@@ -334,17 +377,14 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
 
         uint8_t* operands = (pc + operand_len <= code_size) ? &code[pc] : NULL;
 
-        // JIT编译这条指令
-        compile_astc_instruction_to_asm(gen, opcode, operands, operand_len);
+        // JIT编译这条指令到机器码
+        compile_astc_instruction_to_machine_code(gen, opcode, operands, operand_len);
 
         pc += operand_len;
     }
 
     // 如果没有显式的HALT，添加默认返回
-    emit_byte(gen, 0xb8);        // mov eax, 0
-    emit_int32(gen, 0);
-    emit_byte(gen, 0x5d);        // pop rbp
-    emit_byte(gen, 0xc3);        // ret
+    x64_emit_function_epilogue(gen);
 
     printf("JIT compilation completed: %zu ASTC bytes → %zu machine code bytes\n",
            code_size, gen->code_size);

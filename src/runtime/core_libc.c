@@ -5,7 +5,7 @@
  * 核心思想：不重新实现libc，而是转发到系统libc
  */
 
-#include "libc_forward.h"
+#include "core_libc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

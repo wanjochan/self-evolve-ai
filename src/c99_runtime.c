@@ -426,11 +426,10 @@ int c99_runtime_main(void* program_data, size_t program_size) {
 // ===============================================
 
 /**
- * 无头二进制的入口点
- * 这个函数会被Loader通过函数指针调用
+ * Runtime入口点 - 由Loader通过函数指针调用
+ * 这个函数会被编译成.rt文件的入口点
  */
-int _start(void) {
-    // 无头二进制的入口点
-    // 实际的参数会通过Loader传递
-    return 0;
+int main(void* program_data, size_t program_size) {
+    // 直接调用Runtime主函数
+    return c99_runtime_main(program_data, program_size);
 }
