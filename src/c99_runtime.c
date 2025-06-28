@@ -264,6 +264,20 @@ int c99_execute_instruction(C99VirtualMachine* vm) {
                 c99_vm_push(vm, *(uint32_t*)&value);
             }
             break;
+
+        case 0x12: // CONST_STRING
+            if (vm->pc + 4 <= vm->code_size) {
+                uint32_t string_len = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+
+                if (vm->pc + string_len <= vm->code_size) {
+                    // 字符串数据直接嵌入在字节码中
+                    char* string_ptr = (char*)(vm->code + vm->pc);
+                    vm->pc += string_len;
+                    c99_vm_push(vm, (uint32_t)(uintptr_t)string_ptr);
+                }
+            }
+            break;
             
         case 0x20: // ADD
             {

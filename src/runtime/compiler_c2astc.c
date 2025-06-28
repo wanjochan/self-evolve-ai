@@ -5041,6 +5041,11 @@ typedef struct {
     uint8_t* code;
     size_t size;
     size_t capacity;
+
+    // 字符串池
+    char** strings;
+    size_t string_count;
+    size_t string_capacity;
 } BytecodeGen;
 
 // 初始化字节码生成器
@@ -5048,6 +5053,10 @@ void bytecode_init(BytecodeGen* gen) {
     gen->code = malloc(1024);
     gen->size = 0;
     gen->capacity = 1024;
+
+    gen->strings = malloc(16 * sizeof(char*));
+    gen->string_count = 0;
+    gen->string_capacity = 16;
 }
 
 // 释放字节码生成器
@@ -5056,8 +5065,17 @@ void bytecode_free(BytecodeGen* gen) {
         free(gen->code);
         gen->code = NULL;
     }
+    if (gen->strings) {
+        for (size_t i = 0; i < gen->string_count; i++) {
+            free(gen->strings[i]);
+        }
+        free(gen->strings);
+        gen->strings = NULL;
+    }
     gen->size = 0;
     gen->capacity = 0;
+    gen->string_count = 0;
+    gen->string_capacity = 0;
 }
 
 // 写入字节
@@ -5081,6 +5099,26 @@ void bytecode_emit_uint32(BytecodeGen* gen, uint32_t value) {
 void bytecode_emit_uint16(BytecodeGen* gen, uint16_t value) {
     bytecode_emit_byte(gen, value & 0xFF);
     bytecode_emit_byte(gen, (value >> 8) & 0xFF);
+}
+
+// 添加字符串到字符串池，返回索引
+uint32_t bytecode_add_string(BytecodeGen* gen, const char* str) {
+    // 检查是否已存在
+    for (size_t i = 0; i < gen->string_count; i++) {
+        if (strcmp(gen->strings[i], str) == 0) {
+            return (uint32_t)i;
+        }
+    }
+
+    // 扩展字符串池
+    if (gen->string_count >= gen->string_capacity) {
+        gen->string_capacity *= 2;
+        gen->strings = realloc(gen->strings, gen->string_capacity * sizeof(char*));
+    }
+
+    // 添加新字符串
+    gen->strings[gen->string_count] = strdup(str);
+    return (uint32_t)gen->string_count++;
 }
 
 // 将AST节点转换为ASTC字节码
@@ -5122,12 +5160,20 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
                 printf("Generating ASTC bytecode: LIBC_CALL 0x%04X with %d args\n",
                        node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
 
-                // 暂时简化：不传递参数，只测试LIBC_CALL机制
-                // TODO: 实现字符串参数的正确处理
+                // 生成参数到栈（从右到左）
+                for (int i = node->data.call_expr.arg_count - 1; i >= 0; i--) {
+                    if (node->data.call_expr.args[i]) {
+                        ast_node_to_bytecode(node->data.call_expr.args[i], gen);
+                    } else {
+                        // 空参数，推入0
+                        bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                        bytecode_emit_uint32(gen, 0);
+                    }
+                }
 
-                // 生成参数数量到栈（暂时设为0）
+                // 生成参数数量到栈
                 bytecode_emit_byte(gen, 0x10);  // CONST_I32
-                bytecode_emit_uint32(gen, 0);   // 0个参数
+                bytecode_emit_uint32(gen, node->data.call_expr.arg_count);
 
                 // 生成函数ID到栈
                 bytecode_emit_byte(gen, 0x10);  // CONST_I32
@@ -5157,6 +5203,23 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             if (node->data.constant.type == ASTC_TYPE_INT) {
                 bytecode_emit_byte(gen, 0x10);  // CONST_I32
                 bytecode_emit_uint32(gen, (uint32_t)node->data.constant.int_val);
+            }
+            break;
+
+        case ASTC_EXPR_STRING_LITERAL:
+            // 处理字符串字面量
+            printf("Generating string literal: \"%s\"\n", node->data.string_literal.value);
+            // 简化方案：直接嵌入字符串数据到字节码中
+            const char* str = node->data.string_literal.value;
+            size_t str_len = strlen(str) + 1; // 包含null终止符
+
+            // 生成CONST_STRING指令
+            bytecode_emit_byte(gen, 0x12);  // CONST_STRING
+            bytecode_emit_uint32(gen, (uint32_t)str_len);
+
+            // 直接嵌入字符串数据
+            for (size_t i = 0; i < str_len; i++) {
+                bytecode_emit_byte(gen, (uint8_t)str[i]);
             }
             break;
 
@@ -5198,5 +5261,15 @@ unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
     printf("Generated %zu bytes of ASTC bytecode\n", gen.size);
 
     *out_size = gen.size;
-    return gen.code;  // 调用者负责释放内存
+    uint8_t* result = gen.code;
+
+    // 不释放gen.code，因为我们要返回它
+    if (gen.strings) {
+        for (size_t i = 0; i < gen.string_count; i++) {
+            free(gen.strings[i]);
+        }
+        free(gen.strings);
+    }
+
+    return result;
 }
