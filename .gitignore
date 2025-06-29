@@ -4,3 +4,4 @@ tcc/cross/temp/
 *.swp
 *.o
 nul
+cursor_screenshot.png
