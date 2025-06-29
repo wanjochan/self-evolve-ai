@@ -18,12 +18,24 @@ extern "C" {
 #endif
 
 /**
+ * 目标架构枚举
+ */
+typedef enum {
+    ARCH_X86_32,    // x86 32位
+    ARCH_X86_64,    // x86 64位
+    ARCH_ARM32,     // ARM 32位
+    ARCH_ARM64,     // ARM 64位
+    ARCH_UNKNOWN    // 未知架构
+} TargetArch;
+
+/**
  * 代码生成器结构
  */
 typedef struct {
     uint8_t* code;          // 生成的机器码缓冲区
     size_t code_size;       // 当前代码大小
     size_t code_capacity;   // 代码缓冲区容量
+    TargetArch target_arch; // 目标架构
 } CodeGen;
 
 /**
@@ -37,11 +49,27 @@ typedef struct {
 } RuntimeHeader;
 
 /**
+ * 检测当前运行时架构
+ *
+ * @return 检测到的架构类型
+ */
+TargetArch detect_runtime_architecture(void);
+
+/**
+ * 获取架构名称字符串
+ *
+ * @param arch 架构类型
+ * @return 架构名称字符串
+ */
+const char* get_architecture_name(TargetArch arch);
+
+/**
  * 初始化ASTC代码生成器
  *
+ * @param target_arch 目标架构，如果为ARCH_UNKNOWN则自动检测
  * @return 初始化的代码生成器
  */
-CodeGen* astc_codegen_init(void);
+CodeGen* astc_codegen_init(TargetArch target_arch);
 
 /**
  * 释放ASTC代码生成器资源

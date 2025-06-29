@@ -899,6 +899,13 @@ void ast_free(struct ASTNode *node) {
             ast_free(node->data.ptr_member_access.pointer);
             if (node->data.ptr_member_access.member) free(node->data.ptr_member_access.member);
             break;
+        case ASTC_EXPR_COMPOUND_LITERAL:
+            // 释放复合字面量表达式
+            for (int i = 0; i < node->data.compound_literal.expression_count; i++) {
+                ast_free(node->data.compound_literal.expressions[i]);
+            }
+            free(node->data.compound_literal.expressions);
+            break;
         default:
             // 其他节点类型的释放逻辑
             break;
@@ -1086,12 +1093,17 @@ static int match(Parser *parser, TokenType type) {
 static void parser_error(Parser *parser, const char *message) {
     Token *token = peek(parser);
     if (token) {
-        snprintf(parser->error_msg, sizeof(parser->error_msg), 
-                 "%s:%d:%d: %s", token->filename, token->line, token->column, message);
+        snprintf(parser->error_msg, sizeof(parser->error_msg),
+                 "语法错误 %s:%d:%d: %s (当前token: %s)",
+                 token->filename, token->line, token->column, message,
+                 token->value ? token->value : "<EOF>");
     } else {
-        snprintf(parser->error_msg, sizeof(parser->error_msg), "%s", message);
+        snprintf(parser->error_msg, sizeof(parser->error_msg), "语法错误: %s", message);
     }
     parser->error_count++;
+
+    // 立即输出错误信息到stderr
+    fprintf(stderr, "%s\n", parser->error_msg);
 }
 
 // 前向声明解析函数
@@ -2146,9 +2158,9 @@ static struct ASTNode* parse_declaration(Parser *parser) {
 // 默认选项
 C2AstcOptions c2astc_default_options(void) {
     C2AstcOptions options;
-    options.optimize_level = false;
+    options.optimize_level = 0;        // 默认无优化
     options.enable_extensions = true;
-    options.emit_debug_info = true;
+    options.emit_debug_info = false;   // 默认不生成调试信息
     return options;
 }
 
@@ -4237,6 +4249,14 @@ void ast_print(struct ASTNode *node, int indent) {
             printf("Pointer:\n");
             ast_print(node->data.ptr_member_access.pointer, indent + 2);
             break;
+        case ASTC_EXPR_COMPOUND_LITERAL:
+            printf("CompoundLiteral (expressions: %d)\n", node->data.compound_literal.expression_count);
+            for (int i = 0; i < node->data.compound_literal.expression_count; i++) {
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("Expression %d:\n", i);
+                ast_print(node->data.compound_literal.expressions[i], indent + 2);
+            }
+            break;
         default:
             printf("Node(type=%d)\n", node->type);
             break;
@@ -4518,21 +4538,90 @@ static struct ASTNode* parse_primary(Parser *parser) {
         case TOKEN_LPAREN: {
             // 括号表达式
             advance(parser); // 消耗左括号
-            
+
             node = parse_expression(parser);
             if (!node) {
                 return NULL;
             }
-            
+
             if (!match(parser, TOKEN_RPAREN)) {
                 parser_error(parser, "预期右括号");
                 ast_free(node);
                 return NULL;
             }
-            
+
             break;
         }
-        
+
+        case TOKEN_LBRACE: {
+            // 初始化列表 {1, 2, 3, ...}
+            advance(parser); // 消耗左花括号
+
+            node = ast_create_node(ASTC_EXPR_COMPOUND_LITERAL, token->line, token->column);
+            if (!node) {
+                parser_error(parser, "内存分配失败");
+                return NULL;
+            }
+
+            // 初始化表达式列表
+            node->data.compound_literal.expressions = NULL;
+            node->data.compound_literal.expression_count = 0;
+
+            // 解析初始化表达式列表
+            if (!check(parser, TOKEN_RBRACE)) {
+                struct ASTNode **expressions = NULL;
+                int expression_count = 0;
+                int capacity = 0;
+
+                do {
+                    if (check(parser, TOKEN_RBRACE)) break;
+
+                    // 解析表达式
+                    struct ASTNode *expr = parse_expression(parser);
+                    if (!expr) {
+                        // 释放已分配的资源
+                        for (int i = 0; i < expression_count; i++) {
+                            ast_free(expressions[i]);
+                        }
+                        free(expressions);
+                        ast_free(node);
+                        return NULL;
+                    }
+
+                    // 扩展表达式数组
+                    if (expression_count >= capacity) {
+                        capacity = capacity == 0 ? 4 : capacity * 2;
+                        struct ASTNode **new_expressions = realloc(expressions, capacity * sizeof(struct ASTNode*));
+                        if (!new_expressions) {
+                            ast_free(expr);
+                            for (int i = 0; i < expression_count; i++) {
+                                ast_free(expressions[i]);
+                            }
+                            free(expressions);
+                            ast_free(node);
+                            parser_error(parser, "内存分配失败");
+                            return NULL;
+                        }
+                        expressions = new_expressions;
+                    }
+
+                    expressions[expression_count++] = expr;
+
+                } while (match(parser, TOKEN_COMMA));
+
+                node->data.compound_literal.expressions = expressions;
+                node->data.compound_literal.expression_count = expression_count;
+            }
+
+            if (!match(parser, TOKEN_RBRACE)) {
+                parser_error(parser, "预期右花括号");
+                ast_free(node);
+                return NULL;
+            }
+
+            break;
+        }
+
         default:
             parser_error(parser, "预期表达式");
             return NULL;
@@ -5036,6 +5125,13 @@ struct ASTNode* create_unary_op_node(int op, struct ASTNode *operand, int line, 
 // AST到ASTC字节码转换
 // ===============================================
 
+// 变量信息结构
+typedef struct {
+    char* name;
+    int index;
+    bool is_global;
+} VariableInfo;
+
 // 字节码生成器
 typedef struct {
     uint8_t* code;
@@ -5046,6 +5142,16 @@ typedef struct {
     char** strings;
     size_t string_count;
     size_t string_capacity;
+
+    // 变量管理
+    VariableInfo* variables;
+    size_t variable_count;
+    size_t variable_capacity;
+    int next_local_index;
+    int next_global_index;
+
+    // 优化选项
+    const C2AstcOptions* options;
 } BytecodeGen;
 
 // 初始化字节码生成器
@@ -5057,6 +5163,13 @@ void bytecode_init(BytecodeGen* gen) {
     gen->strings = malloc(16 * sizeof(char*));
     gen->string_count = 0;
     gen->string_capacity = 16;
+
+    // 初始化变量管理
+    gen->variables = malloc(64 * sizeof(VariableInfo));
+    gen->variable_count = 0;
+    gen->variable_capacity = 64;
+    gen->next_local_index = 0;
+    gen->next_global_index = 0;
 }
 
 // 释放字节码生成器
@@ -5072,10 +5185,19 @@ void bytecode_free(BytecodeGen* gen) {
         free(gen->strings);
         gen->strings = NULL;
     }
+    if (gen->variables) {
+        for (size_t i = 0; i < gen->variable_count; i++) {
+            free(gen->variables[i].name);
+        }
+        free(gen->variables);
+        gen->variables = NULL;
+    }
     gen->size = 0;
     gen->capacity = 0;
     gen->string_count = 0;
     gen->string_capacity = 0;
+    gen->variable_count = 0;
+    gen->variable_capacity = 0;
 }
 
 // 写入字节
@@ -5121,10 +5243,113 @@ uint32_t bytecode_add_string(BytecodeGen* gen, const char* str) {
     return (uint32_t)gen->string_count++;
 }
 
+// 查找或添加变量，返回变量索引
+int bytecode_get_variable_index(BytecodeGen* gen, const char* name, bool is_global) {
+    // 查找已存在的变量
+    for (size_t i = 0; i < gen->variable_count; i++) {
+        if (strcmp(gen->variables[i].name, name) == 0) {
+            return gen->variables[i].index;
+        }
+    }
+
+    // 扩展变量数组
+    if (gen->variable_count >= gen->variable_capacity) {
+        gen->variable_capacity *= 2;
+        gen->variables = realloc(gen->variables, gen->variable_capacity * sizeof(VariableInfo));
+    }
+
+    // 添加新变量
+    VariableInfo* var = &gen->variables[gen->variable_count++];
+    var->name = strdup(name);
+    var->is_global = is_global;
+
+    if (is_global) {
+        var->index = gen->next_global_index++;
+    } else {
+        var->index = gen->next_local_index++;
+    }
+
+    return var->index;
+}
+
+// 常量折叠优化：检查是否可以在编译时计算表达式
+bool try_constant_folding(struct ASTNode* node, int64_t* result) {
+    if (!node || !result) return false;
+
+    if (node->type == ASTC_EXPR_CONSTANT && node->data.constant.type == ASTC_TYPE_INT) {
+        *result = node->data.constant.int_val;
+        return true;
+    }
+
+    if (node->type == ASTC_BINARY_OP) {
+        int64_t left_val, right_val;
+        if (try_constant_folding(node->data.binary_op.left, &left_val) &&
+            try_constant_folding(node->data.binary_op.right, &right_val)) {
+
+            switch (node->data.binary_op.op) {
+                case ASTC_OP_ADD:
+                    *result = left_val + right_val;
+                    return true;
+                case ASTC_OP_SUB:
+                    *result = left_val - right_val;
+                    return true;
+                case ASTC_OP_MUL:
+                    *result = left_val * right_val;
+                    return true;
+                case ASTC_OP_DIV:
+                    if (right_val != 0) {
+                        *result = left_val / right_val;
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    return false;
+}
+
+// 死代码消除：检查是否为无用代码
+bool is_dead_code(struct ASTNode* node) {
+    if (!node) return true;
+
+    // 检查无效的表达式语句
+    if (node->type == ASTC_EXPR_STMT) {
+        struct ASTNode* expr = node->data.expr_stmt.expr;
+        if (expr && expr->type == ASTC_EXPR_CONSTANT) {
+            // 单独的常量表达式是死代码
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// 应用优化
+void apply_optimizations(struct ASTNode* node, const C2AstcOptions* options) {
+    if (!node || !options) return;
+
+    if (options->optimize_level >= 2) {
+        // O2及以上：应用更激进的优化
+        // 这里可以添加更多优化逻辑
+    }
+}
+
 // 将AST节点转换为ASTC字节码
 int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
     if (!node || !gen) {
         return 1;
+    }
+
+    // 应用优化
+    if (gen->options && gen->options->optimize_level >= 1) {
+        // O1及以上：死代码消除
+        if (is_dead_code(node)) {
+            printf("Dead code eliminated\n");
+            return 0; // 跳过死代码
+        }
     }
 
     switch (node->type) {
@@ -5146,15 +5371,18 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             // 处理变量声明
             printf("Processing variable declaration\n");
 
+            // 获取变量索引
+            const char* var_name = node->data.var_decl.name ? node->data.var_decl.name : "unnamed_var";
+            int var_index = bytecode_get_variable_index(gen, var_name, false); // 假设是局部变量
+
             // 如果有初始化表达式，生成初始化代码
             if (node->data.var_decl.initializer) {
                 // 生成初始化表达式的字节码
                 ast_node_to_bytecode(node->data.var_decl.initializer, gen);
 
-                // 生成变量存储指令（简化实现）
-                // TODO: 实现真正的变量存储机制
+                // 生成变量存储指令
                 bytecode_emit_byte(gen, 0x61);  // STORE_LOCAL
-                bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
+                bytecode_emit_uint32(gen, var_index);
             }
             break;
 
@@ -5254,6 +5482,21 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             // 处理二元操作
             printf("Processing binary operation\n");
 
+            // 尝试常量折叠优化（所有优化级别都启用）
+            int64_t folded_result;
+            if (try_constant_folding(node, &folded_result)) {
+                if (gen->options && gen->options->optimize_level >= 1) {
+                    printf("Constant folding applied (O%d): result = %lld\n",
+                           gen->options->optimize_level, (long long)folded_result);
+                } else {
+                    printf("Constant folding applied: result = %lld\n", (long long)folded_result);
+                }
+                // 直接生成常量指令
+                bytecode_emit_byte(gen, 0x10);  // CONST_I32
+                bytecode_emit_uint32(gen, (uint32_t)folded_result);
+                break;
+            }
+
             // 生成左操作数
             if (node->data.binary_op.left) {
                 ast_node_to_bytecode(node->data.binary_op.left, gen);
@@ -5322,10 +5565,13 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             // 处理标识符表达式（变量引用）
             printf("Processing identifier expression\n");
 
-            // 生成变量加载指令（简化实现）
-            // TODO: 实现真正的变量查找机制
-            bytecode_emit_byte(gen, 0x21);  // LOAD_VAR
-            bytecode_emit_uint32(gen, 0);   // 变量索引（暂时为0）
+            // 查找变量索引
+            const char* id_name = node->data.identifier.name ? node->data.identifier.name : "unnamed_id";
+            int id_var_index = bytecode_get_variable_index(gen, id_name, false); // 假设是局部变量
+
+            // 生成变量加载指令
+            bytecode_emit_byte(gen, 0x60);  // LOAD_LOCAL
+            bytecode_emit_uint32(gen, id_var_index);
             break;
 
         case ASTC_IF_STMT:
@@ -5489,6 +5735,8 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             bytecode_emit_byte(gen, 0x72);  // ARRAY_ACCESS
             break;
 
+
+
         case ASTC_EXPR_PTR_MEMBER_ACCESS:
             // 处理指针成员访问 (->)
             printf("Processing pointer member access\n");
@@ -5549,6 +5797,20 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             break;
 
+        case ASTC_EXPR_COMPOUND_LITERAL:
+            // 处理复合字面量 {1, 2, 3, ...}
+            printf("Processing compound literal\n");
+
+            // 生成数组初始化指令
+            bytecode_emit_byte(gen, 0x80);  // ARRAY_INIT
+            bytecode_emit_uint32(gen, node->data.compound_literal.expression_count);
+
+            // 生成每个初始化表达式的字节码
+            for (int i = 0; i < node->data.compound_literal.expression_count; i++) {
+                ast_node_to_bytecode(node->data.compound_literal.expressions[i], gen);
+            }
+            break;
+
         default:
             // 其他节点类型暂时忽略
             printf("Ignoring AST node type: %d (0x%X)\n", node->type, node->type);
@@ -5558,8 +5820,8 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
     return 0;
 }
 
-// 将AST转换为ASTC字节码
-unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
+// 将AST转换为ASTC字节码（带优化选项）
+unsigned char* ast_to_astc_bytecode_with_options(struct ASTNode* ast, const C2AstcOptions* options, size_t* out_size) {
     if (!ast || !out_size) {
         set_error("Invalid parameters for bytecode generation");
         return NULL;
@@ -5567,8 +5829,12 @@ unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
 
     BytecodeGen gen;
     bytecode_init(&gen);
+    gen.options = options;  // 设置优化选项
 
     printf("Converting AST to ASTC bytecode...\n");
+    if (options && options->optimize_level > 0) {
+        printf("Optimization level: O%d\n", options->optimize_level);
+    }
 
     // 转换AST节点为字节码
     if (ast_node_to_bytecode(ast, &gen) != 0) {
@@ -5598,4 +5864,10 @@ unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
     }
 
     return result;
+}
+
+// 将AST转换为ASTC字节码（兼容性函数）
+unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
+    C2AstcOptions default_options = c2astc_default_options();
+    return ast_to_astc_bytecode_with_options(ast, &default_options, out_size);
 }

@@ -57,6 +57,10 @@ int main(int argc, char* argv[]) {
     printf("Output file: %s\n", output_file);
     printf("Input type: %s\n", is_c_file ? "C source" : "ASTC binary");
 
+    // 检测并显示目标架构
+    TargetArch target_arch = detect_runtime_architecture();
+    printf("Target architecture: %s\n", get_architecture_name(target_arch));
+
     int result;
     if (is_c_file) {
         result = compile_c_to_runtime_bin(input_file, output_file);

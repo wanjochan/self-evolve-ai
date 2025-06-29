@@ -20,7 +20,7 @@ extern "C" {
  * 转换配置选项
  */
 typedef struct {
-    bool optimize_level;        // 优化级别
+    int optimize_level;         // 优化级别 (0=无优化, 1=基础, 2=高级, 3=激进)
     bool enable_extensions;     // 启用WASX扩展
     bool emit_debug_info;       // 生成调试信息
 } C2AstcOptions;
@@ -94,6 +94,16 @@ unsigned char* c2astc(struct ASTNode *node, const C2AstcOptions *options, size_t
  * @return 生成的ASTC字节码，失败返回NULL
  */
 unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size);
+
+/**
+ * 将AST转换为ASTC字节码（带优化选项）
+ *
+ * @param ast AST根节点
+ * @param options 编译选项
+ * @param out_size 输出字节码大小
+ * @return 生成的ASTC字节码，失败返回NULL
+ */
+unsigned char* ast_to_astc_bytecode_with_options(struct ASTNode* ast, const C2AstcOptions* options, size_t* out_size);
 
 /**
  * 释放由库分配的内存

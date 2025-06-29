@@ -74,7 +74,11 @@ if %VERBOSE%==1 (
 
 REM Step 1: Compile C to ASTC
 if %VERBOSE%==1 echo Step 1: Compiling C to ASTC...
-bin\tool_c2astc.exe %INPUT_FILE% %INPUT_FILE%.astc
+if %OPTIMIZATION%==0 (
+    bin\tool_c2astc.exe %INPUT_FILE% %INPUT_FILE%.astc
+) else (
+    bin\tool_c2astc.exe %INPUT_FILE% %INPUT_FILE%.astc -O%OPTIMIZATION%
+)
 if %ERRORLEVEL% neq 0 (
     echo Error: C to ASTC compilation failed
     exit /b 1

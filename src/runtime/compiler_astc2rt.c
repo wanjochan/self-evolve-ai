@@ -30,6 +30,41 @@
 int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen);
 
 // ===============================================
+// 架构检测实现
+// ===============================================
+
+/**
+ * 检测当前运行时架构
+ */
+TargetArch detect_runtime_architecture(void) {
+    // 使用编译时宏检测架构
+    #if defined(_M_X64) || defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64)
+        return ARCH_X86_64;
+    #elif defined(_M_IX86) || defined(__i386__) || defined(__i386) || defined(i386)
+        return ARCH_X86_32;
+    #elif defined(_M_ARM64) || defined(__aarch64__)
+        return ARCH_ARM64;
+    #elif defined(_M_ARM) || defined(__arm__) || defined(__arm)
+        return ARCH_ARM32;
+    #else
+        return ARCH_UNKNOWN;
+    #endif
+}
+
+/**
+ * 获取架构名称字符串
+ */
+const char* get_architecture_name(TargetArch arch) {
+    switch (arch) {
+        case ARCH_X86_32: return "x86_32";
+        case ARCH_X86_64: return "x86_64";
+        case ARCH_ARM32:  return "arm32";
+        case ARCH_ARM64:  return "arm64";
+        default:          return "unknown";
+    }
+}
+
+// ===============================================
 // 代码生成器实现
 // ===============================================
 
@@ -44,11 +79,12 @@ CodeGen* old_codegen_init(void) {
         return NULL;
     }
     gen->code_size = 0;
+    gen->target_arch = detect_runtime_architecture();
     return gen;
 }
 
 // 新的ASTC代码生成器实现
-CodeGen* astc_codegen_init(void) {
+CodeGen* astc_codegen_init(TargetArch target_arch) {
     CodeGen* gen = malloc(sizeof(CodeGen));
     if (!gen) return NULL;
 
@@ -60,6 +96,17 @@ CodeGen* astc_codegen_init(void) {
     }
 
     gen->code_size = 0;
+
+    // 设置目标架构
+    if (target_arch == ARCH_UNKNOWN) {
+        gen->target_arch = detect_runtime_architecture();
+    } else {
+        gen->target_arch = target_arch;
+    }
+
+    printf("Initialized code generator for architecture: %s\n",
+           get_architecture_name(gen->target_arch));
+
     return gen;
 }
 
@@ -226,78 +273,118 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 // 公开API实现
 // ===============================================
 
+// 架构特定的指令生成函数指针
+typedef void (*emit_nop_func)(CodeGen* gen);
+typedef void (*emit_halt_func)(CodeGen* gen);
+typedef void (*emit_const_i32_func)(CodeGen* gen, uint32_t value);
+typedef void (*emit_binary_op_func)(CodeGen* gen);
+typedef void (*emit_libc_call_func)(CodeGen* gen, uint16_t func_id, uint16_t arg_count);
+typedef void (*emit_function_prologue_func)(CodeGen* gen);
+typedef void (*emit_function_epilogue_func)(CodeGen* gen);
+
+// 架构特定的代码生成函数表
+typedef struct {
+    emit_nop_func emit_nop;
+    emit_halt_func emit_halt;
+    emit_const_i32_func emit_const_i32;
+    emit_binary_op_func emit_add;
+    emit_binary_op_func emit_sub;
+    emit_binary_op_func emit_mul;
+    emit_binary_op_func emit_div;
+    emit_libc_call_func emit_libc_call;
+    emit_function_prologue_func emit_function_prologue;
+    emit_function_epilogue_func emit_function_epilogue;
+} ArchCodegenTable;
+
+// 获取架构特定的代码生成函数表
+ArchCodegenTable* get_arch_codegen_table(TargetArch arch) {
+    static ArchCodegenTable x64_table = {0};
+    static ArchCodegenTable x86_table = {0};
+    static ArchCodegenTable arm64_table = {0};
+    static ArchCodegenTable arm32_table = {0};
+
+    switch (arch) {
+        case ARCH_X86_64:
+            if (!x64_table.emit_nop) {
+                // 初始化x64函数表
+                x64_table.emit_nop = x64_emit_nop;
+                x64_table.emit_halt = x64_emit_halt_with_return_value;
+                x64_table.emit_const_i32 = x64_emit_const_i32;
+                x64_table.emit_add = x64_emit_binary_op_add;
+                x64_table.emit_sub = x64_emit_binary_op_sub;
+                x64_table.emit_mul = x64_emit_binary_op_mul;
+                x64_table.emit_div = x64_emit_div;
+                x64_table.emit_libc_call = x64_emit_libc_call;
+                x64_table.emit_function_prologue = x64_emit_function_prologue;
+                x64_table.emit_function_epilogue = x64_emit_function_epilogue;
+            }
+            return &x64_table;
+
+        case ARCH_X86_32:
+            // TODO: 实现x86_32支持
+            printf("Warning: x86_32 architecture not fully implemented, using x64 fallback\n");
+            return get_arch_codegen_table(ARCH_X86_64);
+
+        case ARCH_ARM64:
+            // TODO: 实现ARM64支持
+            printf("Warning: ARM64 architecture not implemented, using x64 fallback\n");
+            return get_arch_codegen_table(ARCH_X86_64);
+
+        case ARCH_ARM32:
+            // TODO: 实现ARM32支持
+            printf("Warning: ARM32 architecture not implemented, using x64 fallback\n");
+            return get_arch_codegen_table(ARCH_X86_64);
+
+        default:
+            printf("Warning: Unknown architecture, using x64 fallback\n");
+            return get_arch_codegen_table(ARCH_X86_64);
+    }
+}
+
 // ASTC JIT编译器 - 将ASTC字节码指令翻译成二进制机器码
 // 使用架构特定的codegen函数，支持跨平台
 void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint8_t* operands, size_t operand_len) {
+    ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+
     switch (opcode) {
         case 0x00: // NOP
-            x64_emit_nop(gen);
+            table->emit_nop(gen);
             break;
 
         case 0x01: // HALT
-            x64_emit_halt_with_return_value(gen);
+            table->emit_halt(gen);
             break;
 
         case 0x10: // CONST_I32
             if (operand_len >= 4) {
                 uint32_t value = *(uint32_t*)operands;
-                x64_emit_const_i32(gen, value);
+                table->emit_const_i32(gen, value);
             }
             break;
 
         case 0x20: // ADD
-            x64_emit_binary_op_add(gen);
+            table->emit_add(gen);
             break;
 
         case 0x21: // SUB
-            x64_emit_binary_op_sub(gen);
+            table->emit_sub(gen);
             break;
 
         case 0x22: // MUL
-            x64_emit_binary_op_mul(gen);
+            table->emit_mul(gen);
             break;
 
         case 0xF0: // LIBC_CALL
             if (operand_len >= 4) {
                 uint16_t func_id = *(uint16_t*)operands;
                 uint16_t arg_count = *(uint16_t*)(operands + 2);
-                x64_emit_libc_call(gen, func_id, arg_count);
+                table->emit_libc_call(gen, func_id, arg_count);
             }
-            break;
-
-        case 0xF1: // USER_CALL
-            x64_emit_user_call(gen);
-            break;
-
-        // Arithmetic operations
-        case 0x60: // ADD
-            x64_emit_add(gen);
-            break;
-
-        case 0x61: // SUB
-            x64_emit_sub(gen);
-            break;
-
-        case 0x62: // MUL
-            x64_emit_mul(gen);
-            break;
-
-        case 0x63: // DIV
-            x64_emit_div(gen);
-            break;
-
-        // Comparison operations
-        case 0x64: // LESS_THAN
-            x64_emit_less_than(gen);
-            break;
-
-        case 0x68: // EQUAL
-            x64_emit_equal(gen);
             break;
 
         default:
             // 未知指令，生成nop
-            x64_emit_nop(gen);
+            table->emit_nop(gen);
             break;
     }
 }
@@ -374,7 +461,8 @@ void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t*
 
 // ASTC JIT编译主函数 - 类似TinyCC的代码生成
 int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* gen) {
-    printf("JIT compiling ASTC bytecode to x64 machine code...\n");
+    printf("JIT compiling ASTC bytecode to %s machine code...\n",
+           get_architecture_name(gen->target_arch));
 
     // 跳过ASTC头部
     if (astc_size < 16 || memcmp(astc_data, "ASTC", 4) != 0) {
@@ -390,7 +478,8 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
     printf("ASTC version: %u, data_size: %u, entry_point: %u\n", version, data_size, entry_point);
 
     // 生成函数序言
-    x64_emit_function_prologue(gen);
+    ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+    table->emit_function_prologue(gen);
 
     // 尝试反序列化AST
     uint8_t* ast_data = astc_data + 16;
@@ -430,7 +519,7 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
     }
 
     // 如果没有显式的HALT，添加默认返回
-    x64_emit_function_epilogue(gen);
+    table->emit_function_epilogue(gen);
 
     printf("JIT compilation completed: %zu ASTC bytes → %zu machine code bytes\n",
            ast_data_size, gen->code_size);
@@ -494,15 +583,15 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
 
     printf("ASTC file size: %zu bytes\n", astc_size);
 
-    // 创建代码生成器
-    CodeGen* gen = old_codegen_init();
+    // 创建代码生成器（自动检测架构）
+    CodeGen* gen = astc_codegen_init(ARCH_UNKNOWN);
     if (!gen) {
         printf("Error: Failed to initialize code generator\n");
         free(astc_data);
         return 1;
     }
 
-    // 使用新的JIT编译器：ASTC字节码 → x64机器码
+    // 使用新的JIT编译器：ASTC字节码 → 目标架构机器码
     if (compile_astc_to_machine_code(astc_data, astc_size, gen) != 0) {
         printf("Error: JIT compilation failed\n");
         free(astc_data);
@@ -607,7 +696,8 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
                        node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
 
                 // 生成LIBC_CALL指令
-                x64_emit_libc_call(gen, node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
+                ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+                table->emit_libc_call(gen, node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
             } else {
                 // 普通函数调用
                 if (node->data.call_expr.callee &&
@@ -621,20 +711,24 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
 
         case ASTC_RETURN_STMT:
             // 编译return语句
-            if (node->data.return_stmt.value) {
-                compile_ast_node_to_machine_code(node->data.return_stmt.value, gen);
-                x64_emit_halt_with_return_value(gen);
-            } else {
-                // 返回0
-                x64_emit_const_i32(gen, 0);
-                x64_emit_halt_with_return_value(gen);
+            {
+                ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+                if (node->data.return_stmt.value) {
+                    compile_ast_node_to_machine_code(node->data.return_stmt.value, gen);
+                    table->emit_halt(gen);
+                } else {
+                    // 返回0
+                    table->emit_const_i32(gen, 0);
+                    table->emit_halt(gen);
+                }
             }
             break;
 
         case ASTC_EXPR_CONSTANT:
             // 编译常量表达式
             if (node->data.constant.type == ASTC_TYPE_INT) {
-                x64_emit_const_i32(gen, (uint32_t)node->data.constant.int_val);
+                ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+                table->emit_const_i32(gen, (uint32_t)node->data.constant.int_val);
             }
             break;
 

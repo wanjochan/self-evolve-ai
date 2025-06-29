@@ -507,6 +507,12 @@ typedef struct ASTNode {
             struct ASTNode *pointer;       // 指针表达式
             char *member;                  // 成员名称
         } ptr_member_access;
+
+        // 复合字面量表达式 (C99)
+        struct {
+            struct ASTNode **expressions;  // 初始化表达式列表
+            int expression_count;          // 表达式数量
+        } compound_literal;
     } data;
 } ASTNode;
 struct ASTNode* ast_create_node(ASTNodeType type, int line, int column);
