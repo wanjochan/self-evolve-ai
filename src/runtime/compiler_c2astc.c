@@ -495,34 +495,40 @@ static Token* scan_number(Lexer *lexer) {
 
 // 扫描字符串字面量
 static Token* scan_string(Lexer *lexer) {
-    size_t start = lexer->pos;
+    size_t start = lexer->pos;  // 记录开始位置（当前在开始引号处）
     int start_line = lexer->line;
     int start_column = lexer->column;
-    
-    lexer_advance(lexer); // "
-    
+
+    lexer_advance(lexer); // 跳过开始的 "
+
     while (!lexer_is_at_end(lexer) && lexer_peek(lexer) != '"') {
         if (lexer_peek(lexer) == '\\') {
             lexer_advance(lexer); // 转义字符
-            if (lexer_is_at_end(lexer)) break;
+            if (!lexer_is_at_end(lexer)) {
+                lexer_advance(lexer); // 跳过被转义的字符
+            }
+        } else {
+            lexer_advance(lexer);
         }
-        lexer_advance(lexer);
     }
-    
+
     if (lexer_is_at_end(lexer)) {
         // 错误：未闭合的字符串
         return NULL;
     }
-    
-    lexer_advance(lexer); // "
-    
+
+    lexer_advance(lexer); // 跳过结束的 "
+
+    // 计算包含引号的完整字符串长度
     size_t length = lexer->pos - start;
     char *value = (char*)malloc(length + 1);
     if (!value) return NULL;
-    
+
     strncpy(value, lexer->source + start, length);
     value[length] = '\0';
-    
+
+    printf("DEBUG: Lexer scanned string: '%s' (length: %zu)\n", value, length);
+
     Token *token = create_token(TOKEN_STRING_LITERAL, value, start_line, start_column, lexer->filename);
     free(value); // create_token已经复制了value
     return token;
@@ -943,21 +949,86 @@ static struct ASTNode* create_number_node(const char *value, int line, int colum
     return node;
 }
 
+// 处理转义序列的辅助函数
+static char process_escape_sequence(const char** src) {
+    char c = **src;
+    (*src)++;
+
+    switch (c) {
+        case 'n': return '\n';
+        case 't': return '\t';
+        case 'r': return '\r';
+        case 'b': return '\b';
+        case 'f': return '\f';
+        case 'a': return '\a';
+        case 'v': return '\v';
+        case '\\': return '\\';
+        case '\'': return '\'';
+        case '"': return '"';
+        case '0': return '\0';
+        default: return c; // 未知转义序列，返回原字符
+    }
+}
+
 // 从字符串Token创建ASTC字符串字面量节点
 struct ASTNode* create_string_node(const char *value, int line, int column) {
     struct ASTNode *node = ast_create_node(ASTC_EXPR_STRING_LITERAL, line, column);
     if (node) {
-        // 去除引号
+        printf("DEBUG: Processing string token: '%s'\n", value);
+
+        // 处理字符串token - 适应当前lexer的输出格式
         size_t len = strlen(value);
+        char *str = NULL;
+
         if (len >= 2 && value[0] == '"' && value[len-1] == '"') {
-            char *str = (char*)malloc(len - 1);
+            // 标准格式: "content"
+            str = (char*)malloc(len - 1);
             if (str) {
-                strncpy(str, value + 1, len - 2);
-                str[len - 2] = '\0';
-                node->data.string_literal.value = str;
+                const char *src = value + 1; // 跳过开始的引号
+                char *dst = str;
+
+                while (*src && *src != '"') { // 处理到结束引号
+                    if (*src == '\\' && *(src + 1)) {
+                        src++; // 跳过反斜杠
+                        *dst++ = process_escape_sequence(&src);
+                    } else {
+                        *dst++ = *src++;
+                    }
+                }
+                *dst = '\0';
+            }
+        } else if (len >= 1 && value[len-1] == '"') {
+            // 当前lexer格式: content" (缺少开始引号)
+            str = (char*)malloc(len);
+            if (str) {
+                const char *src = value; // 从开始处理
+                char *dst = str;
+
+                while (*src && *src != '"') { // 处理到结束引号
+                    if (*src == '\\' && *(src + 1)) {
+                        src++; // 跳过反斜杠
+                        *dst++ = process_escape_sequence(&src);
+                    } else {
+                        *dst++ = *src++;
+                    }
+                }
+                *dst = '\0';
             }
         } else {
-            node->data.string_literal.value = strdup(value);
+            // 其他格式，直接复制
+            str = strdup(value);
+        }
+
+        if (str) {
+            printf("DEBUG: Processed string result: '");
+            for (char* p = str; *p; p++) {
+                if (*p == '\n') printf("\\n");
+                else if (*p == '\t') printf("\\t");
+                else printf("%c", *p);
+            }
+            printf("'\n");
+
+            node->data.string_literal.value = str;
         }
     }
     return node;
@@ -5679,19 +5750,30 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             break;
 
         case ASTC_EXPR_STRING_LITERAL:
-            // 处理字符串字面量
-            printf("Generating string literal: \"%s\"\n", node->data.string_literal.value);
-            // 简化方案：直接嵌入字符串数据到字节码中
-            const char* str = node->data.string_literal.value;
-            size_t str_len = strlen(str) + 1; // 包含null终止符
+            {
+                // 处理字符串字面量
+                const char* str = node->data.string_literal.value;
+                printf("Generating string literal: \"");
+                // 显示处理后的字符串（用于调试）
+                for (const char* p = str; *p; p++) {
+                    if (*p == '\n') printf("\\n");
+                    else if (*p == '\t') printf("\\t");
+                    else if (*p == '\r') printf("\\r");
+                    else printf("%c", *p);
+                }
+                printf("\"\n");
 
-            // 生成CONST_STRING指令
-            bytecode_emit_byte(gen, 0x12);  // CONST_STRING
-            bytecode_emit_uint32(gen, (uint32_t)str_len);
+                // 简化方案：直接嵌入字符串数据到字节码中
+                size_t str_len = strlen(str) + 1; // 包含null终止符
 
-            // 直接嵌入字符串数据
-            for (size_t i = 0; i < str_len; i++) {
-                bytecode_emit_byte(gen, (uint8_t)str[i]);
+                // 生成CONST_STRING指令
+                bytecode_emit_byte(gen, 0x12);  // CONST_STRING
+                bytecode_emit_uint32(gen, (uint32_t)str_len);
+
+                // 直接嵌入字符串数据
+                for (size_t i = 0; i < str_len; i++) {
+                    bytecode_emit_byte(gen, (uint8_t)str[i]);
+                }
             }
             break;
 

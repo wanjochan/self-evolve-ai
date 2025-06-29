@@ -16,6 +16,8 @@
 #include <stdint.h>
 #include "runtime/compiler_c2astc.h"
 #include "runtime/compiler_astc2rt.h"
+#include "runtime/compiler_c2astc.h"
+#include "runtime/compiler_astc2rt.h"
 #include "runtime/core_astc.h"
 
 // ===============================================
@@ -348,15 +350,40 @@ int parse_c99_arguments(int argc, char* argv[], C99CompilerOptions* opts) {
 // ===============================================
 
 int main(int argc, char* argv[]) {
-    printf("C99 Compiler v1.0 - TinyCC Compatible\n");
-    
+    printf("C99 Compiler v1.0 - Self-Hosted\n");
+
     C99CompilerOptions opts;
-    int parse_result = parse_c99_arguments(argc, argv, &opts);
-    
-    if (parse_result == -1) {
-        return 0;  // 显示帮助后正常退出
-    } else if (parse_result != 0) {
-        return 1;  // 参数解析错误
+
+    // 在runtime环境中，从环境变量获取参数
+    char* c99_args = getenv("C99_ARGS");
+    if (c99_args) {
+        printf("Using C99_ARGS: %s\n", c99_args);
+
+        // 简单的参数解析：假设格式为 "input.c -o output.exe"
+        char* input_file = strtok(c99_args, " ");
+        char* flag = strtok(NULL, " ");
+        char* output_file = strtok(NULL, " ");
+
+        if (input_file && flag && output_file && strcmp(flag, "-o") == 0) {
+            init_compiler_options(&opts);
+            opts.input_file = input_file;
+            opts.output_file = output_file;
+            opts.verbose = true;
+
+            printf("Input: %s, Output: %s\n", opts.input_file, opts.output_file);
+        } else {
+            printf("Invalid C99_ARGS format. Expected: input.c -o output.exe\n");
+            return 1;
+        }
+    } else {
+        // 正常的命令行参数解析
+        int parse_result = parse_c99_arguments(argc, argv, &opts);
+
+        if (parse_result == -1) {
+            return 0;  // 显示帮助后正常退出
+        } else if (parse_result != 0) {
+            return 1;  // 参数解析错误
+        }
     }
     
     // 执行编译
@@ -377,38 +404,78 @@ int main(int argc, char* argv[]) {
 // 编译器函数实现
 // ===============================================
 
-// 编译C文件到ASTC
+// 编译C文件到ASTC (直接调用编译器函数，不依赖外部工具)
 int compile_c_file_to_astc(const char* input_file, const char* output_file) {
     printf("Compiling C to ASTC: %s -> %s\n", input_file, output_file);
 
-    // 调用c2astc工具
-    char command[512];
-    snprintf(command, sizeof(command), "bin\\tool_c2astc.exe %s %s", input_file, output_file);
+    // 直接调用c2astc编译器函数，不使用外部工具
+    C2AstcOptions options = c2astc_default_options();
+    options.optimize_level = 1;  // 默认优化级别
 
-    int result = system(command);
-    if (result != 0) {
-        fprintf(stderr, "Error: C to ASTC compilation failed\n");
+    // 使用c2astc编译C源码
+    struct ASTNode* ast = c2astc_convert_file(input_file, &options);
+    if (!ast) {
+        fprintf(stderr, "Error: Failed to compile: %s\n", c2astc_get_error());
         return 1;
     }
 
-    printf("C to ASTC compilation completed\n");
+    // 将AST转换为ASTC字节码
+    size_t astc_data_size;
+    unsigned char* astc_data = ast_to_astc_bytecode_with_options(ast, &options, &astc_data_size);
+    if (!astc_data) {
+        fprintf(stderr, "Error: Failed to generate ASTC bytecode: %s\n", c2astc_get_error());
+        ast_free(ast);
+        return 1;
+    }
+
+    // 创建ASTC文件
+    FILE* file = fopen(output_file, "wb");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create output file: %s\n", output_file);
+        free(astc_data);
+        ast_free(ast);
+        return 1;
+    }
+
+    // 创建ASTC头
+    typedef struct {
+        char magic[4];          // "ASTC"
+        uint32_t version;       // 版本号
+        uint32_t size;          // 数据大小
+        uint32_t entry_point;   // 入口点
+    } ASTCHeader;
+
+    ASTCHeader header;
+    memcpy(header.magic, "ASTC", 4);
+    header.version = 1;
+    header.size = astc_data_size;
+    header.entry_point = 0;
+
+    // 写入头部和数据
+    fwrite(&header, sizeof(ASTCHeader), 1, file);
+    fwrite(astc_data, astc_data_size, 1, file);
+    fclose(file);
+
+    printf("✓ C to ASTC compilation completed: %s (%zu bytes)\n", output_file, sizeof(ASTCHeader) + astc_data_size);
+
+    // 清理
+    free(astc_data);
+    ast_free(ast);
+
     return 0;
 }
 
-// 编译ASTC文件到Runtime
+// 编译ASTC文件到Runtime (直接调用编译器函数，不依赖外部工具)
 int compile_astc_file_to_runtime(const char* input_file, const char* output_file) {
     printf("Compiling ASTC to Runtime: %s -> %s\n", input_file, output_file);
 
-    // 调用astc2rt工具
-    char command[512];
-    snprintf(command, sizeof(command), "bin\\tool_astc2rt.exe %s %s", input_file, output_file);
-
-    int result = system(command);
+    // 直接调用astc2rt编译器函数，不使用外部工具
+    int result = compile_astc_to_runtime_bin(input_file, output_file);
     if (result != 0) {
         fprintf(stderr, "Error: ASTC to Runtime compilation failed\n");
         return 1;
     }
 
-    printf("ASTC to Runtime compilation completed\n");
+    printf("✓ ASTC to Runtime compilation completed\n");
     return 0;
 }
