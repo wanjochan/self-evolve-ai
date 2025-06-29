@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
+#include <time.h>
 
 // ===============================================
 // 全局状态
@@ -182,7 +184,198 @@ int libc_forward_call(LibcCall* call) {
         case LIBC_GETENV:
             call->return_value = (uint64_t)getenv((const char*)call->args[0]);
             break;
-            
+
+        // 扩展stdio函数
+        case LIBC_PUTS:
+            call->return_value = puts((const char*)call->args[0]);
+            break;
+
+        case LIBC_PUTCHAR:
+            call->return_value = putchar((int)call->args[0]);
+            break;
+
+        case LIBC_GETCHAR:
+            call->return_value = getchar();
+            break;
+
+        case LIBC_FGETC:
+            call->return_value = fgetc((FILE*)call->args[0]);
+            break;
+
+        case LIBC_FPUTC:
+            call->return_value = fputc((int)call->args[0], (FILE*)call->args[1]);
+            break;
+
+        // 扩展string.h函数
+        case LIBC_STRDUP:
+            call->return_value = (uint64_t)strdup((const char*)call->args[0]);
+            break;
+
+        case LIBC_STRTOK:
+            call->return_value = (uint64_t)strtok((char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRRCHR:
+            call->return_value = (uint64_t)strrchr((const char*)call->args[0], (int)call->args[1]);
+            break;
+
+        // ctype.h函数
+        case LIBC_ISALPHA:
+            call->return_value = isalpha((int)call->args[0]);
+            break;
+
+        case LIBC_ISDIGIT:
+            call->return_value = isdigit((int)call->args[0]);
+            break;
+
+        case LIBC_ISSPACE:
+            call->return_value = isspace((int)call->args[0]);
+            break;
+
+        case LIBC_TOUPPER:
+            call->return_value = toupper((int)call->args[0]);
+            break;
+
+        case LIBC_TOLOWER:
+            call->return_value = tolower((int)call->args[0]);
+            break;
+
+        // time.h函数
+        case LIBC_TIME:
+            call->return_value = (uint64_t)time((time_t*)call->args[0]);
+            break;
+
+        case LIBC_CLOCK:
+            call->return_value = (uint64_t)clock();
+            break;
+
+        // stdlib.h函数
+        case LIBC_RAND:
+            call->return_value = rand();
+            break;
+
+        case LIBC_SRAND:
+            srand((unsigned int)call->args[0]);
+            call->return_value = 0;
+            break;
+
+        case LIBC_STRTOL:
+            call->return_value = strtol((const char*)call->args[0], (char**)call->args[1], (int)call->args[2]);
+            break;
+
+        case LIBC_STRTOD:
+            call->return_value = (uint64_t)(strtod((const char*)call->args[0], (char**)call->args[1]) * 1000000);
+            break;
+
+        // 更多stdio.h函数
+        case LIBC_FFLUSH:
+            call->return_value = fflush((FILE*)call->args[0]);
+            break;
+
+        case LIBC_FSEEK:
+            call->return_value = fseek((FILE*)call->args[0], (long)call->args[1], (int)call->args[2]);
+            break;
+
+        case LIBC_FTELL:
+            call->return_value = ftell((FILE*)call->args[0]);
+            break;
+
+        case LIBC_REWIND:
+            rewind((FILE*)call->args[0]);
+            call->return_value = 0;
+            break;
+
+        case LIBC_FEOF:
+            call->return_value = feof((FILE*)call->args[0]);
+            break;
+
+        case LIBC_FERROR:
+            call->return_value = ferror((FILE*)call->args[0]);
+            break;
+
+        case LIBC_CLEARERR:
+            clearerr((FILE*)call->args[0]);
+            call->return_value = 0;
+            break;
+
+        // 更多string.h函数
+        case LIBC_STRCAT:
+            call->return_value = (uint64_t)strcat((char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRNCAT:
+            call->return_value = (uint64_t)strncat((char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_STRNCPY:
+            call->return_value = (uint64_t)strncpy((char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_STRNCMP:
+            call->return_value = strncmp((const char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_STRCHR:
+            call->return_value = (uint64_t)strchr((const char*)call->args[0], (int)call->args[1]);
+            break;
+
+        case LIBC_STRSTR:
+            call->return_value = (uint64_t)strstr((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_MEMCPY:
+            call->return_value = (uint64_t)memcpy((void*)call->args[0], (const void*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_MEMSET:
+            call->return_value = (uint64_t)memset((void*)call->args[0], (int)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_MEMCMP:
+            call->return_value = memcmp((const void*)call->args[0], (const void*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        // math.h函数 (使用原有ID)
+        case LIBC_SIN:
+            call->return_value = (uint64_t)(sin(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_COS:
+            call->return_value = (uint64_t)(cos(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_TAN:
+            call->return_value = (uint64_t)(tan(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_LOG:
+            call->return_value = (uint64_t)(log(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_LOG10:
+            call->return_value = (uint64_t)(log10(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_EXP:
+            call->return_value = (uint64_t)(exp(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_POW:
+            call->return_value = (uint64_t)(pow(*(double*)&call->args[0], *(double*)&call->args[1]) * 1000000);
+            break;
+
+        case LIBC_FLOOR:
+            call->return_value = (uint64_t)(floor(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_CEIL:
+            call->return_value = (uint64_t)(ceil(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_FABS:
+            call->return_value = (uint64_t)(fabs(*(double*)&call->args[0]) * 1000000);
+            break;
+
         default:
             call->error_code = -1; // 未知函数
             return -1;
@@ -205,6 +398,28 @@ const char* libc_get_function_name(uint16_t func_id) {
         case LIBC_PRINTF: return "printf";
         case LIBC_FOPEN: return "fopen";
         case LIBC_FCLOSE: return "fclose";
+        case LIBC_PUTS: return "puts";
+        case LIBC_PUTCHAR: return "putchar";
+        case LIBC_GETCHAR: return "getchar";
+        case LIBC_STRDUP: return "strdup";
+        case LIBC_STRTOK: return "strtok";
+        case LIBC_ISALPHA: return "isalpha";
+        case LIBC_ISDIGIT: return "isdigit";
+        case LIBC_TOUPPER: return "toupper";
+        case LIBC_TOLOWER: return "tolower";
+        case LIBC_TIME: return "time";
+        case LIBC_CLOCK: return "clock";
+        case LIBC_RAND: return "rand";
+        case LIBC_SRAND: return "srand";
+        case LIBC_STRCAT: return "strcat";
+        case LIBC_MEMCPY: return "memcpy";
+        case LIBC_MEMSET: return "memset";
+        case LIBC_SIN: return "sin";
+        case LIBC_COS: return "cos";
+        case LIBC_SQRT: return "sqrt";
+        case LIBC_POW: return "pow";
+        case LIBC_FFLUSH: return "fflush";
+        case LIBC_FSEEK: return "fseek";
         default: return "unknown";
     }
 }

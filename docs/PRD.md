@@ -1,4 +1,4 @@
-# Self-Evolve AI 项目规划 (修订版)
+# Self-Evolve AI 项目规划
 
 ## 1. 项目愿景
 

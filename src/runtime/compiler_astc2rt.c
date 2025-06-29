@@ -25,6 +25,7 @@
 #include "compiler_c2astc.h"
 #include "compiler_codegen.h"
 #include "compiler_codegen_x64.h"
+#include "compiler_codegen_arm64.h"
 
 // 前向声明
 int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen);
@@ -326,9 +327,20 @@ ArchCodegenTable* get_arch_codegen_table(TargetArch arch) {
             return get_arch_codegen_table(ARCH_X86_64);
 
         case ARCH_ARM64:
-            // TODO: 实现ARM64支持
-            printf("Warning: ARM64 architecture not implemented, using x64 fallback\n");
-            return get_arch_codegen_table(ARCH_X86_64);
+            if (!arm64_table.emit_nop) {
+                // 初始化ARM64函数表
+                arm64_table.emit_nop = arm64_emit_nop;
+                arm64_table.emit_halt = arm64_emit_halt_with_return_value;
+                arm64_table.emit_const_i32 = arm64_emit_const_i32;
+                arm64_table.emit_add = arm64_emit_binary_op_add;
+                arm64_table.emit_sub = arm64_emit_binary_op_sub;
+                arm64_table.emit_mul = arm64_emit_binary_op_mul;
+                arm64_table.emit_div = arm64_emit_div;
+                arm64_table.emit_libc_call = arm64_emit_libc_call;
+                arm64_table.emit_function_prologue = arm64_emit_function_prologue;
+                arm64_table.emit_function_epilogue = arm64_emit_function_epilogue;
+            }
+            return &arm64_table;
 
         case ARCH_ARM32:
             // TODO: 实现ARM32支持
@@ -374,6 +386,44 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             table->emit_mul(gen);
             break;
 
+        case 0x23: // DIV
+            table->emit_div(gen);
+            break;
+
+        case 0x12: // CONST_STRING
+            // 字符串常量指令 - 将字符串地址压入栈
+            if (operand_len >= 4) {
+                uint32_t str_len = *(uint32_t*)operands;
+                // 简化实现：将字符串数据地址压入栈
+                table->emit_const_i32(gen, (uint32_t)(uintptr_t)(operands + 4));
+            }
+            break;
+
+        case 0x30: // STORE_LOCAL
+            // 存储到局部变量
+            table->emit_nop(gen); // 简化实现
+            break;
+
+        case 0x31: // LOAD_LOCAL
+            // 加载局部变量
+            table->emit_nop(gen); // 简化实现
+            break;
+
+        case 0x40: // JUMP
+            // 无条件跳转
+            table->emit_nop(gen); // 简化实现
+            break;
+
+        case 0x41: // JUMP_IF_FALSE
+            // 条件跳转
+            table->emit_nop(gen); // 简化实现
+            break;
+
+        case 0x50: // CALL_USER
+            // 用户函数调用
+            table->emit_nop(gen); // 简化实现
+            break;
+
         case 0xF0: // LIBC_CALL
             if (operand_len >= 4) {
                 uint16_t func_id = *(uint16_t*)operands;
@@ -384,6 +434,7 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
 
         default:
             // 未知指令，生成nop
+            printf("Warning: Unknown ASTC opcode 0x%02X, generating NOP\n", opcode);
             table->emit_nop(gen);
             break;
     }
@@ -505,6 +556,17 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
             size_t operand_len = 0;
             switch (opcode) {
                 case 0x10: operand_len = 4; break; // CONST_I32
+                case 0x12: // CONST_STRING - 需要读取长度字段
+                    if (pc + 4 <= code_size) {
+                        uint32_t str_len = *(uint32_t*)&code[pc];
+                        operand_len = 4 + str_len; // 长度字段 + 字符串数据
+                    }
+                    break;
+                case 0x30: operand_len = 4; break; // STORE_LOCAL
+                case 0x31: operand_len = 4; break; // LOAD_LOCAL
+                case 0x40: operand_len = 4; break; // JUMP
+                case 0x41: operand_len = 4; break; // JUMP_IF_FALSE
+                case 0x50: operand_len = 4; break; // CALL_USER
                 case 0xF0: operand_len = 4; break; // LIBC_CALL
                 default: operand_len = 0; break;
             }

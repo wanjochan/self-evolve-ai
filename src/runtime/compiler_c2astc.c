@@ -1057,15 +1057,68 @@ static struct ASTNode* create_unary_expr(ASTNodeType op, struct ASTNode *operand
 
 // libc函数ID映射
 static uint16_t get_libc_func_id(const char* func_name) {
+    // stdio.h functions
     if (strcmp(func_name, "printf") == 0) return 0x0030;
     if (strcmp(func_name, "fprintf") == 0) return 0x0031;
     if (strcmp(func_name, "sprintf") == 0) return 0x0032;
     if (strcmp(func_name, "scanf") == 0) return 0x0033;
-    if (strcmp(func_name, "malloc") == 0) return 0x0050;
-    if (strcmp(func_name, "free") == 0) return 0x0053;
-    if (strcmp(func_name, "strlen") == 0) return 0x0060;
-    if (strcmp(func_name, "strcpy") == 0) return 0x0061;
-    if (strcmp(func_name, "strcmp") == 0) return 0x0065;
+    if (strcmp(func_name, "puts") == 0) return 0x0080;
+    if (strcmp(func_name, "putchar") == 0) return 0x0081;
+    if (strcmp(func_name, "getchar") == 0) return 0x0082;
+
+    // stdlib.h functions
+    if (strcmp(func_name, "malloc") == 0) return 0x0001;
+    if (strcmp(func_name, "free") == 0) return 0x0002;
+    if (strcmp(func_name, "atoi") == 0) return 0x0060;
+    if (strcmp(func_name, "atol") == 0) return 0x0061;
+    if (strcmp(func_name, "rand") == 0) return 0x00C2;
+    if (strcmp(func_name, "srand") == 0) return 0x00C3;
+    if (strcmp(func_name, "exit") == 0) return 0x0070;
+
+    // string.h functions
+    if (strcmp(func_name, "strlen") == 0) return 0x0010;
+    if (strcmp(func_name, "strcpy") == 0) return 0x0011;
+    if (strcmp(func_name, "strcmp") == 0) return 0x0013;
+    if (strcmp(func_name, "strdup") == 0) return 0x0090;
+    if (strcmp(func_name, "strtok") == 0) return 0x0091;
+    if (strcmp(func_name, "strcat") == 0) return 0x00E0;
+    if (strcmp(func_name, "strncpy") == 0) return 0x00E2;
+    if (strcmp(func_name, "strncmp") == 0) return 0x00E3;
+    if (strcmp(func_name, "strchr") == 0) return 0x00E4;
+    if (strcmp(func_name, "strstr") == 0) return 0x00E5;
+    if (strcmp(func_name, "memcpy") == 0) return 0x00E6;
+    if (strcmp(func_name, "memset") == 0) return 0x00E7;
+    if (strcmp(func_name, "memcmp") == 0) return 0x00E8;
+
+    // ctype.h functions
+    if (strcmp(func_name, "isalpha") == 0) return 0x00A0;
+    if (strcmp(func_name, "isdigit") == 0) return 0x00A1;
+    if (strcmp(func_name, "isspace") == 0) return 0x00A3;
+    if (strcmp(func_name, "toupper") == 0) return 0x00A6;
+    if (strcmp(func_name, "tolower") == 0) return 0x00A7;
+
+    // time.h functions
+    if (strcmp(func_name, "time") == 0) return 0x00B0;
+    if (strcmp(func_name, "clock") == 0) return 0x00B1;
+
+    // math.h functions
+    if (strcmp(func_name, "sin") == 0) return 0x0054;
+    if (strcmp(func_name, "cos") == 0) return 0x0055;
+    if (strcmp(func_name, "tan") == 0) return 0x0056;
+    if (strcmp(func_name, "sqrt") == 0) return 0x0052;
+    if (strcmp(func_name, "pow") == 0) return 0x0053;
+    if (strcmp(func_name, "log") == 0) return 0x00F3;
+    if (strcmp(func_name, "log10") == 0) return 0x00F4;
+    if (strcmp(func_name, "exp") == 0) return 0x00F5;
+    if (strcmp(func_name, "floor") == 0) return 0x00F7;
+    if (strcmp(func_name, "ceil") == 0) return 0x00F8;
+    if (strcmp(func_name, "fabs") == 0) return 0x00F9;
+
+    // stdio.h functions
+    if (strcmp(func_name, "fflush") == 0) return 0x00D0;
+    if (strcmp(func_name, "fseek") == 0) return 0x00D1;
+    if (strcmp(func_name, "ftell") == 0) return 0x00D2;
+
     return 0x0000; // 未知函数
 }
 
@@ -2086,41 +2139,82 @@ static struct ASTNode* parse_declaration(Parser *parser) {
             int capacity = 0;
             
             do {
-                // 解析参数声明 - 改进版本，处理复杂类型
+                // 解析参数声明 - 完整版本，正确处理复杂类型
+
+                // 首先解析参数类型（重用现有的类型解析逻辑）
+                struct ASTNode *param_type = NULL;
                 Token *type_token = peek(parser);
                 if (!type_token) break;
 
-                // 跳过类型相关的tokens (可能有多个，如 const char*, size_t等)
-                while (type_token && (
-                    type_token->type == TOKEN_VOID ||
-                    type_token->type == TOKEN_INT ||
-                    type_token->type == TOKEN_CHAR ||
-                    type_token->type == TOKEN_FLOAT ||
-                    type_token->type == TOKEN_DOUBLE ||
-                    type_token->type == TOKEN_SIGNED ||
-                    type_token->type == TOKEN_UNSIGNED ||
-                    type_token->type == TOKEN_CONST ||      // 处理 const 关键字
-                    type_token->type == TOKEN_VOLATILE ||   // 处理 volatile 关键字
-                    type_token->type == TOKEN_IDENTIFIER || // 处理 size_t 等类型
-                    type_token->type == TOKEN_STAR)) {      // 处理指针 *
-                    advance(parser);
-                    type_token = peek(parser);
+                // 解析基础类型
+                switch (type_token->type) {
+                    case TOKEN_VOID:
+                    case TOKEN_CHAR:
+                    case TOKEN_SHORT:
+                    case TOKEN_INT:
+                    case TOKEN_LONG:
+                    case TOKEN_FLOAT:
+                    case TOKEN_DOUBLE:
+                    case TOKEN_SIGNED:
+                    case TOKEN_UNSIGNED:
+                        param_type = ast_create_node(ASTC_TYPE_SPECIFIER, type_token->line, type_token->column);
+                        if (!param_type) break;
+
+                        // 设置类型
+                        switch (type_token->type) {
+                            case TOKEN_VOID: param_type->data.type_specifier.type = ASTC_TYPE_VOID; break;
+                            case TOKEN_CHAR: param_type->data.type_specifier.type = ASTC_TYPE_CHAR; break;
+                            case TOKEN_SHORT: param_type->data.type_specifier.type = ASTC_TYPE_SHORT; break;
+                            case TOKEN_INT: param_type->data.type_specifier.type = ASTC_TYPE_INT; break;
+                            case TOKEN_LONG: param_type->data.type_specifier.type = ASTC_TYPE_LONG; break;
+                            case TOKEN_FLOAT: param_type->data.type_specifier.type = ASTC_TYPE_FLOAT; break;
+                            case TOKEN_DOUBLE: param_type->data.type_specifier.type = ASTC_TYPE_DOUBLE; break;
+                            case TOKEN_SIGNED: param_type->data.type_specifier.type = ASTC_TYPE_SIGNED; break;
+                            case TOKEN_UNSIGNED: param_type->data.type_specifier.type = ASTC_TYPE_UNSIGNED; break;
+                        }
+                        advance(parser);
+                        break;
+                    default:
+                        // 不支持的类型，跳过此参数
+                        break;
                 }
+
+                if (!param_type) break;
+
+                // 处理指针类型
+                param_type = parse_pointer_type(parser, param_type);
+                if (!param_type) break;
 
                 // 获取参数名
                 Token *name_token = peek(parser);
                 if (!name_token || name_token->type != TOKEN_IDENTIFIER) {
-                    // 如果没有参数名，可能是 void 参数或其他情况，跳过
+                    // 如果没有参数名，可能是 void 参数或其他情况
+                    ast_free(param_type);
                     break;
                 }
+
+                char *param_name = strdup(name_token->value);
                 advance(parser);
 
-                // 创建参数节点 (使用VAR_DECL结构)
-                struct ASTNode *param = ast_create_node(ASTC_VAR_DECL, type_token->line, type_token->column);
-                if (!param) break;
+                // 处理数组类型 (如 argv[])
+                if (check(parser, TOKEN_LBRACKET)) {
+                    param_type = parse_array_type(parser, param_type);
+                    if (!param_type) {
+                        free(param_name);
+                        break;
+                    }
+                }
 
-                param->data.var_decl.name = strdup(name_token->value);
-                param->data.var_decl.type = NULL; // 简化，不处理复杂类型
+                // 创建参数节点
+                struct ASTNode *param = ast_create_node(ASTC_VAR_DECL, type_token->line, type_token->column);
+                if (!param) {
+                    ast_free(param_type);
+                    free(param_name);
+                    break;
+                }
+
+                param->data.var_decl.name = param_name;
+                param->data.var_decl.type = param_type;  // 正确设置类型
                 param->data.var_decl.initializer = NULL;
                 if (!param) {
                     // 释放已分配的资源

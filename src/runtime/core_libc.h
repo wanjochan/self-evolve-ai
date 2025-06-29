@@ -83,6 +83,73 @@ extern "C" {
 #define LIBC_SYSTEM     0x0072
 #define LIBC_GETENV     0x0073
 
+// 扩展stdio函数
+#define LIBC_PUTS       0x0080
+#define LIBC_PUTCHAR    0x0081
+#define LIBC_GETCHAR    0x0082
+#define LIBC_FGETC      0x0083
+#define LIBC_FPUTC      0x0084
+#define LIBC_FGETS      0x0085
+#define LIBC_FPUTS      0x0086
+
+// 扩展string.h函数
+#define LIBC_STRDUP     0x0090
+#define LIBC_STRTOK     0x0091
+#define LIBC_STRRCHR    0x0092
+#define LIBC_STRSPN     0x0093
+#define LIBC_STRCSPN    0x0094
+
+// ctype.h函数
+#define LIBC_ISALPHA    0x00A0
+#define LIBC_ISDIGIT    0x00A1
+#define LIBC_ISALNUM    0x00A2
+#define LIBC_ISSPACE    0x00A3
+#define LIBC_ISUPPER    0x00A4
+#define LIBC_ISLOWER    0x00A5
+#define LIBC_TOUPPER    0x00A6
+#define LIBC_TOLOWER    0x00A7
+
+// time.h函数
+#define LIBC_TIME       0x00B0
+#define LIBC_CLOCK      0x00B1
+#define LIBC_DIFFTIME   0x00B2
+
+// 扩展stdlib.h函数
+#define LIBC_QSORT      0x00C0
+#define LIBC_BSEARCH    0x00C1
+#define LIBC_RAND       0x00C2
+#define LIBC_SRAND      0x00C3
+#define LIBC_STRTOL     0x00C4
+#define LIBC_STRTOD     0x00C5
+
+// 更多stdio.h函数
+#define LIBC_FFLUSH     0x00D0
+#define LIBC_FSEEK      0x00D1
+#define LIBC_FTELL      0x00D2
+#define LIBC_REWIND     0x00D3
+#define LIBC_FEOF       0x00D4
+#define LIBC_FERROR     0x00D5
+#define LIBC_CLEARERR   0x00D6
+
+// 更多string.h函数
+#define LIBC_STRCAT     0x00E0
+#define LIBC_STRNCAT    0x00E1
+#define LIBC_STRNCPY    0x00E2
+#define LIBC_STRNCMP    0x00E3
+#define LIBC_STRCHR     0x00E4
+#define LIBC_STRSTR     0x00E5
+#define LIBC_MEMCPY     0x00E6
+#define LIBC_MEMSET     0x00E7
+#define LIBC_MEMCMP     0x00E8
+
+// 更多math.h函数
+#define LIBC_LOG        0x00F3
+#define LIBC_LOG10      0x00F4
+#define LIBC_EXP        0x00F5
+#define LIBC_FLOOR      0x00F7
+#define LIBC_CEIL       0x00F8
+#define LIBC_FABS       0x00F9
+
 // ===============================================
 // libc转发调用结构
 // ===============================================
