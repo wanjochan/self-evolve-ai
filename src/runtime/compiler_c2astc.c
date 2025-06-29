@@ -2019,7 +2019,7 @@ static struct ASTNode* parse_declaration(Parser *parser) {
                 Token *type_token = peek(parser);
                 if (!type_token) break;
 
-                // 跳过类型相关的tokens (可能有多个，如 void*, size_t等)
+                // 跳过类型相关的tokens (可能有多个，如 const char*, size_t等)
                 while (type_token && (
                     type_token->type == TOKEN_VOID ||
                     type_token->type == TOKEN_INT ||
@@ -2028,7 +2028,9 @@ static struct ASTNode* parse_declaration(Parser *parser) {
                     type_token->type == TOKEN_DOUBLE ||
                     type_token->type == TOKEN_SIGNED ||
                     type_token->type == TOKEN_UNSIGNED ||
-                    type_token->type == TOKEN_IDENTIFIER ||  // 处理 size_t 等类型
+                    type_token->type == TOKEN_CONST ||      // 处理 const 关键字
+                    type_token->type == TOKEN_VOLATILE ||   // 处理 volatile 关键字
+                    type_token->type == TOKEN_IDENTIFIER || // 处理 size_t 等类型
                     type_token->type == TOKEN_STAR)) {      // 处理指针 *
                     advance(parser);
                     type_token = peek(parser);

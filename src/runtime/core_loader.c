@@ -178,6 +178,8 @@ typedef struct {
     bool verbose;               // 详细输出
     bool debug;                 // 调试模式
     bool performance;           // 性能监控
+    int program_argc;           // 传递给program的参数数量
+    char** program_argv;        // 传递给program的参数数组
 } LoaderOptions;
 
 // 性能统计
@@ -491,18 +493,20 @@ static int load_and_execute_runtime(const LoaderOptions* options, PerformanceSta
 // ===============================================
 
 static void print_usage(const char* program_name) {
-    printf("用法: %s [选项] <program.astc>\n\n", program_name);
+    printf("用法: %s [选项] <program.astc> [-- program_args...]\n\n", program_name);
     printf("PRD.md三层架构统一加载器 - 自动检测平台并选择Runtime\n\n");
     printf("选项:\n");
     printf("  -v, --verbose     显示详细输出\n");
     printf("  -d, --debug       启用调试模式\n");
     printf("  -p, --performance 显示性能统计\n");
     printf("  -r, --runtime     手动指定runtime文件 (覆盖自动检测)\n");
-    printf("  -h, --help        显示帮助信息\n\n");
+    printf("  -h, --help        显示帮助信息\n");
+    printf("  --                分隔loader选项和program参数\n\n");
     printf("示例:\n");
     printf("  %s evolver0_program.astc                    # 自动检测平台\n", program_name);
     printf("  %s -v evolver0_program.astc                 # 详细输出\n", program_name);
     printf("  %s -r custom.rt evolver0_program.astc       # 手动指定runtime\n", program_name);
+    printf("  %s c99_program.astc -- input.c -o output    # 传递参数给program\n", program_name);
 }
 
 static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
@@ -512,9 +516,21 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
     options->verbose = false;
     options->debug = false;
     options->performance = false;
+    options->program_argc = 0;
+    options->program_argv = NULL;
 
-    // 遍历命令行参数
+    // 遍历命令行参数，寻找 -- 分隔符
+    int program_args_start = -1;
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            program_args_start = i + 1;
+            break;
+        }
+    }
+
+    // 解析loader选项（-- 之前的参数）
+    int loader_argc = (program_args_start > 0) ? program_args_start - 1 : argc;
+    for (int i = 1; i < loader_argc; i++) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             options->verbose = true;
         }
@@ -525,7 +541,7 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
             options->performance = true;
         }
         else if (strcmp(argv[i], "-r") == 0 || strcmp(argv[i], "--runtime") == 0) {
-            if (i + 1 < argc) {
+            if (i + 1 < loader_argc) {
                 options->runtime_file = argv[++i];
             } else {
                 fprintf(stderr, "错误: -r 选项需要指定runtime文件\n");
@@ -545,6 +561,12 @@ static bool parse_arguments(int argc, char* argv[], LoaderOptions* options) {
                 return false;
             }
         }
+    }
+
+    // 设置program参数（-- 之后的参数）
+    if (program_args_start > 0 && program_args_start < argc) {
+        options->program_argc = argc - program_args_start;
+        options->program_argv = &argv[program_args_start];
     }
 
     // 验证必需的参数
