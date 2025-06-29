@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="Compiler Tests" tests="6" failures="2" time="6183">
+    <testcase name="Basic Compilation" time="185"/>
+    <testcase name="Runtime Execution" time="327"/>
+    <testcase name="Malloc Functionality" time="1476">
+      <failure></failure>
+    </testcase>
+    <testcase name="Self Compilation" time="3237"/>
+    <testcase name="Arithmetic Operations" time="525">
+      <failure></failure>
+    </testcase>
+    <testcase name="Independence Verification" time="6164"/>
+  </testsuite>
+</testsuites>
