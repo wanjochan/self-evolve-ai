@@ -1,5 +1,1 @@
-#include <stdio.h>
-
-int main() {
-    return 42;
-}
+int main() { return 42; }

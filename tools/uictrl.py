@@ -261,27 +261,59 @@ def send_mouse_input(hwnd: int, action: MouseAction, x: int, y: int) -> str:
         raise ValueError(f"Unsupported mouse action: {action}")
 
 def send_keyboard_input(hwnd: int, action: KeyboardAction, payload: KeyboardPayload) -> str:
-    """发送键盘输入"""
-    # 确保窗口处于前台
-    win32gui.SetForegroundWindow(hwnd)
+    """发送键盘输入到指定窗口
+    
+    注意：此函数不需要窗口在前台即可工作
+    """
+    import win32con
+    import win32api
+    import time
+    
+    def send_char(char: str):
+        """发送单个字符到窗口"""
+        # 获取虚拟键码
+        vk = win32api.VkKeyScan(char)
+        # 获取扫描码
+        scan = win32api.MapVirtualKey(vk & 0xff, 0)
+        
+        # 发送按键按下事件
+        win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, 0x00000001 | (scan << 16))
+        # 发送字符事件
+        win32api.PostMessage(hwnd, win32con.WM_CHAR, ord(char), 0x00000001 | (scan << 16))
+        # 发送按键释放事件
+        win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk, 0xC0000001 | (scan << 16))
     
     if action == KeyboardAction.TYPE_TEXT:
         if not payload.text:
             raise ValueError("Type_text action requires text payload")
         
-        # 使用pyautogui模拟键盘输入
-        import pyautogui
-        pyautogui.write(payload.text)
-        return f"Text '{payload.text}' typed"
+        # 发送每个字符
+        for char in payload.text:
+            send_char(char)
+            time.sleep(0.01)  # 小延迟，确保输入顺序正确
+            
+        return f"Text sent to window {hwnd}"
     
     elif action == KeyboardAction.PRESS_KEYS:
         if not payload.keys:
             raise ValueError("Press_keys action requires keys payload")
         
-        import pyautogui
-        # 处理组合键
-        pyautogui.hotkey(*payload.keys)
-        return f"Keys {', '.join(payload.keys)} pressed"
+        # 发送组合键
+        for key in payload.keys:
+            # 这里简化处理，实际应该处理特殊键
+            vk = win32api.VkKeyScan(key[0].lower() if key.isalpha() else key)
+            scan = win32api.MapVirtualKey(vk & 0xff, 0)
+            
+            # 发送按键按下
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, 0x00000001 | (scan << 16))
+            
+        # 发送按键释放（逆序）
+        for key in reversed(payload.keys):
+            vk = win32api.VkKeyScan(key[0].lower() if key.isalpha() else key)
+            scan = win32api.MapVirtualKey(vk & 0xff, 0)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk, 0xC0000001 | (scan << 16))
+            
+        return f"Keys {', '.join(payload.keys)} sent to window {hwnd}"
     
     else:
         raise ValueError(f"Unsupported keyboard action: {action}")

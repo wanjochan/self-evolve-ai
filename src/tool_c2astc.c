@@ -21,25 +21,53 @@ typedef struct {
     uint32_t entry_point;   // 入口点
 } ASTCHeader;
 
+static void print_usage(const char* program_name) {
+    printf("Usage: %s [options] <input.c> [output.astc]\n", program_name);
+    printf("\nOptions:\n");
+    printf("  -h, --help     Show this help message\n");
+    printf("  -v, --version  Show version information\n");
+    printf("  -o <file>      Specify output file\n");
+    printf("  -O0            No optimization (default)\n");
+    printf("  -O1            Basic optimization\n");
+    printf("  -O2            Advanced optimization\n");
+    printf("  -O3            Aggressive optimization\n");
+    printf("  -g             Generate debug information\n");
+    printf("\nExamples:\n");
+    printf("  %s hello.c                    # Compile to evolver0_program.astc\n", program_name);
+    printf("  %s hello.c hello.astc         # Compile to hello.astc\n", program_name);
+    printf("  %s -o hello.astc hello.c      # Compile with -o option\n", program_name);
+    printf("  %s -O2 -g hello.c             # Compile with optimization and debug info\n", program_name);
+}
+
+static void print_version(void) {
+    printf("tool_c2astc - C to ASTC Compiler v1.0\n");
+    printf("Part of Self-Evolve AI C99 Compiler System\n");
+    printf("Built: %s %s\n", __DATE__, __TIME__);
+}
+
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        printf("Usage: %s <input.c> [output.astc] [-O0|-O1|-O2|-O3] [-g]\n", argv[0]);
-        printf("Options:\n");
-        printf("  -O0    No optimization (default)\n");
-        printf("  -O1    Basic optimization\n");
-        printf("  -O2    Advanced optimization\n");
-        printf("  -O3    Aggressive optimization\n");
-        printf("  -g     Generate debug information\n");
-        return 1;
-    }
-
-    const char* input_file = argv[1];
-    const char* output_file = (argc > 2) ? argv[2] : "evolver0_program.astc";
-
-    // 解析优化选项
+    const char* input_file = NULL;
+    const char* output_file = NULL;
     C2AstcOptions options = c2astc_default_options();
-    for (int i = 3; i < argc; i++) {
-        if (strcmp(argv[i], "-O1") == 0) {
+
+    // 解析命令行参数
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            print_version();
+            return 0;
+        } else if (strcmp(argv[i], "-o") == 0) {
+            if (i + 1 < argc) {
+                output_file = argv[++i];
+            } else {
+                fprintf(stderr, "Error: -o requires output filename\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-O0") == 0) {
+            options.optimize_level = 0;
+        } else if (strcmp(argv[i], "-O1") == 0) {
             options.optimize_level = 1;
         } else if (strcmp(argv[i], "-O2") == 0) {
             options.optimize_level = 2;
@@ -47,7 +75,33 @@ int main(int argc, char* argv[]) {
             options.optimize_level = 3;
         } else if (strcmp(argv[i], "-g") == 0) {
             options.emit_debug_info = true;
+        } else if (argv[i][0] != '-') {
+            if (!input_file) {
+                input_file = argv[i];
+            } else if (!output_file) {
+                output_file = argv[i];
+            } else {
+                fprintf(stderr, "Error: Too many input files\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return 1;
         }
+    }
+
+    // 检查必要参数
+    if (!input_file) {
+        fprintf(stderr, "Error: No input file specified\n");
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    // 设置默认输出文件
+    if (!output_file) {
+        output_file = "evolver0_program.astc";
     }
 
     printf("Building Program ASTC...\n");
