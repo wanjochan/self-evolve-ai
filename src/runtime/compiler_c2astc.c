@@ -1078,17 +1078,20 @@ static uint16_t get_libc_func_id(const char* func_name) {
     // string.h functions
     if (strcmp(func_name, "strlen") == 0) return 0x0010;
     if (strcmp(func_name, "strcpy") == 0) return 0x0011;
+    if (strcmp(func_name, "strncpy") == 0) return 0x0012;
     if (strcmp(func_name, "strcmp") == 0) return 0x0013;
+    if (strcmp(func_name, "strncmp") == 0) return 0x0014;
+    if (strcmp(func_name, "strcat") == 0) return 0x0015;
+    if (strcmp(func_name, "strncat") == 0) return 0x0016;
+    if (strcmp(func_name, "strchr") == 0) return 0x0017;
+    if (strcmp(func_name, "strstr") == 0) return 0x0018;
     if (strcmp(func_name, "strdup") == 0) return 0x0090;
     if (strcmp(func_name, "strtok") == 0) return 0x0091;
-    if (strcmp(func_name, "strcat") == 0) return 0x00E0;
-    if (strcmp(func_name, "strncpy") == 0) return 0x00E2;
-    if (strcmp(func_name, "strncmp") == 0) return 0x00E3;
-    if (strcmp(func_name, "strchr") == 0) return 0x00E4;
-    if (strcmp(func_name, "strstr") == 0) return 0x00E5;
-    if (strcmp(func_name, "memcpy") == 0) return 0x00E6;
-    if (strcmp(func_name, "memset") == 0) return 0x00E7;
-    if (strcmp(func_name, "memcmp") == 0) return 0x00E8;
+
+    // memory functions
+    if (strcmp(func_name, "memcpy") == 0) return 0x0020;
+    if (strcmp(func_name, "memset") == 0) return 0x0022;
+    if (strcmp(func_name, "memcmp") == 0) return 0x0023;
 
     // ctype.h functions
     if (strcmp(func_name, "isalpha") == 0) return 0x00A0;
@@ -1115,9 +1118,11 @@ static uint16_t get_libc_func_id(const char* func_name) {
     if (strcmp(func_name, "fabs") == 0) return 0x00F9;
 
     // stdio.h functions
+    if (strcmp(func_name, "fseek") == 0) return 0x0044;
+    if (strcmp(func_name, "ftell") == 0) return 0x0045;
+    if (strcmp(func_name, "feof") == 0) return 0x0046;
+    if (strcmp(func_name, "ferror") == 0) return 0x0047;
     if (strcmp(func_name, "fflush") == 0) return 0x00D0;
-    if (strcmp(func_name, "fseek") == 0) return 0x00D1;
-    if (strcmp(func_name, "ftell") == 0) return 0x00D2;
 
     return 0x0000; // 未知函数
 }

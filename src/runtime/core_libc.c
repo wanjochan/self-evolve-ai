@@ -298,43 +298,6 @@ int libc_forward_call(LibcCall* call) {
             call->return_value = 0;
             break;
 
-        // 更多string.h函数
-        case LIBC_STRCAT:
-            call->return_value = (uint64_t)strcat((char*)call->args[0], (const char*)call->args[1]);
-            break;
-
-        case LIBC_STRNCAT:
-            call->return_value = (uint64_t)strncat((char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
-            break;
-
-        case LIBC_STRNCPY:
-            call->return_value = (uint64_t)strncpy((char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
-            break;
-
-        case LIBC_STRNCMP:
-            call->return_value = strncmp((const char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
-            break;
-
-        case LIBC_STRCHR:
-            call->return_value = (uint64_t)strchr((const char*)call->args[0], (int)call->args[1]);
-            break;
-
-        case LIBC_STRSTR:
-            call->return_value = (uint64_t)strstr((const char*)call->args[0], (const char*)call->args[1]);
-            break;
-
-        case LIBC_MEMCPY:
-            call->return_value = (uint64_t)memcpy((void*)call->args[0], (const void*)call->args[1], (size_t)call->args[2]);
-            break;
-
-        case LIBC_MEMSET:
-            call->return_value = (uint64_t)memset((void*)call->args[0], (int)call->args[1], (size_t)call->args[2]);
-            break;
-
-        case LIBC_MEMCMP:
-            call->return_value = memcmp((const void*)call->args[0], (const void*)call->args[1], (size_t)call->args[2]);
-            break;
-
         // math.h函数 (使用原有ID)
         case LIBC_SIN:
             call->return_value = (uint64_t)(sin(*(double*)&call->args[0]) * 1000000);

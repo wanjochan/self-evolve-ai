@@ -119,28 +119,11 @@ extern "C" {
 #define LIBC_BSEARCH    0x00C1
 #define LIBC_RAND       0x00C2
 #define LIBC_SRAND      0x00C3
-#define LIBC_STRTOL     0x00C4
-#define LIBC_STRTOD     0x00C5
 
 // 更多stdio.h函数
 #define LIBC_FFLUSH     0x00D0
-#define LIBC_FSEEK      0x00D1
-#define LIBC_FTELL      0x00D2
 #define LIBC_REWIND     0x00D3
-#define LIBC_FEOF       0x00D4
-#define LIBC_FERROR     0x00D5
 #define LIBC_CLEARERR   0x00D6
-
-// 更多string.h函数
-#define LIBC_STRCAT     0x00E0
-#define LIBC_STRNCAT    0x00E1
-#define LIBC_STRNCPY    0x00E2
-#define LIBC_STRNCMP    0x00E3
-#define LIBC_STRCHR     0x00E4
-#define LIBC_STRSTR     0x00E5
-#define LIBC_MEMCPY     0x00E6
-#define LIBC_MEMSET     0x00E7
-#define LIBC_MEMCMP     0x00E8
 
 // 更多math.h函数
 #define LIBC_LOG        0x00F3
