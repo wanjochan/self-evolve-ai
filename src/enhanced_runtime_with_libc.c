@@ -137,6 +137,35 @@ int astc_execute_instruction(ASTCVirtualMachine* vm) {
                 }
             }
             break;
+
+        case 0x50: // JZ - 零跳转
+            {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t condition = astc_vm_pop(vm);
+                if (condition == 0) {
+                    vm->pc = offset;
+                }
+            }
+            break;
+
+        case 0x51: // JNZ - 非零跳转
+            {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc += 4;
+                uint32_t condition = astc_vm_pop(vm);
+                if (condition != 0) {
+                    vm->pc = offset;
+                }
+            }
+            break;
+
+        case 0x52: // JMP - 无条件跳转
+            {
+                uint32_t offset = *(uint32_t*)(vm->code + vm->pc);
+                vm->pc = offset;
+            }
+            break;
             
         case 0xF0: // LIBC_CALL - 使用完整的libc转发系统
             {
