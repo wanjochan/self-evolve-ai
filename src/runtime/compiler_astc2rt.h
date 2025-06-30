@@ -64,6 +64,22 @@ TargetArch detect_runtime_architecture(void);
 const char* get_architecture_name(TargetArch arch);
 
 /**
+ * 从字符串解析目标架构
+ *
+ * @param arch_str 架构字符串
+ * @return 解析的架构类型
+ */
+TargetArch parse_target_architecture(const char* arch_str);
+
+/**
+ * 检查架构是否支持
+ *
+ * @param arch 架构类型
+ * @return 是否支持
+ */
+bool is_architecture_supported(TargetArch arch);
+
+/**
  * 初始化ASTC代码生成器
  *
  * @param target_arch 目标架构，如果为ARCH_UNKNOWN则自动检测

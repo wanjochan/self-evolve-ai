@@ -24,6 +24,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable
 import win32gui
 import win32con
+import concurrent.futures
+from queue import Queue
+from threading import Lock
 
 # UI Automation imports
 try:
@@ -48,6 +51,26 @@ class UIAElement:
         self._cached_properties = {}
         self._cached_patterns = None
         self._cached_children = None
+        self._cached_text_content = None
+        
+        # 创建缓存请求
+        self._cache_request = None
+        try:
+            self._cache_request = UIAModule._automation.CreateCacheRequest()
+            self._cache_request.TreeScope = UIAutomationClient.TreeScope_Element | UIAutomationClient.TreeScope_Children
+            # 添加常用属性到缓存
+            self._cache_request.AddProperty(UIAutomationClient.UIA_NamePropertyId)
+            self._cache_request.AddProperty(UIAutomationClient.UIA_AutomationIdPropertyId)
+            self._cache_request.AddProperty(UIAutomationClient.UIA_ClassNamePropertyId)
+            self._cache_request.AddProperty(UIAutomationClient.UIA_ControlTypePropertyId)
+            self._cache_request.AddProperty(UIAutomationClient.UIA_IsEnabledPropertyId)
+            self._cache_request.AddProperty(UIAutomationClient.UIA_BoundingRectanglePropertyId)
+            # 添加常用模式到缓存
+            self._cache_request.AddPattern(UIAutomationClient.UIA_ValuePatternId)
+            self._cache_request.AddPattern(UIAutomationClient.UIA_TextPatternId)
+            self._cache_request.AddPattern(UIAutomationClient.UIA_LegacyIAccessiblePatternId)
+        except:
+            pass
         
     def get_property(self, property_name: str, use_cache: bool = True):
         """获取元素属性，支持缓存"""
@@ -55,28 +78,71 @@ class UIAElement:
             return self._cached_properties[property_name]
         
         try:
+            # 使用缓存请求获取属性
+            if self._cache_request:
+                cached_element = self.element.BuildUpdatedCache(self._cache_request)
+                if cached_element:
+                    if property_name == 'Name':
+                        value = cached_element.CachedName or ""
+                    elif property_name == 'AutomationId':
+                        value = cached_element.CachedAutomationId or ""
+                    elif property_name == 'ClassName':
+                        value = cached_element.CachedClassName or ""
+                    elif property_name == 'ControlType':
+                        control_type_id = cached_element.CachedControlType
+                        value = UIAModule.get_control_type_name(control_type_id)
+                    elif property_name == 'ControlTypeId':
+                        value = cached_element.CachedControlType
+                    elif property_name == 'IsEnabled':
+                        value = cached_element.CachedIsEnabled
+                    elif property_name == 'BoundingRectangle':
+                        rect = cached_element.CachedBoundingRectangle
+                        value = {
+                            'left': rect.left, 'top': rect.top,
+                            'right': rect.right, 'bottom': rect.bottom,
+                            'width': rect.right - rect.left,
+                            'height': rect.bottom - rect.top
+                        }
+                    else:
+                        # 回退到非缓存方式
+                        value = self._get_property_no_cache(property_name)
+                else:
+                    value = self._get_property_no_cache(property_name)
+            else:
+                value = self._get_property_no_cache(property_name)
+                
+            if use_cache:
+                self._cached_properties[property_name] = value
+            return value
+            
+        except Exception:
+            return None
+            
+    def _get_property_no_cache(self, property_name: str):
+        """不使用缓存获取属性的回退方法"""
+        try:
             if property_name == 'Name':
-                value = self.element.CurrentName or ""
+                return self.element.CurrentName or ""
             elif property_name == 'AutomationId':
-                value = self.element.CurrentAutomationId or ""
+                return self.element.CurrentAutomationId or ""
             elif property_name == 'ClassName':
-                value = self.element.CurrentClassName or ""
+                return self.element.CurrentClassName or ""
             elif property_name == 'ControlType':
                 control_type_id = self.element.CurrentControlType
-                value = UIAModule.get_control_type_name(control_type_id)
+                return UIAModule.get_control_type_name(control_type_id)
             elif property_name == 'ControlTypeId':
-                value = self.element.CurrentControlType
+                return self.element.CurrentControlType
             elif property_name == 'LocalizedControlType':
-                value = self.element.CurrentLocalizedControlType or ""
+                return self.element.CurrentLocalizedControlType or ""
             elif property_name == 'IsEnabled':
-                value = self.element.CurrentIsEnabled
+                return self.element.CurrentIsEnabled
             elif property_name == 'IsVisible':
-                value = not self.element.CurrentIsOffscreen
+                return not self.element.CurrentIsOffscreen
             elif property_name == 'HasKeyboardFocus':
-                value = self.element.CurrentHasKeyboardFocus
+                return self.element.CurrentHasKeyboardFocus
             elif property_name == 'BoundingRectangle':
                 rect = self.element.CurrentBoundingRectangle
-                value = {
+                return {
                     'left': rect.left, 'top': rect.top,
                     'right': rect.right, 'bottom': rect.bottom,
                     'width': rect.right - rect.left,
@@ -85,28 +151,92 @@ class UIAElement:
             elif property_name == 'Value':
                 try:
                     value_pattern = self.element.GetCurrentPattern(UIAutomationClient.UIA_ValuePatternId)
-                    value = value_pattern.CurrentValue if value_pattern else ""
+                    return value_pattern.CurrentValue if value_pattern else ""
                 except:
-                    value = ""
+                    return ""
             elif property_name == 'TextContent':
-                try:
-                    text_pattern = self.element.GetCurrentPattern(UIAutomationClient.UIA_TextPatternId)
-                    if text_pattern:
-                        document_range = text_pattern.DocumentRange
-                        value = document_range.GetText(-1) if document_range else ""
-                    else:
-                        value = ""
-                except:
-                    value = ""
+                return self.get_text_content()
             else:
-                value = None
-                
-            if use_cache:
-                self._cached_properties[property_name] = value
-            return value
-            
+                return None
         except Exception:
             return None
+    
+    def get_text_content(self, use_cache: bool = True) -> str:
+        """使用TextPattern获取元素的文本内容"""
+        if use_cache and self._cached_text_content is not None:
+            return self._cached_text_content
+        
+        text_content = ""
+        
+        try:
+            # 使用缓存请求获取文本
+            if self._cache_request:
+                cached_element = self.element.BuildUpdatedCache(self._cache_request)
+                if cached_element:
+                    # 尝试使用TextPattern获取文本
+                    text_pattern = cached_element.GetCachedPattern(UIAutomationClient.UIA_TextPatternId)
+                    if text_pattern:
+                        document_range = text_pattern.DocumentRange
+                        if document_range:
+                            text_content = document_range.GetText(-1)  # -1表示获取所有文本
+        except Exception:
+            pass
+        
+        # 如果缓存获取失败，使用回退方法
+        if not text_content:
+            try:
+                # 尝试使用TextPattern获取文本
+                text_pattern = self.element.GetCurrentPattern(UIAutomationClient.UIA_TextPatternId)
+                if text_pattern:
+                    document_range = text_pattern.DocumentRange
+                    if document_range:
+                        text_content = document_range.GetText(-1)  # -1表示获取所有文本
+            except Exception:
+                pass
+        
+        # 如果TextPattern失败，尝试使用LegacyIAccessible
+        if not text_content:
+            try:
+                legacy_pattern = self.element.GetCurrentPattern(UIAutomationClient.UIA_LegacyIAccessiblePatternId)
+                if legacy_pattern:
+                    text_content = legacy_pattern.CurrentValue or ""
+            except Exception:
+                pass
+        
+        # 最后尝试直接获取Name属性
+        if not text_content:
+            try:
+                text_content = self.element.CurrentName or ""
+            except Exception:
+                pass
+        
+        if use_cache:
+            self._cached_text_content = text_content
+        
+        return text_content
+    
+    def search_text_in_element(self, search_phrases: List[str], case_sensitive: bool = False) -> List[Dict[str, Any]]:
+        """在元素中搜索指定的文本短语"""
+        results = []
+        
+        # 获取当前元素的文本内容
+        text_content = self.get_text_content()
+        if text_content:
+            text_to_search = text_content if case_sensitive else text_content.lower()
+            
+            for phrase in search_phrases:
+                search_phrase = phrase if case_sensitive else phrase.lower()
+                if search_phrase in text_to_search:
+                    results.append({
+                        'element_id': self.element_id,
+                        'found_phrase': phrase,
+                        'text_content': text_content,
+                        'control_type': self.get_property('ControlType'),
+                        'name': self.get_property('Name'),
+                        'bounding_rect': self.get_property('BoundingRectangle')
+                    })
+        
+        return results
     
     def get_patterns(self, use_cache: bool = True) -> List[str]:
         """获取支持的模式列表"""
@@ -198,10 +328,12 @@ class UIAModule:
     
     _automation = None
     _element_counter = 0
+    _counter_lock = Lock()
     
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.initialized = False
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
         
     def log(self, message: str):
         """日志输出"""
@@ -283,15 +415,31 @@ class UIAModule:
         
         return None
     
-    def find_vscode_window(self) -> Optional[Dict[str, Any]]:
+    def find_vscode_window(self) -> dict:
         """查找VSCode窗口"""
-        controller = UIController()
-        ide_windows = controller.find_ide_windows()
-        
-        for window in ide_windows:
-            if 'visual studio code' in window['title'].lower():
-                return window
-        return None
+        try:
+            print("开始查找VSCode窗口...")
+            import uiautomation as auto
+            desktop = auto.GetRootControl()
+            print("获取到桌面元素")
+            
+            # 查找VSCode窗口
+            vscode = desktop.WindowControl(Name="Visual Studio Code")
+            if vscode.Exists(1):
+                print(f"找到VSCode窗口: {vscode.Name}")
+                return {
+                    'title': vscode.Name,
+                    'element': vscode
+                }
+            else:
+                print("未找到VSCode窗口")
+                return None
+                
+        except Exception as e:
+            print(f"查找VSCode窗口时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return None
     
     def scan_tree_optimized(self, 
                            root_element: UIAElement, 
@@ -299,109 +447,190 @@ class UIAModule:
                            max_children_per_level: int = 50,
                            filter_func: Optional[Callable[[UIAElement], bool]] = None,
                            progress_callback: Optional[Callable[[int, str], None]] = None) -> Dict[str, Any]:
-        """优化的树扫描，支持过滤和进度回调"""
+        """优化的树扫描方法
         
-        start_time = time.time()
-        self._element_counter = 0
+        Args:
+            root_element: 根元素
+            max_depth: 最大扫描深度
+            max_children_per_level: 每层最大子元素数量
+            filter_func: 元素过滤函数
+            progress_callback: 进度回调函数
+            
+        Returns:
+            包含树结构的字典
+        """
+        
+        # 创建缓存请求
+        cache_request = UIAModule._automation.CreateCacheRequest()
+        cache_request.TreeScope = UIAutomationClient.TreeScope_Element | UIAutomationClient.TreeScope_Children
+        # 添加常用属性到缓存
+        cache_request.AddProperty(UIAutomationClient.UIA_NamePropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_AutomationIdPropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_ClassNamePropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_ControlTypePropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_IsEnabledPropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_BoundingRectanglePropertyId)
+        
+        scanned_count = 0
         
         def scan_recursive(element: UIAElement, depth: int = 0) -> Dict[str, Any]:
+            nonlocal scanned_count
+            
             if depth > max_depth:
                 return None
-            
-            self._element_counter += 1
-            
-            # 进度回调
-            if progress_callback and self._element_counter % 10 == 0:
-                progress_callback(self._element_counter, f"扫描第{depth}层...")
-            
-            # 获取元素基本信息
-            element_data = element.to_dict()
-            element_data['depth'] = depth
-            element_data['children'] = []
+                
+            # 使用缓存请求获取元素信息
+            try:
+                cached_element = element.element.BuildUpdatedCache(cache_request)
+                if not cached_element:
+                    return None
+            except:
+                return None
+                
+            # 获取基本属性
+            result = {
+                'id': element.element_id,
+                'name': cached_element.CachedName or "",
+                'automation_id': cached_element.CachedAutomationId or "",
+                'class_name': cached_element.CachedClassName or "",
+                'control_type': UIAModule.get_control_type_name(cached_element.CachedControlType),
+                'is_enabled': cached_element.CachedIsEnabled,
+                'depth': depth,
+                'children': []
+            }
             
             # 应用过滤器
             if filter_func and not filter_func(element):
                 return None
+                
+            scanned_count += 1
+            if progress_callback:
+                progress_callback(scanned_count, f"Scanning depth {depth}...")
             
             # 获取子元素
             try:
-                children = element.get_children()
-                if children:
-                    # 限制子元素数量
-                    limited_children = children[:max_children_per_level]
-                    
-                    for child in limited_children:
-                        child_data = scan_recursive(child, depth + 1)
-                        if child_data:
-                            element_data['children'].append(child_data)
-                    
-                    # 记录被截断的子元素数量
-                    if len(children) > max_children_per_level:
-                        element_data['truncated_children'] = len(children) - max_children_per_level
-                        
-            except Exception as e:
-                self.log(f"扫描子元素失败: {e}")
+                children = cached_element.GetCachedChildren()
+                if children and children.Length > 0:
+                    # 限制每层的子元素数量
+                    child_count = min(children.Length, max_children_per_level)
+                    for i in range(child_count):
+                        child_element = children.GetElement(i)
+                        if child_element:
+                            child_id = UIAModule._element_counter
+                            UIAModule._element_counter += 1
+                            child = UIAElement(child_element, child_id)
+                            child_result = scan_recursive(child, depth + 1)
+                            if child_result:
+                                result['children'].append(child_result)
+            except:
+                pass
+                
+            return result
             
-            return element_data
-        
-        result = scan_recursive(root_element)
-        
-        scan_time = time.time() - start_time
-        
-        return {
-            'tree_data': result,
-            'scan_stats': {
-                'total_elements': self._element_counter,
-                'scan_time': scan_time,
-                'max_depth': max_depth,
-                'timestamp': datetime.now().isoformat()
-            }
-        }
+        # 开始扫描
+        try:
+            tree = scan_recursive(root_element)
+            if progress_callback:
+                progress_callback(scanned_count, "Scan completed")
+            return tree or {}
+        except Exception as e:
+            self.log(f"Error scanning tree: {str(e)}")
+            return {}
     
     def find_elements_by_criteria(self, 
                                  root_element: UIAElement,
                                  criteria: Dict[str, Any],
                                  max_results: int = 100) -> List[Dict[str, Any]]:
-        """根据条件查找元素"""
+        """根据条件查找元素
+        
+        Args:
+            root_element: 根元素
+            criteria: 搜索条件字典
+            max_results: 最大结果数量
+            
+        Returns:
+            匹配的元素列表
+        """
+        
+        # 创建缓存请求
+        cache_request = UIAModule._automation.CreateCacheRequest()
+        cache_request.TreeScope = UIAutomationClient.TreeScope_Element
+        # 添加需要的属性到缓存
+        for property_name in criteria.keys():
+            if property_name == 'Name':
+                cache_request.AddProperty(UIAutomationClient.UIA_NamePropertyId)
+            elif property_name == 'AutomationId':
+                cache_request.AddProperty(UIAutomationClient.UIA_AutomationIdPropertyId)
+            elif property_name == 'ClassName':
+                cache_request.AddProperty(UIAutomationClient.UIA_ClassNamePropertyId)
+            elif property_name == 'ControlType':
+                cache_request.AddProperty(UIAutomationClient.UIA_ControlTypePropertyId)
+            elif property_name == 'IsEnabled':
+                cache_request.AddProperty(UIAutomationClient.UIA_IsEnabledPropertyId)
+        
         results = []
         
         def check_element(element: UIAElement) -> bool:
-            element_data = element.to_dict()
-            
-            for key, expected_value in criteria.items():
-                if key in element_data:
-                    actual_value = element_data[key]
-                    
-                    # 字符串匹配（支持部分匹配）
-                    if isinstance(expected_value, str) and isinstance(actual_value, str):
-                        if expected_value.lower() not in actual_value.lower():
-                            return False
-                    # 精确匹配
-                    elif actual_value != expected_value:
-                        return False
-                else:
-                    return False
-            
-            return True
-        
-        def search_recursive(element: UIAElement, depth: int = 0):
-            if len(results) >= max_results or depth > 10:
-                return
-            
-            if check_element(element):
-                element_data = element.to_dict()
-                element_data['depth'] = depth
-                results.append(element_data)
-            
-            # 搜索子元素
+            """检查元素是否匹配条件"""
             try:
-                children = element.get_children()
-                for child in children:
-                    search_recursive(child, depth + 1)
+                # 使用缓存请求获取属性
+                cached_element = element.element.BuildUpdatedCache(cache_request)
+                if not cached_element:
+                    return False
+                    
+                for key, value in criteria.items():
+                    if key == 'Name':
+                        if value != (cached_element.CachedName or ""):
+                            return False
+                    elif key == 'AutomationId':
+                        if value != (cached_element.CachedAutomationId or ""):
+                            return False
+                    elif key == 'ClassName':
+                        if value != (cached_element.CachedClassName or ""):
+                            return False
+                    elif key == 'ControlType':
+                        if value != UIAModule.get_control_type_name(cached_element.CachedControlType):
+                            return False
+                    elif key == 'IsEnabled':
+                        if value != cached_element.CachedIsEnabled:
+                            return False
+                return True
+            except:
+                return False
+        
+        def search_recursive(element: UIAElement):
+            """递归搜索匹配的元素"""
+            if len(results) >= max_results:
+                return
+                
+            # 检查当前元素
+            if check_element(element):
+                results.append(element.to_dict())
+                
+            # 获取子元素
+            try:
+                # 使用TreeScope_Children创建条件
+                children = element.element.FindAll(
+                    UIAutomationClient.TreeScope_Children,
+                    UIAModule._automation.CreateTrueCondition()
+                )
+                if children:
+                    for i in range(children.Length):
+                        if len(results) >= max_results:
+                            break
+                        child_element = children.GetElement(i)
+                        if child_element:
+                            child = UIAElement(child_element, UIAModule._element_counter)
+                            UIAModule._element_counter += 1
+                            search_recursive(child)
             except:
                 pass
         
-        search_recursive(root_element)
+        try:
+            search_recursive(root_element)
+        except Exception as e:
+            self.log(f"Error searching elements: {str(e)}")
+            
         return results
     
     def find_interactive_elements(self, root_element: UIAElement) -> List[Dict[str, Any]]:
@@ -497,15 +726,20 @@ class UIAModule:
         # 组织结果
         result = {
             'window_info': vscode_window,
-            'ui_tree': scan_result['tree_data'],
-            'scan_stats': scan_result['scan_stats'],
+            'ui_tree': scan_result,
+            'scan_stats': {
+                'total_elements': scanned_count,
+                'scan_time': time.time() - start_time,
+                'max_depth': max_depth,
+                'timestamp': datetime.now().isoformat()
+            },
             'augment_elements': augment_elements,
             'interactive_elements': interactive_elements[:50],  # 限制数量
             'analysis_summary': {
-                'total_elements': scan_result['scan_stats']['total_elements'],
+                'total_elements': scanned_count,
                 'augment_elements_count': len(augment_elements),
                 'interactive_elements_count': len(interactive_elements),
-                'scan_time': scan_result['scan_stats']['scan_time']
+                'scan_time': time.time() - start_time
             }
         }
         
@@ -521,6 +755,355 @@ class UIAModule:
             result['saved_file'] = filename
         
         return result
+
+    def search_text_in_tree(self, 
+                           root_element: UIAElement,
+                           search_phrases: List[str],
+                           max_depth: int = 6,
+                           case_sensitive: bool = False) -> List[Dict[str, Any]]:
+        """在UI树中搜索文本
+        
+        Args:
+            root_element: 根元素
+            search_phrases: 要搜索的文本短语列表
+            max_depth: 最大搜索深度
+            case_sensitive: 是否区分大小写
+            
+        Returns:
+            包含匹配结果的列表
+        """
+        
+        # 创建缓存请求
+        cache_request = UIAModule._automation.CreateCacheRequest()
+        cache_request.TreeScope = UIAutomationClient.TreeScope_Element
+        # 添加需要的属性和模式到缓存
+        cache_request.AddProperty(UIAutomationClient.UIA_NamePropertyId)
+        cache_request.AddProperty(UIAutomationClient.UIA_ControlTypePropertyId)
+        cache_request.AddPattern(UIAutomationClient.UIA_TextPatternId)
+        cache_request.AddPattern(UIAutomationClient.UIA_ValuePatternId)
+        cache_request.AddPattern(UIAutomationClient.UIA_LegacyIAccessiblePatternId)
+        
+        results = []
+        
+        def search_recursive(element: UIAElement, depth: int = 0):
+            """递归搜索文本"""
+            if depth > max_depth:
+                return
+                
+            try:
+                # 使用缓存请求获取元素信息
+                cached_element = element.element.BuildUpdatedCache(cache_request)
+                if not cached_element:
+                    return
+                    
+                # 获取文本内容
+                text_content = ""
+                
+                # 尝试使用TextPattern
+                try:
+                    text_pattern = cached_element.GetCachedPattern(UIAutomationClient.UIA_TextPatternId)
+                    if text_pattern:
+                        document_range = text_pattern.DocumentRange
+                        if document_range:
+                            text_content = document_range.GetText(-1)
+                except:
+                    pass
+                
+                # 如果TextPattern失败，尝试其他模式
+                if not text_content:
+                    try:
+                        value_pattern = cached_element.GetCachedPattern(UIAutomationClient.UIA_ValuePatternId)
+                        if value_pattern:
+                            text_content = value_pattern.CurrentValue
+                    except:
+                        pass
+                        
+                if not text_content:
+                    try:
+                        legacy_pattern = cached_element.GetCachedPattern(UIAutomationClient.UIA_LegacyIAccessiblePatternId)
+                        if legacy_pattern:
+                            text_content = legacy_pattern.CurrentValue
+                    except:
+                        pass
+                
+                # 最后尝试Name属性
+                if not text_content:
+                    text_content = cached_element.CachedName or ""
+                
+                # 搜索文本
+                if text_content:
+                    text_to_search = text_content if case_sensitive else text_content.lower()
+                    
+                    for phrase in search_phrases:
+                        search_phrase = phrase if case_sensitive else phrase.lower()
+                        if search_phrase in text_to_search:
+                            results.append({
+                                'element_id': element.element_id,
+                                'found_phrase': phrase,
+                                'text_content': text_content,
+                                'control_type': UIAModule.get_control_type_name(cached_element.CachedControlType),
+                                'name': cached_element.CachedName or "",
+                                'depth': depth
+                            })
+                
+                # 搜索子元素
+                children = element.element.FindAll(
+                    UIAutomationClient.TreeScope_Children,
+                    UIAModule._automation.CreateTrueCondition()
+                )
+                if children:
+                    for i in range(children.Length):
+                        child_element = children.GetElement(i)
+                        if child_element:
+                            child = UIAElement(child_element, UIAModule._element_counter)
+                            UIAModule._element_counter += 1
+                            search_recursive(child, depth + 1)
+                            
+            except Exception as e:
+                self.log(f"Error searching text in element: {str(e)}")
+        
+        try:
+            search_recursive(root_element)
+        except Exception as e:
+            self.log(f"Error searching text in tree: {str(e)}")
+            
+        return results
+
+    def dump_tree(self, max_depth=None, parallel=False, min_children_for_parallel=5):
+        """获取UI树结构
+        
+        Args:
+            max_depth: 最大深度,None表示不限制
+            parallel: 是否并行处理
+            min_children_for_parallel: 并行处理的最小子元素数量
+        """
+        try:
+            print("\n=== 开始获取UI树 ===")
+            print(f"配置: 最大深度={max_depth}, 并行={parallel}, 并行阈值={min_children_for_parallel}")
+            
+            import uiautomation as auto
+            desktop = auto.GetRootControl()
+            
+            def process_element(element, depth=0):
+                if max_depth is not None and depth > max_depth:
+                    return
+                    
+                try:
+                    name = element.Name
+                    class_name = element.ClassName
+                    control_type = element.ControlType
+                    
+                    indent = "  " * depth
+                    print(f"{indent}名称: {name}")
+                    print(f"{indent}类型: {control_type}")
+                    print(f"{indent}类名: {class_name}")
+                    
+                    children = element.GetChildren()
+                    if children:
+                        print(f"{indent}子元素数量: {len(children)}")
+                        
+                        if parallel and len(children) >= min_children_for_parallel:
+                            # 并行处理子元素
+                            from concurrent.futures import ThreadPoolExecutor
+                            with ThreadPoolExecutor() as executor:
+                                executor.map(
+                                    lambda child: process_element(child, depth + 1),
+                                    children
+                                )
+                        else:
+                            # 串行处理子元素
+                            for child in children:
+                                process_element(child, depth + 1)
+                except Exception as e:
+                    print(f"处理元素时出错: {str(e)}")
+                    
+            process_element(desktop)
+            print("\n=== UI树获取完成 ===")
+            
+        except Exception as e:
+            print(f"获取UI树时出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+
+    def dump_vscode_tree(self, verbose: bool = False) -> Dict[str, Any]:
+        """快速获取VSCode的UI树结构
+        
+        专门为VSCode优化的树结构导出:
+        1. 只获取编辑器相关的UI元素
+        2. 使用并行处理加速
+        3. 智能过滤无关元素
+        
+        Returns:
+            包含VSCode UI树的字典
+        """
+        
+        module = UIAModule(verbose=verbose)
+        if not module.initialize():
+            return {'error': 'Failed to initialize UI Automation'}
+        
+        try:
+            # 查找VSCode窗口
+            vscode_info = module.find_vscode_window()
+            if not vscode_info:
+                return {'error': 'VSCode window not found'}
+            
+            # 获取根元素
+            root_element = module.get_element_from_hwnd(vscode_info['hwnd'])
+            if not root_element:
+                return {'error': 'Failed to get root element'}
+            
+            # 创建过滤器函数
+            def vscode_filter(element: UIAElement) -> bool:
+                """过滤VSCode UI元素"""
+                try:
+                    name = element.get_property('Name', use_cache=True)
+                    class_name = element.get_property('ClassName', use_cache=True)
+                    control_type = element.get_property('ControlType', use_cache=True)
+                    
+                    # 排除一些明显无关的元素
+                    if class_name and any(x in class_name.lower() for x in ['tooltip', 'popup', 'flyout']):
+                        return False
+                        
+                    # 保留编辑器相关的元素
+                    if name and any(x in name.lower() for x in ['editor', 'terminal', 'output', 'workbench']):
+                        return True
+                        
+                    # 保留可能包含有用信息的元素
+                    return True
+                    
+                except:
+                    return True
+                    
+            # 使用优化的dump_tree方法
+            result = module.dump_tree(
+                root_element,
+                max_depth=8,  # 增加深度以确保捕获所有重要元素
+                parallel=True,
+                min_children_for_parallel=3  # 降低并行阈值以提高性能
+            )
+            
+            if not result.get('tree'):
+                return {'error': 'Failed to dump tree'}
+            
+            # 添加VSCode特定的信息
+            result['vscode_info'] = {
+                'window_title': vscode_info.get('title', ''),
+                'window_class': vscode_info.get('class_name', ''),
+                'window_handle': vscode_info.get('hwnd', 0)
+            }
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'error': f'Error dumping VSCode tree: {str(e)}'
+            }
+        finally:
+            module.cleanup()
+
+    def click_try_again(self) -> bool:
+        """点击VSCode augment对话框中的try again链接"""
+        try:
+            print("\n=== 开始查找try again链接 ===")
+            
+            import uiautomation as auto
+            auto.SetGlobalSearchTimeout(1.0)  # 设置较短的超时时间
+            
+            # 查找VSCode窗口
+            print("\n查找VSCode窗口...")
+            desktop = auto.GetRootControl()
+            vscode = None
+            
+            # 遍历顶级窗口
+            windows = desktop.GetChildren()
+            for window in windows:
+                try:
+                    name = window.Name
+                    if name and "Visual Studio Code" in name:
+                        print(f"找到VSCode窗口: {name}")
+                        vscode = window
+                        break
+                except:
+                    continue
+            
+            if not vscode:
+                print("未找到VSCode窗口")
+                return False
+            
+            # 尝试使用模拟鼠标点击
+            print("\n尝试使用模拟鼠标点击...")
+            
+            # 确保VSCode窗口处于活动状态
+            try:
+                vscode.SetFocus()
+                print("已激活VSCode窗口")
+                
+                # 等待窗口完全激活
+                import time
+                time.sleep(0.5)
+                
+                # 获取窗口位置和大小
+                try:
+                    rect = vscode.BoundingRectangle
+                    print(f"窗口位置: {rect}")
+                    
+                    # 计算点击位置（在窗口中心偏右下方区域）
+                    width = rect.width() if callable(rect.width) else rect.width
+                    height = rect.height() if callable(rect.height) else rect.height
+                    
+                    x = rect.left + int(width * 0.7)  # 窗口右侧70%位置
+                    y = rect.top + int(height * 0.7)   # 窗口下方70%位置
+                    
+                    print(f"尝试点击位置: ({x}, {y})")
+                    
+                    # 移动鼠标并点击
+                    auto.SetCursorPos(x, y)
+                    time.sleep(0.1)
+                    auto.Click(x, y)
+                    
+                    # 等待一下看是否有反应
+                    time.sleep(0.5)
+                    
+                    # 尝试在周围区域点击
+                    offsets = [(0, 0), (-50, 0), (50, 0), (0, -50), (0, 50)]
+                    for dx, dy in offsets:
+                        new_x = x + dx
+                        new_y = y + dy
+                        print(f"尝试点击位置: ({new_x}, {new_y})")
+                        auto.SetCursorPos(new_x, new_y)
+                        time.sleep(0.1)
+                        auto.Click(new_x, new_y)
+                        time.sleep(0.5)
+                        
+                        # 检查是否有新的对话框出现
+                        try:
+                            focused = auto.GetFocusedControl()
+                            if focused:
+                                name = focused.Name
+                                if name and "try again" in name.lower():
+                                    print(f"找到try again元素: {name}")
+                                    auto.SendKeys('{ENTER}')
+                                    print("点击成功")
+                                    return True
+                        except:
+                            pass
+                    
+                    print("点击完成")
+                    return True
+                    
+                except Exception as e:
+                    print(f"获取窗口位置失败: {str(e)}")
+                    return False
+                
+            except Exception as e:
+                print(f"设置焦点失败: {str(e)}")
+                return False
+                
+        except Exception as e:
+            print(f"\n出错: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return False
 
 # 便捷函数
 def quick_analyze_vscode(verbose: bool = True, 
@@ -552,6 +1135,34 @@ def find_augment_elements(verbose: bool = False) -> List[Dict[str, Any]]:
             root_element,
             {'name': 'augment'},
             max_results=50
+        )
+    finally:
+        UIAModule.cleanup()
+
+def search_keep_going_text(verbose: bool = False) -> List[Dict[str, Any]]:
+    """搜索'Would you like me to keep going'文本的便捷函数"""
+    module = UIAModule(verbose=verbose)
+    try:
+        vscode_window = module.find_vscode_window()
+        if not vscode_window:
+            return []
+        
+        root_element = module.get_element_from_hwnd(int(vscode_window['id']))
+        if not root_element:
+            return []
+        
+        search_phrases = [
+            "Would you like me to keep going",
+            "keep going",
+            "continue",
+            "继续"
+        ]
+        
+        return module.search_text_in_tree(
+            root_element,
+            search_phrases,
+            max_depth=8,  # 增加搜索深度
+            case_sensitive=False
         )
     finally:
         UIAModule.cleanup()
