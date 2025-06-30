@@ -742,18 +742,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='混合窗口扫描器 - 高性能窗口结构树采集工具',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False  # 手动添加帮助选项以便正确处理全局参数
-    )
-    
-    # 添加全局参数
-    parser.add_argument('--debug', action='store_true', help='启用调试模式')
-    parser.add_argument('-h', '--help', action='store_true', help='显示帮助信息')
-    
-    # 创建子命令解析器
-    subparsers = parser.add_subparsers(dest='command', help='命令')
-    
-    # 设置帮助文本
-    help_text = '''
+        epilog='''
 使用示例:
   1. 列出所有可见窗口:
      python hybrid_scanner.py list
@@ -778,15 +767,16 @@ def main():
      
   8. 显示调试信息:
      python hybrid_scanner.py scan --title "Notepad" --debug
-    '''
+        ''',
+        add_help=False
+    )
+    
+    # 添加全局参数
+    parser.add_argument('--debug', action='store_true', help='启用调试模式')
+    parser.add_argument('-h', '--help', action='store_true', help='显示帮助信息')
     
     # 创建子命令解析器
-    subparsers = parser.add_subparsers(
-        dest='command',
-        help='命令',
-        description='可用的命令',
-        metavar='命令'
-    )
+    subparsers = parser.add_subparsers(dest='command', help='命令')
     
     # list 命令
     list_parser = subparsers.add_parser('list', help='列出窗口', add_help=False)
@@ -798,27 +788,22 @@ def main():
     
     # scan 命令
     scan_parser = subparsers.add_parser('scan', help='扫描窗口结构树', add_help=False)
-    
-    # 添加帮助选项
-    scan_parser.add_argument('--help', action='store_true', help='显示此帮助信息')
-    
-    # 目标窗口选择组
-    scan_group = scan_parser.add_argument_group('目标窗口选择')
-    target_group = scan_group.add_mutually_exclusive_group(required=False)  # 先设为非必须，后面再检查
-    target_group.add_argument('--hwnd', type=lambda x: int(x, 0), help='窗口句柄(十进制或十六进制)')
-    target_group.add_argument('--title', help='窗口标题(支持部分匹配)')
-    target_group.add_argument('--class', dest='class_name', help='窗口类名(支持部分匹配)')
-    
-    # 扫描选项
+    scan_parser.add_argument('--hwnd', type=lambda x: int(x, 0), help='窗口句柄(十进制或十六进制)')
+    scan_parser.add_argument('--title', help='窗口标题(支持部分匹配)')
+    scan_parser.add_argument('--class', dest='class_name', help='窗口类名(支持部分匹配)')
     scan_parser.add_argument('--all', action='store_true', help='处理所有匹配的窗口')
     scan_parser.add_argument('--depth', type=int, default=5, help='扫描深度(默认: 5)')
     scan_parser.add_argument('--output', help='输出到JSON文件')
     scan_parser.add_argument('--verbose', '-v', action='store_true', help='显示详细信息')
     scan_parser.add_argument('--no-children', action='store_true', help='不显示子窗口列表')
     scan_parser.add_argument('--debug', action='store_true', help='显示调试信息')
+    scan_parser.add_argument('--help', action='store_true', help='显示此帮助信息')
     
-    # 解析已知参数，不报错
-    args, remaining_args = parser.parse_known_args()
+    # 解析参数
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        return 1
     
     # 处理帮助请求
     if args.help or len(sys.argv) == 1:
@@ -834,18 +819,21 @@ def main():
         parser.print_help()
         return 1
     
-    # 处理子命令帮助
-    if args.command == 'list' and ('--help' in remaining_args or '-h' in remaining_args):
-        list_parser.print_help()
-        return 0
-    elif args.command == 'scan' and ('--help' in remaining_args or '-h' in remaining_args):
-        scan_parser.print_help()
-        return 0
-    
     # 检查scan命令的必要参数
     if args.command == 'scan' and not any([args.hwnd, args.title, args.class_name, args.all]):
         print("错误: scan命令需要指定--hwnd, --title, --class或--all参数")
-        scan_parser.print_help()
+        print("\nscan 命令用法:")
+        print("  python hybrid_scanner.py scan [--hwnd HWND | --title TITLE | --class CLASS | --all] [options]")
+        print("\n选项:")
+        print("  --hwnd HWND        窗口句柄(十进制或十六进制)")
+        print("  --title TITLE      窗口标题(支持部分匹配)")
+        print("  --class CLASS      窗口类名(支持部分匹配)")
+        print("  --all              处理所有匹配的窗口")
+        print("  --depth DEPTH      扫描深度(默认: 5)")
+        print("  --output FILE      输出到JSON文件")
+        print("  --verbose, -v      显示详细信息")
+        print("  --no-children      不显示子窗口列表")
+        print("  --debug            显示调试信息")
         return 1
     
     try:
