@@ -339,6 +339,103 @@ int libc_forward_call(LibcCall* call) {
             call->return_value = (uint64_t)(fabs(*(double*)&call->args[0]) * 1000000);
             break;
 
+        // 缺失的字符串函数
+        case LIBC_STRCAT:
+            g_stats.string_operations++;
+            call->return_value = (uint64_t)strcat((char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRNCAT:
+            g_stats.string_operations++;
+            call->return_value = (uint64_t)strncat((char*)call->args[0], (const char*)call->args[1], (size_t)call->args[2]);
+            break;
+
+        case LIBC_STRCHR:
+            g_stats.string_operations++;
+            call->return_value = (uint64_t)strchr((const char*)call->args[0], (int)call->args[1]);
+            break;
+
+        case LIBC_STRSTR:
+            g_stats.string_operations++;
+            call->return_value = (uint64_t)strstr((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRSPN:
+            g_stats.string_operations++;
+            call->return_value = strspn((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRCSPN:
+            g_stats.string_operations++;
+            call->return_value = strcspn((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        // 缺失的输入输出函数
+        case LIBC_SNPRINTF:
+            call->return_value = snprintf((char*)call->args[0], (size_t)call->args[1], (const char*)call->args[2]);
+            break;
+
+        case LIBC_SCANF:
+            call->return_value = scanf((const char*)call->args[0]);
+            break;
+
+        case LIBC_FSCANF:
+            call->return_value = fscanf((FILE*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_SSCANF:
+            call->return_value = sscanf((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_FGETS:
+            call->return_value = (uint64_t)fgets((char*)call->args[0], (int)call->args[1], (FILE*)call->args[2]);
+            break;
+
+        case LIBC_FPUTS:
+            call->return_value = fputs((const char*)call->args[0], (FILE*)call->args[1]);
+            break;
+
+        // 缺失的字符类型函数
+        case LIBC_ISALNUM:
+            call->return_value = isalnum((int)call->args[0]);
+            break;
+
+        case LIBC_ISUPPER:
+            call->return_value = isupper((int)call->args[0]);
+            break;
+
+        case LIBC_ISLOWER:
+            call->return_value = islower((int)call->args[0]);
+            break;
+
+        // 缺失的数学函数
+        case LIBC_LABS:
+            call->return_value = labs((long)call->args[0]);
+            break;
+
+        case LIBC_ATOF:
+            call->return_value = (uint64_t)(atof((const char*)call->args[0]) * 1000000);
+            break;
+
+        // 缺失的时间函数
+        case LIBC_DIFFTIME:
+            call->return_value = (uint64_t)(difftime((time_t)call->args[0], (time_t)call->args[1]) * 1000000);
+            break;
+
+        // 缺失的stdlib函数
+        case LIBC_QSORT:
+            qsort((void*)call->args[0], (size_t)call->args[1], (size_t)call->args[2], (int(*)(const void*, const void*))call->args[3]);
+            call->return_value = 0;
+            break;
+
+        case LIBC_BSEARCH:
+            call->return_value = (uint64_t)bsearch((const void*)call->args[0], (const void*)call->args[1], (size_t)call->args[2], (size_t)call->args[3], (int(*)(const void*, const void*))call->args[4]);
+            break;
+
+        case LIBC_ABORT:
+            abort();
+            break;
+
         default:
             call->error_code = -1; // 未知函数
             return -1;
@@ -353,36 +450,114 @@ int libc_forward_call(LibcCall* call) {
 
 const char* libc_get_function_name(uint16_t func_id) {
     switch (func_id) {
+        // 内存管理
         case LIBC_MALLOC: return "malloc";
         case LIBC_FREE: return "free";
+        case LIBC_CALLOC: return "calloc";
+        case LIBC_REALLOC: return "realloc";
+
+        // 字符串操作
         case LIBC_STRLEN: return "strlen";
         case LIBC_STRCPY: return "strcpy";
+        case LIBC_STRNCPY: return "strncpy";
         case LIBC_STRCMP: return "strcmp";
+        case LIBC_STRNCMP: return "strncmp";
+        case LIBC_STRCAT: return "strcat";
+        case LIBC_STRNCAT: return "strncat";
+        case LIBC_STRCHR: return "strchr";
+        case LIBC_STRRCHR: return "strrchr";
+        case LIBC_STRSTR: return "strstr";
+        case LIBC_STRDUP: return "strdup";
+        case LIBC_STRTOK: return "strtok";
+        case LIBC_STRSPN: return "strspn";
+        case LIBC_STRCSPN: return "strcspn";
+
+        // 内存操作
+        case LIBC_MEMCPY: return "memcpy";
+        case LIBC_MEMMOVE: return "memmove";
+        case LIBC_MEMSET: return "memset";
+        case LIBC_MEMCMP: return "memcmp";
+
+        // 输入输出
         case LIBC_PRINTF: return "printf";
-        case LIBC_FOPEN: return "fopen";
-        case LIBC_FCLOSE: return "fclose";
+        case LIBC_FPRINTF: return "fprintf";
+        case LIBC_SPRINTF: return "sprintf";
+        case LIBC_SNPRINTF: return "snprintf";
+        case LIBC_SCANF: return "scanf";
+        case LIBC_FSCANF: return "fscanf";
+        case LIBC_SSCANF: return "sscanf";
         case LIBC_PUTS: return "puts";
         case LIBC_PUTCHAR: return "putchar";
         case LIBC_GETCHAR: return "getchar";
-        case LIBC_STRDUP: return "strdup";
-        case LIBC_STRTOK: return "strtok";
-        case LIBC_ISALPHA: return "isalpha";
-        case LIBC_ISDIGIT: return "isdigit";
-        case LIBC_TOUPPER: return "toupper";
-        case LIBC_TOLOWER: return "tolower";
-        case LIBC_TIME: return "time";
-        case LIBC_CLOCK: return "clock";
-        case LIBC_RAND: return "rand";
-        case LIBC_SRAND: return "srand";
-        case LIBC_STRCAT: return "strcat";
-        case LIBC_MEMCPY: return "memcpy";
-        case LIBC_MEMSET: return "memset";
-        case LIBC_SIN: return "sin";
-        case LIBC_COS: return "cos";
+        case LIBC_FGETC: return "fgetc";
+        case LIBC_FPUTC: return "fputc";
+        case LIBC_FGETS: return "fgets";
+        case LIBC_FPUTS: return "fputs";
+
+        // 文件操作
+        case LIBC_FOPEN: return "fopen";
+        case LIBC_FCLOSE: return "fclose";
+        case LIBC_FREAD: return "fread";
+        case LIBC_FWRITE: return "fwrite";
+        case LIBC_FSEEK: return "fseek";
+        case LIBC_FTELL: return "ftell";
+        case LIBC_FEOF: return "feof";
+        case LIBC_FERROR: return "ferror";
+        case LIBC_FFLUSH: return "fflush";
+        case LIBC_REWIND: return "rewind";
+        case LIBC_CLEARERR: return "clearerr";
+
+        // 数学函数
+        case LIBC_ABS: return "abs";
+        case LIBC_LABS: return "labs";
         case LIBC_SQRT: return "sqrt";
         case LIBC_POW: return "pow";
-        case LIBC_FFLUSH: return "fflush";
-        case LIBC_FSEEK: return "fseek";
+        case LIBC_SIN: return "sin";
+        case LIBC_COS: return "cos";
+        case LIBC_TAN: return "tan";
+        case LIBC_LOG: return "log";
+        case LIBC_LOG10: return "log10";
+        case LIBC_EXP: return "exp";
+        case LIBC_FLOOR: return "floor";
+        case LIBC_CEIL: return "ceil";
+        case LIBC_FABS: return "fabs";
+
+        // 转换函数
+        case LIBC_ATOI: return "atoi";
+        case LIBC_ATOL: return "atol";
+        case LIBC_ATOF: return "atof";
+        case LIBC_STRTOL: return "strtol";
+        case LIBC_STRTOD: return "strtod";
+
+        // 字符类型
+        case LIBC_ISALPHA: return "isalpha";
+        case LIBC_ISDIGIT: return "isdigit";
+        case LIBC_ISALNUM: return "isalnum";
+        case LIBC_ISSPACE: return "isspace";
+        case LIBC_ISUPPER: return "isupper";
+        case LIBC_ISLOWER: return "islower";
+        case LIBC_TOUPPER: return "toupper";
+        case LIBC_TOLOWER: return "tolower";
+
+        // 时间函数
+        case LIBC_TIME: return "time";
+        case LIBC_CLOCK: return "clock";
+        case LIBC_DIFFTIME: return "difftime";
+
+        // 系统调用
+        case LIBC_EXIT: return "exit";
+        case LIBC_ABORT: return "abort";
+        case LIBC_SYSTEM: return "system";
+        case LIBC_GETENV: return "getenv";
+
+        // 随机数
+        case LIBC_RAND: return "rand";
+        case LIBC_SRAND: return "srand";
+
+        // 排序搜索
+        case LIBC_QSORT: return "qsort";
+        case LIBC_BSEARCH: return "bsearch";
+
         default: return "unknown";
     }
 }

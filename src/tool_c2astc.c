@@ -32,11 +32,22 @@ static void print_usage(const char* program_name) {
     printf("  -O2            Advanced optimization\n");
     printf("  -O3            Aggressive optimization\n");
     printf("  -g             Generate debug information\n");
+    printf("  -I <dir>       Add include directory\n");
+    printf("  -D <macro>     Define preprocessor macro\n");
+    printf("  -Wall          Enable all warnings\n");
+    printf("  -Werror        Treat warnings as errors\n");
+    printf("  -std=c99       Use C99 standard (default)\n");
+    printf("  -std=c11       Use C11 standard\n");
+    printf("  -c             Compile only (no linking)\n");
+    printf("  -S             Generate assembly output\n");
+    printf("  -E             Preprocess only\n");
     printf("\nExamples:\n");
     printf("  %s hello.c                    # Compile to evolver0_program.astc\n", program_name);
     printf("  %s hello.c hello.astc         # Compile to hello.astc\n", program_name);
     printf("  %s -o hello.astc hello.c      # Compile with -o option\n", program_name);
     printf("  %s -O2 -g hello.c             # Compile with optimization and debug info\n", program_name);
+    printf("  %s -I./include -D DEBUG hello.c  # With include dir and macro\n", program_name);
+    printf("  %s -Wall -Werror -std=c99 hello.c  # With warnings and C99 standard\n", program_name);
 }
 
 static void print_version(void) {
@@ -75,6 +86,72 @@ int main(int argc, char* argv[]) {
             options.optimize_level = 3;
         } else if (strcmp(argv[i], "-g") == 0) {
             options.emit_debug_info = true;
+        } else if (strcmp(argv[i], "-I") == 0) {
+            if (i + 1 < argc) {
+                if (options.include_dir_count < 16) {
+                    strncpy(options.include_dirs[options.include_dir_count], argv[++i], 255);
+                    options.include_dirs[options.include_dir_count][255] = '\0';
+                    options.include_dir_count++;
+                    printf("Include directory: %s\n", argv[i]);
+                } else {
+                    fprintf(stderr, "Error: Too many include directories (max 16)\n");
+                    return 1;
+                }
+            } else {
+                fprintf(stderr, "Error: -I requires directory path\n");
+                return 1;
+            }
+        } else if (strncmp(argv[i], "-I", 2) == 0) {
+            // Handle -Ipath format
+            if (options.include_dir_count < 16) {
+                strncpy(options.include_dirs[options.include_dir_count], argv[i] + 2, 255);
+                options.include_dirs[options.include_dir_count][255] = '\0';
+                options.include_dir_count++;
+                printf("Include directory: %s\n", argv[i] + 2);
+            } else {
+                fprintf(stderr, "Error: Too many include directories (max 16)\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-D") == 0) {
+            if (i + 1 < argc) {
+                if (options.macro_count < 32) {
+                    strncpy(options.macros[options.macro_count], argv[++i], 255);
+                    options.macros[options.macro_count][255] = '\0';
+                    options.macro_count++;
+                    printf("Define macro: %s\n", argv[i]);
+                } else {
+                    fprintf(stderr, "Error: Too many macro definitions (max 32)\n");
+                    return 1;
+                }
+            } else {
+                fprintf(stderr, "Error: -D requires macro definition\n");
+                return 1;
+            }
+        } else if (strncmp(argv[i], "-D", 2) == 0) {
+            // Handle -Dmacro format
+            if (options.macro_count < 32) {
+                strncpy(options.macros[options.macro_count], argv[i] + 2, 255);
+                options.macros[options.macro_count][255] = '\0';
+                options.macro_count++;
+                printf("Define macro: %s\n", argv[i] + 2);
+            } else {
+                fprintf(stderr, "Error: Too many macro definitions (max 32)\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-Wall") == 0) {
+            options.enable_warnings = true;
+        } else if (strcmp(argv[i], "-Werror") == 0) {
+            options.warnings_as_errors = true;
+        } else if (strcmp(argv[i], "-std=c99") == 0) {
+            options.c_standard = C_STD_C99;
+        } else if (strcmp(argv[i], "-std=c11") == 0) {
+            options.c_standard = C_STD_C11;
+        } else if (strcmp(argv[i], "-c") == 0) {
+            options.compile_only = true;
+        } else if (strcmp(argv[i], "-S") == 0) {
+            options.generate_assembly = true;
+        } else if (strcmp(argv[i], "-E") == 0) {
+            options.preprocess_only = true;
         } else if (argv[i][0] != '-') {
             if (!input_file) {
                 input_file = argv[i];
@@ -112,6 +189,23 @@ int main(int argc, char* argv[]) {
     }
     if (options.emit_debug_info) {
         printf("Debug info: enabled\n");
+    }
+    if (options.enable_warnings) {
+        printf("Warnings: enabled\n");
+    }
+    if (options.warnings_as_errors) {
+        printf("Warnings as errors: enabled\n");
+    }
+    if (options.c_standard == C_STD_C11) {
+        printf("C standard: C11\n");
+    } else {
+        printf("C standard: C99\n");
+    }
+    if (options.include_dir_count > 0) {
+        printf("Include directories: %d\n", options.include_dir_count);
+    }
+    if (options.macro_count > 0) {
+        printf("Macro definitions: %d\n", options.macro_count);
     }
 
     // 使用c2astc编译C源码

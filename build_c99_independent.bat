@@ -1,9 +1,9 @@
 @echo off
-REM build_c99_independent.bat - 完全独立的C99编译器构建系统
-REM 使用自有工具链，零TinyCC依赖
+REM build_c99_independent.bat - Complete Independent C99 Compiler Build System
+REM Uses own toolchain, ZERO TinyCC dependencies
 
 echo ============================================================
-echo 🚀 C99 COMPILER INDEPENDENT BUILD SYSTEM
+echo C99 COMPILER INDEPENDENT BUILD SYSTEM
 echo ============================================================
 echo Building C99 compiler with ZERO external compiler dependencies
 echo Using ONLY our own self-hosted toolchain
@@ -13,27 +13,27 @@ REM ============================================================
 REM PHASE 1: VERIFY ESSENTIAL TOOLS
 REM ============================================================
 
-echo 📋 Phase 1: Verifying essential tools...
+echo Phase 1: Verifying essential tools...
 
 if not exist "bin\tool_c2astc.exe" (
-    echo ❌ ERROR: tool_c2astc.exe not found
+    echo ERROR: tool_c2astc.exe not found
     echo This tool is required for independent compilation
     exit /b 1
 )
 
 if not exist "bin\tool_astc2rt.exe" (
-    echo ❌ ERROR: tool_astc2rt.exe not found
+    echo ERROR: tool_astc2rt.exe not found
     echo This tool is required for runtime generation
     exit /b 1
 )
 
 if not exist "bin\enhanced_runtime_with_libc_v2.exe" (
-    echo ❌ ERROR: enhanced_runtime_with_libc_v2.exe not found  
+    echo ERROR: enhanced_runtime_with_libc_v2.exe not found
     echo This runtime is required for ASTC execution
     exit /b 1
 )
 
-echo ✅ Essential tools verified
+echo SUCCESS: Essential tools verified
 echo   - tool_c2astc.exe (C to ASTC compiler)
 echo   - tool_astc2rt.exe (ASTC to RT converter)
 echo   - enhanced_runtime_with_libc_v2.exe (ASTC runtime)

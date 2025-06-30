@@ -17,12 +17,31 @@ extern "C" {
 // ===============================================
 
 /**
+ * C标准版本枚举
+ */
+typedef enum {
+    C_STD_C99 = 0,
+    C_STD_C11 = 1,
+    C_STD_C17 = 2
+} CStandard;
+
+/**
  * 转换配置选项
  */
 typedef struct {
     int optimize_level;         // 优化级别 (0=无优化, 1=基础, 2=高级, 3=激进)
     bool enable_extensions;     // 启用WASX扩展
     bool emit_debug_info;       // 生成调试信息
+    bool enable_warnings;       // 启用警告
+    bool warnings_as_errors;    // 将警告视为错误
+    bool compile_only;          // 仅编译，不链接
+    bool generate_assembly;     // 生成汇编输出
+    bool preprocess_only;       // 仅预处理
+    CStandard c_standard;       // C标准版本
+    char include_dirs[16][256]; // 包含目录列表 (最多16个)
+    int include_dir_count;      // 包含目录数量
+    char macros[32][256];       // 宏定义列表 (最多32个)
+    int macro_count;            // 宏定义数量
 } C2AstcOptions;
 
 // ===============================================

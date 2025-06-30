@@ -2330,9 +2330,20 @@ static struct ASTNode* parse_declaration(Parser *parser) {
 // 默认选项
 C2AstcOptions c2astc_default_options(void) {
     C2AstcOptions options;
+    memset(&options, 0, sizeof(options));  // 初始化所有字段为0
+
     options.optimize_level = 0;        // 默认无优化
     options.enable_extensions = true;
     options.emit_debug_info = false;   // 默认不生成调试信息
+    options.enable_warnings = false;   // 默认不启用警告
+    options.warnings_as_errors = false; // 默认警告不作为错误
+    options.compile_only = false;      // 默认完整编译
+    options.generate_assembly = false; // 默认不生成汇编
+    options.preprocess_only = false;   // 默认不仅预处理
+    options.c_standard = C_STD_C99;    // 默认使用C99标准
+    options.include_dir_count = 0;     // 默认无包含目录
+    options.macro_count = 0;           // 默认无宏定义
+
     return options;
 }
 
