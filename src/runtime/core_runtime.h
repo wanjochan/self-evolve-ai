@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <time.h>
-#include "astc.h"
+#include "core_astc.h"
 
 #ifdef __cplusplus
 extern "C" {

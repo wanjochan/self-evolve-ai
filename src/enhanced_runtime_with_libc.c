@@ -220,23 +220,74 @@ int astc_execute_instruction(ASTCVirtualMachine* vm) {
 // Runtime主入口点
 // ===============================================
 
+void print_usage(const char* program_name) {
+    printf("Usage: %s [options] <program.astc>\n", program_name);
+    printf("\nOptions:\n");
+    printf("  -h, --help     Show this help message\n");
+    printf("  -v, --version  Show version information\n");
+    printf("  --verbose      Enable verbose output\n");
+    printf("  --debug        Enable debug mode\n");
+    printf("\nExamples:\n");
+    printf("  %s hello.astc              # Run ASTC program\n", program_name);
+    printf("  %s --verbose hello.astc    # Run with verbose output\n", program_name);
+}
+
+void print_version() {
+    printf("Enhanced Runtime with libc v2.0\n");
+    printf("ASTC Virtual Machine Runtime\n");
+    printf("Built: %s %s\n", __DATE__, __TIME__);
+}
+
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        printf("Usage: %s <program.astc>\n", argv[0]);
+    bool verbose = false;
+    bool debug = false;
+    const char* program_file = NULL;
+
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            print_version();
+            return 0;
+        } else if (strcmp(argv[i], "--verbose") == 0) {
+            verbose = true;
+        } else if (strcmp(argv[i], "--debug") == 0) {
+            debug = true;
+        } else if (argv[i][0] != '-') {
+            if (program_file == NULL) {
+                program_file = argv[i];
+            } else {
+                printf("Error: Multiple program files specified\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else {
+            printf("Error: Unknown option '%s'\n", argv[i]);
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
+    if (program_file == NULL) {
+        printf("Error: No program file specified\n");
+        print_usage(argv[0]);
         return 1;
     }
     
     // 初始化libc转发系统
-    printf("Initializing libc forwarding system...\n");
+    if (verbose) printf("Initializing libc forwarding system...\n");
     if (libc_forward_init() != 0) {
         fprintf(stderr, "Error: Failed to initialize libc forwarding\n");
         return 1;
     }
-    
+
     // 加载ASTC程序
-    FILE* file = fopen(argv[1], "rb");
+    if (verbose) printf("Loading ASTC program: %s\n", program_file);
+    FILE* file = fopen(program_file, "rb");
     if (!file) {
-        fprintf(stderr, "Error: Cannot open file %s\n", argv[1]);
+        fprintf(stderr, "Error: Cannot open file %s\n", program_file);
         libc_forward_cleanup();
         return 1;
     }

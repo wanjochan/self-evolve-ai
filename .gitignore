@@ -5,3 +5,4 @@ tcc/cross/temp/
 *.o
 nul
 cursor_screenshot.png
+*.swo

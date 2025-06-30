@@ -10,14 +10,18 @@
 - docs/plan.md 主力工作智能工作文档
 - docs/{agentName}.md 其它智能助理评估文档
 
-## 智能助理团队组成：
+## VibeTeam 智能助理团队：
 
-- augment+vscode：工程化推进 PRD.md，是团队的主力；//因为目前augment的工程化能力不错
+- augment+vscode：工程化推进 PRD.md，是团队的主力；//目前augment的工程化能力不错
 - rovodev-atlassian：不断审阅和评估更新 docs/revodev.md
 - gemini-cli-google：不断审阅和评估更新 docs/gemini.md
 - claude-code：不断审阅和评估更新 docs/claude.md
-- 类似地，cursor等也持续的评估更新 docs/{agentName}.md
+- 类似地，cursor,windsurf等 docs/{agentName}.md
 
 ![workmode](README.jpg)
+
+## ref
+
+rovodev: https://community.atlassian.com/forums/Rovo-for-Software-Teams-Beta/Introducing-Rovo-Dev-CLI-AI-Powered-Development-in-your-terminal/ba-p/3043623
 
 # JUST FOR FUN

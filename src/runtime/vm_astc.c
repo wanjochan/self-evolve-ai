@@ -10,8 +10,8 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
-#include "runtime.h"
-#include "astc.h"
+#include "core_runtime.h"
+#include "core_astc.h"
 #include "platform.h"
 
 // ===============================================
@@ -1273,7 +1273,7 @@ const RuntimeStats* runtime_get_stats(RuntimeVM* vm) {
 // Evolver0 Runtime 特定实现 (合并自evolver0_runtime.c)
 // ===============================================
 
-#include "libc_forward.h"
+#include "core_libc.h"
 
 // ===============================================
 // ASTC虚拟机状态 (轻量化)
