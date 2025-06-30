@@ -6075,6 +6075,37 @@ int ast_node_to_bytecode(struct ASTNode* node, BytecodeGen* gen) {
             }
             break;
 
+        case AST_MODULE:
+            // 处理模块声明
+            printf("Processing module declaration: %s\n", node->value.string_value);
+            // 生成模块声明字节码
+            bytecode_emit_byte(gen, 0x90);  // MODULE_DECL
+            bytecode_emit_string(gen, node->value.string_value);
+            break;
+
+        case AST_IMPORT:
+            // 处理导入语句
+            printf("Processing import statement: %s\n", node->value.string_value);
+            // 生成导入字节码
+            bytecode_emit_byte(gen, 0x91);  // IMPORT
+            bytecode_emit_string(gen, node->value.string_value);
+
+            // 如果有路径子节点，也生成路径
+            if (node->child_count > 0 && node->children[0]) {
+                bytecode_emit_string(gen, node->children[0]->value.string_value);
+            } else {
+                bytecode_emit_string(gen, "");  // 空路径
+            }
+            break;
+
+        case AST_EXPORT:
+            // 处理导出语句
+            printf("Processing export statement: %s\n", node->value.string_value);
+            // 生成导出字节码
+            bytecode_emit_byte(gen, 0x92);  // EXPORT
+            bytecode_emit_string(gen, node->value.string_value);
+            break;
+
         default:
             // 其他节点类型暂时忽略
             printf("Ignoring AST node type: %d (0x%X)\n", node->type, node->type);

@@ -41,7 +41,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Step 2.2: Converting VM ASTC to native module...
-bin\tool_astc2rt.exe bin\vm_x64_64_native.astc bin\vm_x64_64.native
+bin\tool_astc2native.exe bin\vm_x64_64_native.astc bin\vm_x64_64.native
 if %ERRORLEVEL% neq 0 (
     echo ERROR: VM native module generation failed
     exit /b 3
@@ -64,7 +64,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Step 3.2: Converting Libc ASTC to native module...
-bin\tool_astc2rt.exe bin\libc_x64_64_native.astc bin\libc_x64_64.native
+bin\tool_astc2native.exe bin\libc_x64_64_native.astc bin\libc_x64_64.native
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Libc native module generation failed
     exit /b 5
@@ -87,7 +87,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Step 4.2: Converting Loader ASTC to executable...
-bin\tool_astc2rt.exe bin\loader_unified.astc bin\loader.exe
+bin\tool_astc2native.exe bin\loader_unified.astc bin\loader.exe
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Loader executable generation failed
     exit /b 7
