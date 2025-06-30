@@ -1685,25 +1685,38 @@ static struct ASTNode* parse_statement(Parser *parser) {
 static struct ASTNode* parse_translation_unit(Parser *parser) {
     struct ASTNode *root = ast_create_node(ASTC_TRANSLATION_UNIT, 0, 0);
     if (!root) return NULL;
-    
+
     // 初始化声明列表
     root->data.translation_unit.declarations = NULL;
     root->data.translation_unit.declaration_count = 0;
     int capacity = 0;
-    
+
     // 解析顶层声明
     while (parser->current < parser->token_count) {
+        Token *token = peek(parser);
+        if (!token || token->type == TOKEN_EOF) break;
+
         struct ASTNode *decl = parse_declaration(parser);
         if (!decl) {
-            // 尝试跳过错误，继续解析
-            Token *token = peek(parser);
-            if (token && token->type != TOKEN_EOF) {
-                // 跳过当前Token，尝试继续解析
+            // 改进的错误恢复：跳到下一个可能的声明开始
+            while (parser->current < parser->token_count) {
+                token = peek(parser);
+                if (!token || token->type == TOKEN_EOF) break;
+
+                // 寻找下一个可能的声明开始
+                if (token->type == TOKEN_VOID || token->type == TOKEN_CHAR ||
+                    token->type == TOKEN_SHORT || token->type == TOKEN_INT ||
+                    token->type == TOKEN_LONG || token->type == TOKEN_FLOAT ||
+                    token->type == TOKEN_DOUBLE || token->type == TOKEN_SIGNED ||
+                    token->type == TOKEN_UNSIGNED || token->type == TOKEN_STRUCT ||
+                    token->type == TOKEN_UNION || token->type == TOKEN_ENUM ||
+                    token->type == TOKEN_SEMICOLON) {
+                    if (token->type == TOKEN_SEMICOLON) advance(parser); // 跳过分号
+                    break;
+                }
                 advance(parser);
-                continue;
-            } else {
-                break;
             }
+            continue;
         }
         
         // 动态扩展声明数组
@@ -2077,8 +2090,24 @@ static struct ASTNode* parse_declaration(Parser *parser) {
             break;
             
         default:
-            // 不是声明
-            return NULL;
+            // 改进的错误处理：检查是否为标识符（可能是变量声明）
+            if (token->type == TOKEN_IDENTIFIER) {
+                // 可能是typedef类型或未知类型，尝试作为变量声明处理
+                char *type_name = strdup(token->value);
+                advance(parser);
+
+                // 创建一个基本的类型节点
+                type_node = ast_create_node(ASTC_TYPE_SPECIFIER, token->line, token->column);
+                if (!type_node) {
+                    free(type_name);
+                    return NULL;
+                }
+                type_node->data.type_specifier.type = ASTC_TYPE_INT; // 默认为int类型
+                free(type_name);
+            } else {
+                // 不是声明
+                return NULL;
+            }
     }
     
     // 检查是否为指针类型
@@ -2180,7 +2209,18 @@ static struct ASTNode* parse_declaration(Parser *parser) {
                         advance(parser);
                         break;
                     default:
-                        // 不支持的类型，跳过此参数
+                        // 改进的错误处理：尝试处理标识符类型或跳过
+                        if (type_token->type == TOKEN_IDENTIFIER) {
+                            // 可能是typedef类型，创建默认类型
+                            param_type = ast_create_node(ASTC_TYPE_SPECIFIER, type_token->line, type_token->column);
+                            if (param_type) {
+                                param_type->data.type_specifier.type = ASTC_TYPE_INT; // 默认为int
+                                advance(parser);
+                            }
+                        } else {
+                            // 不支持的类型，跳过此参数
+                            advance(parser); // 跳过未知token
+                        }
                         break;
                 }
 
@@ -2192,14 +2232,21 @@ static struct ASTNode* parse_declaration(Parser *parser) {
 
                 // 获取参数名
                 Token *name_token = peek(parser);
+                char *param_name;
                 if (!name_token || name_token->type != TOKEN_IDENTIFIER) {
-                    // 如果没有参数名，可能是 void 参数或其他情况
-                    ast_free(param_type);
-                    break;
+                    // 如果没有参数名，生成默认参数名
+                    param_name = (char*)malloc(20);
+                    if (!param_name) {
+                        ast_free(param_type);
+                        break;
+                    }
+                    snprintf(param_name, 20, "param_%d", param_count);
+                } else {
+                    param_name = strdup(name_token->value);
+                    advance(parser);
                 }
 
-                char *param_name = strdup(name_token->value);
-                advance(parser);
+
 
                 // 处理数组类型 (如 argv[])
                 if (check(parser, TOKEN_LBRACKET)) {
@@ -4806,8 +4853,21 @@ static struct ASTNode* parse_primary(Parser *parser) {
         }
 
         default:
-            parser_error(parser, "预期表达式");
-            return NULL;
+            // 改进的错误处理：尝试创建一个占位符节点而不是直接失败
+            if (token->type == TOKEN_IDENTIFIER) {
+                // 如果是标识符，创建标识符节点
+                node = create_identifier_node(token->value, token->line, token->column);
+                advance(parser);
+            } else if (token->type == TOKEN_SEMICOLON || token->type == TOKEN_RBRACE ||
+                       token->type == TOKEN_RPAREN || token->type == TOKEN_COMMA) {
+                // 如果遇到语句结束符，返回NULL让上层处理
+                return NULL;
+            } else {
+                // 其他情况，报错但尝试跳过
+                parser_error(parser, "预期表达式");
+                advance(parser); // 跳过当前token
+                return NULL;
+            }
     }
     
     return node;

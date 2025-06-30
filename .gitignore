@@ -6,3 +6,6 @@ tcc/cross/temp/
 nul
 cursor_screenshot.png
 *.swo
+tools/vscode_augment_status.png
+tools/*.png
+tools/vscode_ui_dump*.json

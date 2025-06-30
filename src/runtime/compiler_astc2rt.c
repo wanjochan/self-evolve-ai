@@ -29,6 +29,8 @@
 
 // 前向声明
 int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen);
+int generate_rtme_file(uint8_t* code, size_t code_size, const char* output_file);
+int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_file);
 
 // ===============================================
 // 架构检测实现
@@ -150,6 +152,212 @@ void emit_int32(CodeGen* gen, int32_t value) {
 void emit_int64(CodeGen* gen, int64_t value) {
     emit_int32(gen, (int32_t)(value & 0xFFFFFFFF));
     emit_int32(gen, (int32_t)((value >> 32) & 0xFFFFFFFF));
+}
+
+// ===============================================
+// 架构特定的代码生成函数
+// ===============================================
+
+// x86_64架构的代码生成函数
+void emit_x86_64_function_prologue(CodeGen* gen) {
+    emit_byte(gen, 0x55);        // push rbp
+    emit_byte(gen, 0x48);        // mov rbp, rsp
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0xe5);
+}
+
+void emit_x86_64_function_epilogue(CodeGen* gen) {
+    emit_byte(gen, 0x5d);        // pop rbp
+    emit_byte(gen, 0xc3);        // ret
+}
+
+void emit_x86_64_load_immediate(CodeGen* gen, int32_t value) {
+    emit_byte(gen, 0xb8);        // mov eax, immediate
+    emit_int32(gen, value);
+}
+
+void emit_x86_64_return(CodeGen* gen) {
+    emit_byte(gen, 0xc3);        // ret
+}
+
+// ARM64架构的代码生成函数
+void emit_arm64_function_prologue(CodeGen* gen) {
+    // stp x29, x30, [sp, #-16]!
+    emit_byte(gen, 0xfd); emit_byte(gen, 0x7b); emit_byte(gen, 0xbf); emit_byte(gen, 0xa9);
+    // mov x29, sp
+    emit_byte(gen, 0xfd); emit_byte(gen, 0x03); emit_byte(gen, 0x00); emit_byte(gen, 0x91);
+}
+
+void emit_arm64_function_epilogue(CodeGen* gen) {
+    // ldp x29, x30, [sp], #16
+    emit_byte(gen, 0xfd); emit_byte(gen, 0x7b); emit_byte(gen, 0xc1); emit_byte(gen, 0xa8);
+    // ret
+    emit_byte(gen, 0xc0); emit_byte(gen, 0x03); emit_byte(gen, 0x5f); emit_byte(gen, 0xd6);
+}
+
+void emit_arm64_load_immediate(CodeGen* gen, int32_t value) {
+    // mov w0, #immediate (简化版，只支持16位立即数)
+    uint16_t imm16 = (uint16_t)(value & 0xFFFF);
+    emit_byte(gen, 0x00 | (imm16 & 0x1F));
+    emit_byte(gen, 0x80 | ((imm16 >> 5) & 0x7F));
+    emit_byte(gen, 0x80 | ((imm16 >> 12) & 0x0F));
+    emit_byte(gen, 0x52);
+}
+
+void emit_arm64_return(CodeGen* gen) {
+    // ret
+    emit_byte(gen, 0xc0); emit_byte(gen, 0x03); emit_byte(gen, 0x5f); emit_byte(gen, 0xd6);
+}
+
+// x86_64架构的其他指令
+void emit_x86_64_nop(CodeGen* gen) {
+    emit_byte(gen, 0x90);        // nop
+}
+
+void emit_x86_64_store_local(CodeGen* gen, uint32_t var_index) {
+    // pop rax; mov [rbp-8*var_index], rax
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // mov [rbp-offset], rax
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0x45);
+    emit_byte(gen, (uint8_t)(-(int32_t)(8 * var_index)));
+}
+
+void emit_x86_64_load_local(CodeGen* gen, uint32_t var_index) {
+    // mov rax, [rbp-8*var_index]; push rax
+    emit_byte(gen, 0x48);        // mov rax, [rbp-offset]
+    emit_byte(gen, 0x8b);
+    emit_byte(gen, 0x45);
+    emit_byte(gen, (uint8_t)(-(int32_t)(8 * var_index)));
+    emit_byte(gen, 0x50);        // push rax
+}
+
+void emit_x86_64_jump(CodeGen* gen, uint32_t target) {
+    // jmp rel32 (简化版)
+    emit_byte(gen, 0xe9);        // jmp rel32
+    emit_int32(gen, (int32_t)target);
+}
+
+void emit_x86_64_jump_if_false(CodeGen* gen, uint32_t target) {
+    // pop rax; test rax, rax; jz target
+    emit_byte(gen, 0x58);        // pop rax
+    emit_byte(gen, 0x48);        // test rax, rax
+    emit_byte(gen, 0x85);
+    emit_byte(gen, 0xc0);
+    emit_byte(gen, 0x0f);        // jz rel32
+    emit_byte(gen, 0x84);
+    emit_int32(gen, (int32_t)target);
+}
+
+void emit_x86_64_call_user(CodeGen* gen, uint32_t func_addr) {
+    // call rel32 (简化版)
+    emit_byte(gen, 0xe8);        // call rel32
+    emit_int32(gen, (int32_t)func_addr);
+}
+
+// ARM64架构的其他指令
+void emit_arm64_nop(CodeGen* gen) {
+    // nop
+    emit_byte(gen, 0x1f); emit_byte(gen, 0x20); emit_byte(gen, 0x03); emit_byte(gen, 0xd5);
+}
+
+void emit_arm64_store_local(CodeGen* gen, uint32_t var_index) {
+    // str x0, [x29, #-offset] (简化版)
+    uint16_t offset = (uint16_t)(8 * var_index);
+    emit_byte(gen, 0xa0 | (offset & 0x1F));
+    emit_byte(gen, 0x83 | ((offset >> 5) & 0x07));
+    emit_byte(gen, 0x1f);
+    emit_byte(gen, 0xf8);
+}
+
+void emit_arm64_load_local(CodeGen* gen, uint32_t var_index) {
+    // ldr x0, [x29, #-offset] (简化版)
+    uint16_t offset = (uint16_t)(8 * var_index);
+    emit_byte(gen, 0xa0 | (offset & 0x1F));
+    emit_byte(gen, 0x83 | ((offset >> 5) & 0x07));
+    emit_byte(gen, 0x5f);
+    emit_byte(gen, 0xf8);
+}
+
+void emit_arm64_jump(CodeGen* gen, uint32_t target) {
+    // b target (简化版)
+    emit_byte(gen, 0x00 | (target & 0x1F));
+    emit_byte(gen, 0x00 | ((target >> 5) & 0xFF));
+    emit_byte(gen, 0x00 | ((target >> 13) & 0xFF));
+    emit_byte(gen, 0x14 | ((target >> 21) & 0x1F));
+}
+
+void emit_arm64_jump_if_false(CodeGen* gen, uint32_t target) {
+    // cbz x0, target (简化版)
+    emit_byte(gen, 0x00 | (target & 0x1F));
+    emit_byte(gen, 0x00 | ((target >> 5) & 0xFF));
+    emit_byte(gen, 0x00 | ((target >> 13) & 0x07));
+    emit_byte(gen, 0xb4 | ((target >> 16) & 0x1F));
+}
+
+void emit_arm64_call_user(CodeGen* gen, uint32_t func_addr) {
+    // bl func_addr (简化版)
+    emit_byte(gen, 0x00 | (func_addr & 0x1F));
+    emit_byte(gen, 0x00 | ((func_addr >> 5) & 0xFF));
+    emit_byte(gen, 0x00 | ((func_addr >> 13) & 0xFF));
+    emit_byte(gen, 0x94 | ((func_addr >> 21) & 0x1F));
+}
+
+// 架构特定的代码生成表
+typedef struct {
+    void (*emit_function_prologue)(CodeGen* gen);
+    void (*emit_function_epilogue)(CodeGen* gen);
+    void (*emit_load_immediate)(CodeGen* gen, int32_t value);
+    void (*emit_return)(CodeGen* gen);
+    void (*emit_nop)(CodeGen* gen);
+    void (*emit_store_local)(CodeGen* gen, uint32_t var_index);
+    void (*emit_load_local)(CodeGen* gen, uint32_t var_index);
+    void (*emit_jump)(CodeGen* gen, uint32_t target);
+    void (*emit_jump_if_false)(CodeGen* gen, uint32_t target);
+    void (*emit_call_user)(CodeGen* gen, uint32_t func_addr);
+} ArchCodeGenTable;
+
+// x86_64代码生成表
+static ArchCodeGenTable x86_64_table = {
+    .emit_function_prologue = emit_x86_64_function_prologue,
+    .emit_function_epilogue = emit_x86_64_function_epilogue,
+    .emit_load_immediate = emit_x86_64_load_immediate,
+    .emit_return = emit_x86_64_return,
+    .emit_nop = NULL, // 将在下面定义
+    .emit_store_local = NULL,
+    .emit_load_local = NULL,
+    .emit_jump = NULL,
+    .emit_jump_if_false = NULL,
+    .emit_call_user = NULL
+};
+
+// ARM64代码生成表
+static ArchCodeGenTable arm64_table = {
+    .emit_function_prologue = emit_arm64_function_prologue,
+    .emit_function_epilogue = emit_arm64_function_epilogue,
+    .emit_load_immediate = emit_arm64_load_immediate,
+    .emit_return = emit_arm64_return,
+    .emit_nop = NULL, // 将在下面定义
+    .emit_store_local = NULL,
+    .emit_load_local = NULL,
+    .emit_jump = NULL,
+    .emit_jump_if_false = NULL,
+    .emit_call_user = NULL
+};
+
+// 获取架构特定的代码生成表
+ArchCodeGenTable* get_arch_codegen_table(TargetArch arch) {
+    switch (arch) {
+        case ARCH_X86_64:
+            return &x86_64_table;
+        case ARCH_ARM64:
+            return &arm64_table;
+        case ARCH_X86_32:
+        case ARCH_ARM32:
+        default:
+            // 默认使用x86_64表
+            return &x86_64_table;
+    }
 }
 
 // ===============================================
@@ -401,27 +609,56 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
 
         case 0x30: // STORE_LOCAL
             // 存储到局部变量
-            table->emit_nop(gen); // 简化实现
+            if (operand_len >= 4) {
+                uint32_t var_index = *(uint32_t*)operands;
+                // 简化实现：将栈顶值存储到局部变量槽
+                // pop rax; mov [rbp-8*var_index], rax
+                table->emit_store_local(gen, var_index);
+            } else {
+                table->emit_nop(gen);
+            }
             break;
 
         case 0x31: // LOAD_LOCAL
             // 加载局部变量
-            table->emit_nop(gen); // 简化实现
+            if (operand_len >= 4) {
+                uint32_t var_index = *(uint32_t*)operands;
+                // 简化实现：从局部变量槽加载值到栈
+                // mov rax, [rbp-8*var_index]; push rax
+                table->emit_load_local(gen, var_index);
+            } else {
+                table->emit_nop(gen);
+            }
             break;
 
         case 0x40: // JUMP
             // 无条件跳转
-            table->emit_nop(gen); // 简化实现
+            if (operand_len >= 4) {
+                uint32_t target = *(uint32_t*)operands;
+                table->emit_jump(gen, target);
+            } else {
+                table->emit_nop(gen);
+            }
             break;
 
         case 0x41: // JUMP_IF_FALSE
             // 条件跳转
-            table->emit_nop(gen); // 简化实现
+            if (operand_len >= 4) {
+                uint32_t target = *(uint32_t*)operands;
+                table->emit_jump_if_false(gen, target);
+            } else {
+                table->emit_nop(gen);
+            }
             break;
 
         case 0x50: // CALL_USER
             // 用户函数调用
-            table->emit_nop(gen); // 简化实现
+            if (operand_len >= 4) {
+                uint32_t func_addr = *(uint32_t*)operands;
+                table->emit_call_user(gen, func_addr);
+            } else {
+                table->emit_nop(gen);
+            }
             break;
 
         case 0xF0: // LIBC_CALL
@@ -590,6 +827,26 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
 }
 
 int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_file) {
+    // 检查输出文件扩展名，决定生成格式
+    const char* ext = strrchr(output_file, '.');
+    bool generate_exe = (ext && strcmp(ext, ".exe") == 0);
+
+    printf("DEBUG: output_file='%s', ext='%s', generate_exe=%d\n",
+           output_file, ext ? ext : "NULL", generate_exe);
+
+    if (generate_exe) {
+        // 生成真正的PE可执行文件
+        printf("DEBUG: Generating PE executable\n");
+        return generate_pe_executable(code, code_size, output_file);
+    } else {
+        // 生成RTME格式文件
+        printf("DEBUG: Generating RTME file\n");
+        return generate_rtme_file(code, code_size, output_file);
+    }
+}
+
+// 生成RTME格式文件（原有功能）
+int generate_rtme_file(uint8_t* code, size_t code_size, const char* output_file) {
     FILE* fp = fopen(output_file, "wb");
     if (!fp) {
         printf("Error: Cannot open output file %s\n", output_file);
@@ -610,7 +867,119 @@ int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_fi
     fwrite(code, 1, code_size, fp);
 
     fclose(fp);
-    printf("Generated runtime file: %s (%zu bytes + header)\n", output_file, code_size);
+    printf("Generated RTME runtime file: %s (%zu bytes + header)\n", output_file, code_size);
+    return 0;
+}
+
+// 生成PE可执行文件
+int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_file) {
+    printf("Generating PE executable: %s (%zu bytes machine code)\n", output_file, code_size);
+
+    FILE* fp = fopen(output_file, "wb");
+    if (!fp) {
+        printf("Error: Cannot create PE executable %s\n", output_file);
+        return 1;
+    }
+
+    // 简化的PE文件结构
+    // DOS头
+    uint8_t dos_header[64] = {
+        0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, // MZ signature + e_cblp, e_cp
+        0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, // e_crlc, e_cparhdr, e_minalloc, e_maxalloc
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // e_ss, e_sp, e_csum, e_ip
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // e_cs, e_lfarlc, e_ovno, e_res[0]
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // e_res[1], e_res[2], e_res[3], e_oemid
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // e_oeminfo, e_res2[0], e_res2[1], e_res2[2]
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // e_res2[3], e_res2[4], e_res2[5], e_res2[6]
+        0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00  // e_res2[7], e_res2[8], e_res2[9], e_lfanew
+    };
+
+    // PE签名和文件头
+    uint8_t pe_header[24] = {
+        0x50, 0x45, 0x00, 0x00,                         // PE signature
+        0x64, 0x86, 0x01, 0x00,                         // Machine (x64), NumberOfSections (1)
+        0x00, 0x00, 0x00, 0x00,                         // TimeDateStamp
+        0x00, 0x00, 0x00, 0x00,                         // PointerToSymbolTable
+        0x00, 0x00, 0x00, 0x00,                         // NumberOfSymbols
+        0xF0, 0x00, 0x0F, 0x01                          // SizeOfOptionalHeader, Characteristics
+    };
+
+    // 可选头（简化版）
+    uint8_t optional_header[240] = {0};
+    optional_header[0] = 0x0B;  // Magic (PE32+)
+    optional_header[1] = 0x02;
+    optional_header[4] = 0x01;  // MajorLinkerVersion
+    optional_header[16] = 0x00; // AddressOfEntryPoint (低位)
+    optional_header[17] = 0x10; // AddressOfEntryPoint (高位) = 0x1000
+    optional_header[20] = 0x00; // BaseOfCode
+    optional_header[21] = 0x10; // BaseOfCode = 0x1000
+
+    // ImageBase (0x140000000 for x64)
+    optional_header[24] = 0x00;
+    optional_header[25] = 0x00;
+    optional_header[26] = 0x00;
+    optional_header[27] = 0x00;
+    optional_header[28] = 0x01;
+    optional_header[29] = 0x00;
+    optional_header[30] = 0x00;
+    optional_header[31] = 0x40;
+
+    // SectionAlignment, FileAlignment
+    optional_header[32] = 0x00; optional_header[33] = 0x10; // 0x1000
+    optional_header[36] = 0x00; optional_header[37] = 0x02; // 0x200
+
+    // Subsystem (Console = 3)
+    optional_header[68] = 0x03;
+
+    // 写入DOS头
+    fwrite(dos_header, 1, 64, fp);
+
+    // 填充到PE头位置
+    uint8_t padding[64] = {0};
+    fwrite(padding, 1, 64, fp);
+
+    // 写入PE头
+    fwrite(pe_header, 1, 24, fp);
+    fwrite(optional_header, 1, 240, fp);
+
+    // 节表
+    uint8_t section_header[40] = {
+        '.', 't', 'e', 'x', 't', 0, 0, 0,              // Name
+        0x00, 0x10, 0x00, 0x00,                         // VirtualSize
+        0x00, 0x10, 0x00, 0x00,                         // VirtualAddress
+        0x00, 0x02, 0x00, 0x00,                         // SizeOfRawData
+        0x00, 0x04, 0x00, 0x00,                         // PointerToRawData
+        0x00, 0x00, 0x00, 0x00,                         // PointerToRelocations
+        0x00, 0x00, 0x00, 0x00,                         // PointerToLinenumbers
+        0x00, 0x00, 0x00, 0x00,                         // NumberOfRelocations, NumberOfLinenumbers
+        0x20, 0x00, 0x00, 0x60                          // Characteristics (CODE | EXECUTE | READ)
+    };
+
+    fwrite(section_header, 1, 40, fp);
+
+    // 填充到代码段开始位置 (0x400)
+    long current_pos = ftell(fp);
+    long padding_size = 0x400 - current_pos;
+    if (padding_size > 0) {
+        uint8_t* pad = calloc(1, padding_size);
+        fwrite(pad, 1, padding_size, fp);
+        free(pad);
+    }
+
+    // 写入机器码
+    fwrite(code, 1, code_size, fp);
+
+    // 填充到512字节对齐
+    long final_pos = ftell(fp);
+    long final_padding = ((final_pos + 511) & ~511) - final_pos;
+    if (final_padding > 0) {
+        uint8_t* pad = calloc(1, final_padding);
+        fwrite(pad, 1, final_padding, fp);
+        free(pad);
+    }
+
+    fclose(fp);
+    printf("Generated PE executable: %s\n", output_file);
     return 0;
 }
 
