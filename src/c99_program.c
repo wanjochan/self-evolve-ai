@@ -14,10 +14,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "runtime/compiler_c2astc.h"
-#include "runtime/compiler_astc2rt.h"
-#include "runtime/compiler_c2astc.h"
-#include "runtime/compiler_astc2rt.h"
+#include "runtime/c2astc.h"
+#include "runtime/astc2native.h"
+#include "runtime/c2astc.h"
+#include "runtime/astc2native.h"
 #include "runtime/core_astc.h"
 
 // ===============================================
@@ -469,7 +469,7 @@ int compile_c_file_to_astc(const char* input_file, const char* output_file) {
 int compile_astc_file_to_runtime(const char* input_file, const char* output_file) {
     printf("Compiling ASTC to Runtime: %s -> %s\n", input_file, output_file);
 
-    // 直接调用astc2rt编译器函数，不使用外部工具
+    // 直接调用astc2native编译器函数，不使用外部工具
     int result = compile_astc_to_runtime_bin(input_file, output_file);
     if (result != 0) {
         fprintf(stderr, "Error: ASTC to Runtime compilation failed\n");

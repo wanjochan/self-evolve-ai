@@ -74,7 +74,7 @@ int evolution_start_autonomous_mode(void) {
         {
             .target = TARGET_COMPILER_PERFORMANCE,
             .description = "Optimize c2astc compiler performance",
-            .target_files = {"src/runtime/compiler_c2astc.c"},
+            .target_files = {"src/runtime/c2astc.c"},
             .target_file_count = 1,
             .priority = 0.9f,
             .is_critical = false
@@ -212,8 +212,8 @@ int evolution_analyze_project(const char* project_path) {
     // 分析关键文件
     const char* key_files[] = {
         "src/c99_program.c",
-        "src/runtime/compiler_c2astc.c",
-        "src/runtime/compiler_astc2rt.c",
+        "src/runtime/c2astc.c",
+        "src/runtime/astc2native.c",
         "src/simple_runtime.c",
         "src/runtime/core_libc.c"
     };

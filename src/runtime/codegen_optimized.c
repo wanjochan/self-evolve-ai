@@ -1,5 +1,5 @@
 /**
- * compiler_codegen_optimized.c - 优化的代码生成器
+ * codegen_optimized.c - 优化的代码生成器
  * 
  * 实现基本的寄存器分配、死代码消除和函数调用约定优化
  */
@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "compiler_astc2rt.h"
+#include "astc2native.h"
 
 // ===============================================
 // 寄存器分配器

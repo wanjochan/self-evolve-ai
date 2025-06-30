@@ -1,8 +1,8 @@
-#ifndef COMPILER_CODEGEN_ARM64_H
-#define COMPILER_CODEGEN_ARM64_H
+#ifndef CODEGEN_ARM64_H
+#define CODEGEN_ARM64_H
 
 #include "core_astc.h"
-#include "compiler_astc2rt.h"
+#include "astc2native.h"
 
 // ARM64架构特定的机器码生成函数
 void arm64_emit_nop(CodeGen* gen);
@@ -32,4 +32,4 @@ void arm64_emit_mul_registers(CodeGen* gen, uint8_t dst, uint8_t src1, uint8_t s
 void arm64_emit_branch_link(CodeGen* gen, uint32_t target);
 void arm64_emit_return(CodeGen* gen);
 
-#endif // COMPILER_CODEGEN_ARM64_H
+#endif // CODEGEN_ARM64_H

@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "compiler_astc2rt.h"
+#include "astc2native.h"
 
 #ifdef __cplusplus
 extern "C" {

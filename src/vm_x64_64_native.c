@@ -20,7 +20,7 @@
 #include "runtime/core_astc.h"
 #include "runtime/vm_astc.c"
 #include "runtime/enhanced_jit_compiler.c"
-#include "runtime/compiler_codegen_x64.c"
+#include "runtime/codegen_x64.c"
 
 // ===============================================
 // VM Core Module Interface (PRD.md compliant)

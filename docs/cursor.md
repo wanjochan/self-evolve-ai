@@ -1,108 +1,95 @@
-# AI-Assisted Task Plan: A Custom, Self-Reliant Modular Architecture
+# AI-Assisted Task Plan: Resolving the Architectural Conflict
 
-**核心理念澄清:** 经过深入讨论，明确`.native` **不是**一个标准的`.dll`/`.so`文件，而是一个**自定义的、可重用的、平台无关的二进制模块格式**。这极大地降低了编译工具链的复杂度，并与项目独立自主的哲学保持一致。
+**核心诊断:** 对`src`目录的深度审查确认了项目的巨大进展，但也揭示了一个根本性的**架构冲突**。
+- **工具链 (`astc2native`)**: 已具备生成完整PE可执行文件的能力，倾向于**单体式(Monolithic)**架构。
+- **加载器 (`universal_loader.c`)**: 被设计为动态加载`.native`模块，遵循**模块化(Modular)**架构，但其实现是一个**尚未完成的存根**。
 
-**战略核心:** `astc2native` (原`astc2rt`) 的职责是生成带有自定义头的`.native`模块。`loader`的职责是成为一个**针对`.native`格式的自定义加载器**，负责解析该格式并使其在内存中可执行。
+项目正同时朝两个相反的架构方向发展。必须立即解决此冲突，统一到一个清晰的、符合PRD的设计上。
+
+**战略决策:** 鉴于`universal_loader.c`已为模块化打下良好基础，我们将**坚定不移地走模块化道路**。我们将改造`astc2native`，使其生成真正的动态模块（DLL/SO），并完成`universal_loader`的实现来加载它们。
 
 ---
-## 🚨 **Phase 1: 实现自定义模块架构 (The True Vision)**
+## 🚨 **Phase 1: 统一并实现PRD的模块化架构**
 
 ```mermaid
 graph TD
-    subgraph "Phase 1: 自定义模块架构"
+    subgraph "Phase 1: 解决架构冲突"
         direction LR
         
-        P1A["🔴 **1. 定义.native格式 & 改造astc2native**<br/>为.native设计一个精简的头部和导出表，并让编译器生成它"]
-        P1B["🟡 **2. 实现.native自定义加载器**<br/>重写loader，使其能解析.native格式并用mmap/VirtualAlloc加载"]
-        P1C["🟠 **3. 模块化编译VM和LibC**<br/>使用新工具链将VM和LibC编译为独立的.native模块"]
-        P1D["🟢 **4. 端到端链路验证**<br/>验证自定义加载器能成功运行.native模块"]
+        P1A["🔴 **1. 改造astc2native**<br/>使其输出真正的.dll/.so模块，而非.exe"]
+        P1B["🟡 **2. 完成universal_loader**<br/>实现真实的LoadLibrary/dlopen逻辑"]
+        P1C["🟠 **3. 端到端链路集成**<br/>loader加载vm.dll/so, vm加载libc.dll/so"]
+        P1D["🟢 **4. 清理旧代码**<br/>移除所有.todelete文件和单体式构建脚本"]
         
         P1A --> P1B
-        P1A --> P1C
-        P1B --> P1D
+        P1B --> P1C
         P1C --> P1D
     end
 
     subgraph "Phase 2: Project Resumption"
-        P2["✅ 架构稳固，恢复上层开发"]
+        P2["✅ 架构统一，恢复上层开发"]
     end
     
     P1D --> P2
 
     classDef P1A fill:#d63031,stroke:#d63031,color:white;
     classDef P1B fill:#fdcb6e,stroke:#fdcb6e;
-    classDef P1C fill:#e84393,stroke:#e84393,color:white;
-    classDef P1D fill:#00b894,stroke:#00b894,color:white;
+    classDef P1C fill:#00b894,stroke:#00b894,color:white;
+    classDef P1D fill:#636e72,stroke:#636e72,color:white;
     classDef P2 fill:#0984e3,stroke:#0984e3,color:white;
 ```
 ---
 
-## 1. 技术方案 (The "Custom Loader" Approach)
+## 1. 现状评估 (Current Status)
 
-放弃兼容PE/ELF的复杂路线。新方案将复杂度合理地分配到工具链和加载器中。
-
-| 组件 | 新职责 | 优点 |
-| --- | --- | --- |
-| **`astc2native`** | **轻量级打包器**：将JIT生成的原始机器码，用自定义的`.native`头和导出表进行"包装"。 | **简单、快速、跨平台**。无需处理PE/ELF的复杂规范。 |
-| **`.native`格式** | **自定义二进制格式**：一个极简的规范，仅包含魔数、架构标识、代码节位置、导出表等项目所需信息。 | **完全自主可控**，可随AI进化需求扩展。 |
-| **`loader`** | **自定义加载器**：负责解析`.native`格式，请求可执行内存，将代码载入，并解析导出函数地址以供调用。 | **将平台相关性隔离**在唯一需要与OS交互的`loader`中。 |
+- **[70%] `tool_astc2native`**: 功能强大，能将C/ASTC编译为多平台机器码。已包含一个`generate_pe_executable`函数，证明其有能力输出带OS头的二进制文件。
+- **[40%] `universal_loader.c`**: 设计优秀，正确地规划了平台检测、模块名构建等逻辑。但核心的`load_native_module`函数是空的。
+- **[10%] 模块化**: `vm_x64_64_native.c`和`libc_x64_64_native.c`等文件的存在表明模块化的意图，但没有一个能将它们构建为独立模块并加载的流程。
+- **[0%] 架构一致性**: 工具链和加载器的目标不匹配，导致整个系统无法工作。
 
 ## 2. 新行动计划 (New Action Plan)
 
-### **Step 1: 定义`.native`格式并改造`astc2native` (2-3天)**
-- **目标:** 设计一个V1版的`.native`格式，并让`astc2native`可以生成它。
-- **`.native`格式V1定义:**
-    ```c
-    struct NativeHeader {
-        char magic[4]; // "NATV"
-        uint32_t version;
-        uint32_t target_arch;
-        uint32_t code_section_offset;
-        uint32_t code_section_size;
-        uint32_t export_table_offset;
-        uint32_t export_table_count;
-        // ... a_entry_point_offset ...
-    };
-    struct NativeExport {
-        char function_name[56];
-        uint32_t function_offset; // 相对于代码节起始位置的偏移
-    };
-    ```
-- **`astc2native`改造任务:**
-    1.  实现上述结构体。
-    2.  修改其主流程，在JIT生成机器码后，不是直接写入文件，而是：
-        a.  创建一个`NativeHeader`实例并填充。
-        b.  创建一个`NativeExport`数组。
-        c.  将Header、Export Table和机器码顺序写入到一个新文件中。
-    3.  正式更名为 `tool_astc2native.exe`。
-- **产出:** 一个能将`.astc`编译为`.native`文件的`tool_astc2native.exe`。
+### **Step 1: 改造 `astc2native` 以生成真正的动态模块 (3-4天)**
+- **目标:** 修改`compiler_astc2rt.c`中的`generate_pe_executable`函数（并为其创建一个ELF对应版本），使其生成的不是`.exe`，而是一个**最小化的`.dll` (Windows) 或 `.so` (Linux)**。
+- **关键任务:**
+    1.  **修改PE/ELF头:** 调整文件头中的标志位，将其从`IMAGE_FILE_EXECUTABLE_IMAGE`（可执行文件）改为`IMAGE_FILE_DLL`（动态链接库）。
+    2.  **实现导出表:** 确保`vm_init_and_run`或`libc_printf`等函数被正确添加到模块的导出表中，以便`GetProcAddress`/`dlsym`可以找到它们。
+    3.  **移除入口点:** DLL/SO文件不需要传统的`main`或`_start`入口点。确保生成过程中不包含它们。
+    4.  **命令行调整:** `tool_astc2native.exe` 添加 `-shared` 标志，用于触发生成`.dll`/`.so`。
+- **产出:**
+    - `tool_astc2native -shared vm.c -o vm.native` → 生成 `vm.native` (一个有效的.dll/.so)
+    - `tool_astc2native -shared libc.c -o libc.native` → 生成 `libc.native`
 
-### **Step 2: 实现`.native`自定义加载器 (3-4天)**
-- **目标:** 重写`loader.c`，使其能够加载并执行`.native`文件。
-- **`loader`加载流程:**
-    1.  `fopen`/`fread`将整个`.native`文件读入内存缓冲区。
-    2.  解析`NativeHeader`，检查`magic`和`target_arch`。
-    3.  **向OS请求可执行内存**:
-        -   Windows: `VirtualAlloc(NULL, header.code_section_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);`
-        -   Linux/macOS: `mmap(NULL, header.code_section_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);`
-    4.  `memcpy`将缓冲区中的机器码部分复制到新分配的可执行内存中。
-    5.  解析缓冲区中的导出表，找到`vm_init_and_run`的函数偏移量。
-    6.  计算绝对地址：`void* entry_point = (void*)((char*)executable_memory + export.function_offset);`
-    7.  将地址转换为函数指针并调用。
-- **产出:** 一个可以独立加载并运行`.native`模块的`loader.exe`。
-
-### **Step 3: 模块化编译与集成 (2-3天)**
-- **目标:** 使用新工具链生成并集成`vm.native`和`libc.native`。
+### **Step 2: 完成`universal_loader`的模块加载功能 (2-3天)**
+- **目标:** 填充`universal_loader.c`中的`load_native_module`函数，使其成为一个真正的动态加载器。
 - **任务:**
-    1.  使用`tool_astc2native.exe`将VM核心代码编译为`vm_x64_64.native`。
-    2.  使用`tool_astc2native.exe`将LibC核心代码编译为`libc_x64_64.native`。
-    3.  改造VM的实现，使其在需要调用LibC函数时，也使用`loader`提供的类似加载流程（或由`loader`在启动时注入函数指针），来加载并使用`libc.native`。
-- **产出:** `bin`目录下的`vm.native`和`libc.native`，以及一个能够协同工作的VM。
+    1.  **平台宏:** 使用`#ifdef _WIN32`, `#elif defined(__linux__) || defined(__APPLE__)`来包裹平台特定的代码。
+    2.  **Windows实现:**
+        -   使用`LoadLibrary(filename)`加载`.native`模块。
+        -   返回的`HMODULE`就是`LoadedModule.handle`。
+        -   (可选) 实现一个`get_native_function(handle, func_name)`，内部调用`GetProcAddress`。
+    3.  **Linux/macOS实现:**
+        -   使用`dlopen(filename, RTLD_LAZY)`加载`.native`模块。
+        -   返回的`void*`就是`LoadedModule.handle`。
+        -   (可选) 实现一个`get_native_function(handle, func_name)`，内部调用`dlsym`。
+- **产出:** `universal_loader.exe`现在可以加载`.native`模块并获取其中的函数指针。
 
-### **Step 4: 端到端链路验证 (1天)**
-- **目标:** 确保整个自定义架构可以跑通一个完整的程序。
-- **任务:** 运行`loader.exe my_program.astc`，确认`loader`加载`vm.native`，`vm.native`加载`libc.native`，并最终正确执行程序。
-- **产出:** 一个通过集成测试的、架构正确的、符合项目哲学的系统。
+### **Step 3: 端到端集成与链路验证 (1-2天)**
+- **目标:** 将改造后的工具链和加载器结合，跑通完整流程。
+- **任务:**
+    1.  创建一个新的、统一的构建脚本`build_modular.bat`。
+    2.  该脚本首先使用`astc2native -shared`编译出`vm.native`和`libc.native`。
+    3.  然后编译`universal_loader.exe`。
+    4.  最后，运行一个测试，例如`universal_loader.exe my_program.astc`，并验证`loader`能加载`vm.native`，`vm.native`能加载`libc.native`，并最终打印出"Hello World"。
+- **产出:** 一个可工作的、符合PRD模块化设计的原型。
+
+### **Step 4: 清理技术债务 (1天)**
+- **目标:** 移除所有与旧架构和冲突架构相关的代码和脚本。
+- **任务:**
+    1.  删除所有`.todelete`文件。
+    2.  删除`loader.c`, `enhanced_runtime_with_libc.c`等单体式文件。
+    3.  删除`build_c99.bat`等旧的、非模块化的构建脚本。
+- **产出:** 一个干净、统一、遵循唯一架构的`src`目录。
 
 ---
-**总结:** 此方案完美契合了"`.native`是可重用binary"的设计思想，避免了过度工程化，并将平台相关性严格限制在`loader`中，为后续的跨平台和自主进化奠定了坚实、简洁、正确的基础。 
+**总结:** 这个计划直接面对核心的架构冲突，并提供了一个清晰的、分步骤的解决方案。完成后，项目将首次拥有一个统一、连贯、且符合PRD愿景的技术基础，为后续的自举和AI进化扫清了最大的障碍。 

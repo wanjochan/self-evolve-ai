@@ -1,5 +1,5 @@
-#include "compiler_codegen_x64.h"
-#include "compiler_astc2rt.h"
+#include "codegen_x64.h"
+#include "astc2native.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

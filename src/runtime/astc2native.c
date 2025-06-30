@@ -1,8 +1,8 @@
 /**
- * astc2rt.c - ASTC到Runtime转换库实现
+ * astc2native.c - ASTC到Native转换库实现
  *
- * 正确的设计：将ASTC格式的Runtime虚拟机转换为可执行的.rt文件
- * 流程: runtime.astc (ASTC虚拟机) → (JIT编译/解释器生成) → runtime{arch}{bits}.rt
+ * 正确的设计：将ASTC格式的Runtime虚拟机转换为可执行的.native文件
+ * 流程: runtime.astc (ASTC虚拟机) → (JIT编译/解释器生成) → runtime{arch}{bits}.native
  *
  * 架构设计：
  * 1. 解析ASTC格式的Runtime虚拟机代码
@@ -21,11 +21,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "compiler_astc2rt.h"
-#include "compiler_c2astc.h"
-#include "compiler_codegen.h"
-#include "compiler_codegen_x64.h"
-#include "compiler_codegen_arm64.h"
+#include "astc2native.h"
+#include "c2astc.h"
+#include "codegen.h"
+#include "codegen_x64.h"
+#include "codegen_arm64.h"
 
 // 前向声明
 int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen);

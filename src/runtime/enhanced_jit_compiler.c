@@ -3,8 +3,8 @@
  */
 
 #include "enhanced_jit_compiler.h"
-#include "compiler_codegen_x64.h"
-#include "compiler_codegen_arm64.h"
+#include "codegen_x64.h"
+#include "codegen_arm64.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

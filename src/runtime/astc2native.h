@@ -1,17 +1,17 @@
 /**
- * astc2rt.h - ASTC到Runtime转换库头文件
+ * astc2native.h - ASTC到Native转换库头文件
  *
- * 将ASTC格式转译为轻量化的.rt Runtime格式
+ * 将ASTC格式转译为轻量化的.native Runtime格式
  * 符合PRD.md规范的专注于libc转发封装的轻量化设计
  */
 
-#ifndef ASTC2RT_H
-#define ASTC2RT_H
+#ifndef ASTC2NATIVE_H
+#define ASTC2NATIVE_H
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "compiler_c2astc.h"
+#include "c2astc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -149,4 +149,4 @@ int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_fi
 }
 #endif
 
-#endif /* ASTC2RT_H */ 
+#endif /* ASTC2NATIVE_H */
