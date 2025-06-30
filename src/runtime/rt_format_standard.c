@@ -98,27 +98,37 @@ const char* rt_get_abi_name(RTABI abi) {
 RTFileHeader* rt_create_header(RTArchitecture arch, RTOperatingSystem os, RTABI abi) {
     RTFileHeader* header = calloc(1, sizeof(RTFileHeader));
     if (!header) return NULL;
-    
+
     // 设置魔数和版本
     memcpy(header->magic, RT_MAGIC, 4);
     header->version_major = RT_VERSION_MAJOR;
     header->version_minor = RT_VERSION_MINOR;
     header->version_patch = RT_VERSION_PATCH;
-    
+
     // 设置架构信息
     header->architecture = arch;
     header->os = os;
     header->abi = abi;
-    
-    // 设置头部大小
+    header->endianness = 0; // 默认小端序
+
+    // 设置头部大小 (固定为128字节)
     header->header_size = sizeof(RTFileHeader);
-    
-    // 设置时间戳
+
+    // 设置时间戳和版本信息
     header->timestamp = (uint32_t)time(NULL);
-    
-    // 设置默认标志
-    header->flags = RT_FLAG_EXECUTABLE;
-    
+    header->compiler_version = (RT_VERSION_MAJOR << 16) | (RT_VERSION_MINOR << 8) | RT_VERSION_PATCH;
+    header->runtime_version = header->compiler_version; // 默认相同
+
+    // 设置默认标志和特性
+    header->flags = RT_FLAG_EXECUTABLE | RT_FLAG_OPTIMIZED;
+    header->feature_flags = RT_FEATURE_LIBC_FORWARDING;
+
+    // 设置默认运行时需求
+    header->min_stack_size = 64 * 1024;    // 64KB默认栈
+    header->min_heap_size = 1024 * 1024;   // 1MB默认堆
+    header->optimization_level = 1;         // 基础优化
+
+    printf("Created RT file header: arch=%d, os=%d, abi=%d\n", arch, os, abi);
     return header;
 }
 
