@@ -35,11 +35,11 @@ Loader + .astc (ASTC bytecode module) + .native (arch native bytecode module)
 ```
 Layer 1: loader.exe                       - 统一启动器
 Layer 2: {module}_{arch}_{bits}.native    - .native原生字节码模块，其中最重要是vm模块用于加载astc运行
-Layer 3: program.astc                     - 用户程序ASTC字节码
+Layer 3: {programName}.astc               - 用户程序（比如c99、evolver{version}）ASTC字节码
 ```
 
 ### 关键技术
-- **ASTC字节码**: 可扩展的计算表示
+- **ASTC字节码**: 可扩展的计算表示,目前的核心数据结构
 - **.native模块**: 原生字节码模块
 - **JIT编译**: 可重写的动态代码生成引擎，由 vm_{arch}_{bits}.native 实现
 - **进化引擎**: 观测→分析→生成→验证→部署的自主优化循环
@@ -50,7 +50,7 @@ Layer 3: program.astc                     - 用户程序ASTC字节码
 - 统一入口点，简化部署
 
 ### Layer 2: Runtime层
-#### vm_{arch}_{bits}.native (VM核心)
+#### vm_{arch}_{bits}.native (astc字节码的虚拟机模块)
 - **ASTC虚拟机**: 字节码解释执行
 - **JIT编译器**: 热点代码优化
 - **内存管理**: 堆栈和垃圾回收
@@ -58,13 +58,19 @@ Layer 3: program.astc                     - 用户程序ASTC字节码
 
 #### .native本地模块生态
 - **libc_{arch}_{bits}.native**: 系统库转发，高性能C标准库接口
-- **libc_os_{arch}_{bits}.native**: 操作系统开发的自实现库（未来）
-- **扩展模块**: 用户自定义功能模块
+- **libc_os_{arch}_{bits}.native**: 操作系统开发的自实现库（未来如果实现操作系统）
+- **其它扩展模块**: 用户自定义功能模块 {module}_{arch}_{bits}.native, 再三强调这不是exe/dll/so/dyld
 
-### Layer 3: program.astc
+### Layer 3: {programName}.astc
 - 平台无关的ASTC字节码程序
 - 通过模块系统调用.native本地模块
 - 未来支持其他语言编译到ASTC
+
+### 核心子模块
+c2astc: convert .c to .astc bytecode
+astc2native: convert .astc to native bytecode
+codegen*.h/.c: helper for converter to native
+astc2asm: convert .astc bytecode to ASM-alike source code // future
 
 ## 5. 实现路线图
 
@@ -78,7 +84,7 @@ Layer 3: program.astc                     - 用户程序ASTC字节码
 - 建立模块动态加载机制
 
 ### Phase 3: 生态完善（中期目标）
-- 多架构支持（x64/ARM64）
+- 多架构支持（x64/ARM64, 64bits/32bits, windows/linux/macos）
 - 模块标准化和工具链完善
 - 性能优化
 

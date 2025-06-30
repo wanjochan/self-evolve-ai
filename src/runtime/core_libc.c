@@ -436,6 +436,100 @@ int libc_forward_call(LibcCall* call) {
             abort();
             break;
 
+        // 新增math.h函数
+        case LIBC_ASIN:
+            call->return_value = (uint64_t)(asin(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_ACOS:
+            call->return_value = (uint64_t)(acos(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_ATAN:
+            call->return_value = (uint64_t)(atan(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_ATAN2:
+            call->return_value = (uint64_t)(atan2(*(double*)&call->args[0], *(double*)&call->args[1]) * 1000000);
+            break;
+
+        case LIBC_SINH:
+            call->return_value = (uint64_t)(sinh(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        case LIBC_COSH:
+            call->return_value = (uint64_t)(cosh(*(double*)&call->args[0]) * 1000000);
+            break;
+
+        // 新增ctype.h函数
+        case LIBC_ISPRINT:
+            call->return_value = isprint((int)call->args[0]);
+            break;
+
+        case LIBC_ISPUNCT:
+            call->return_value = ispunct((int)call->args[0]);
+            break;
+
+        case LIBC_ISCNTRL:
+            call->return_value = iscntrl((int)call->args[0]);
+            break;
+
+        case LIBC_ISXDIGIT:
+            call->return_value = isxdigit((int)call->args[0]);
+            break;
+
+        // 新增string.h函数
+        case LIBC_STRPBRK:
+            g_stats.string_operations++;
+            call->return_value = (uint64_t)strpbrk((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_STRERROR:
+            call->return_value = (uint64_t)strerror((int)call->args[0]);
+            break;
+
+        // 新增stdio.h函数
+        case LIBC_PERROR:
+            perror((const char*)call->args[0]);
+            call->return_value = 0;
+            break;
+
+        case LIBC_REMOVE:
+            call->return_value = remove((const char*)call->args[0]);
+            break;
+
+        case LIBC_RENAME:
+            call->return_value = rename((const char*)call->args[0], (const char*)call->args[1]);
+            break;
+
+        case LIBC_TMPFILE:
+            call->return_value = (uint64_t)tmpfile();
+            break;
+
+        case LIBC_TMPNAM:
+            call->return_value = (uint64_t)tmpnam((char*)call->args[0]);
+            break;
+
+        // 新增stdlib.h函数
+        case LIBC_ATEXIT:
+            call->return_value = atexit((void(*)(void))call->args[0]);
+            break;
+
+        case LIBC_DIV:
+            {
+                div_t result = div((int)call->args[0], (int)call->args[1]);
+                // 返回商，余数可以通过另一个调用获取
+                call->return_value = result.quot;
+            }
+            break;
+
+        case LIBC_LDIV:
+            {
+                ldiv_t result = ldiv((long)call->args[0], (long)call->args[1]);
+                call->return_value = result.quot;
+            }
+            break;
+
         default:
             call->error_code = -1; // 未知函数
             return -1;
@@ -557,6 +651,36 @@ const char* libc_get_function_name(uint16_t func_id) {
         // 排序搜索
         case LIBC_QSORT: return "qsort";
         case LIBC_BSEARCH: return "bsearch";
+
+        // 新增math.h函数
+        case LIBC_ASIN: return "asin";
+        case LIBC_ACOS: return "acos";
+        case LIBC_ATAN: return "atan";
+        case LIBC_ATAN2: return "atan2";
+        case LIBC_SINH: return "sinh";
+        case LIBC_COSH: return "cosh";
+
+        // 新增ctype.h函数
+        case LIBC_ISPRINT: return "isprint";
+        case LIBC_ISPUNCT: return "ispunct";
+        case LIBC_ISCNTRL: return "iscntrl";
+        case LIBC_ISXDIGIT: return "isxdigit";
+
+        // 新增string.h函数
+        case LIBC_STRPBRK: return "strpbrk";
+        case LIBC_STRERROR: return "strerror";
+
+        // 新增stdio.h函数
+        case LIBC_PERROR: return "perror";
+        case LIBC_REMOVE: return "remove";
+        case LIBC_RENAME: return "rename";
+        case LIBC_TMPFILE: return "tmpfile";
+        case LIBC_TMPNAM: return "tmpnam";
+
+        // 新增stdlib.h函数
+        case LIBC_ATEXIT: return "atexit";
+        case LIBC_DIV: return "div";
+        case LIBC_LDIV: return "ldiv";
 
         default: return "unknown";
     }

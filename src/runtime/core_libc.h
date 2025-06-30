@@ -132,6 +132,34 @@ extern "C" {
 #define LIBC_FLOOR      0x00F7
 #define LIBC_CEIL       0x00F8
 #define LIBC_FABS       0x00F9
+#define LIBC_ASIN       0x00FA
+#define LIBC_ACOS       0x00FB
+#define LIBC_ATAN       0x00FC
+#define LIBC_ATAN2      0x00FD
+#define LIBC_SINH       0x00FE
+#define LIBC_COSH       0x00FF
+
+// 更多ctype.h函数
+#define LIBC_ISPRINT    0x00A8
+#define LIBC_ISPUNCT    0x00A9
+#define LIBC_ISCNTRL    0x00AA
+#define LIBC_ISXDIGIT   0x00AB
+
+// 更多string.h函数
+#define LIBC_STRPBRK    0x0095
+#define LIBC_STRERROR   0x0096
+
+// 更多stdio.h函数
+#define LIBC_PERROR     0x00D7
+#define LIBC_REMOVE     0x00D8
+#define LIBC_RENAME     0x00D9
+#define LIBC_TMPFILE    0x00DA
+#define LIBC_TMPNAM     0x00DB
+
+// 更多stdlib.h函数
+#define LIBC_ATEXIT     0x00C4
+#define LIBC_DIV        0x00C5
+#define LIBC_LDIV       0x00C6
 
 // ===============================================
 // libc转发调用结构

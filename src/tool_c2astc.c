@@ -152,6 +152,20 @@ int main(int argc, char* argv[]) {
             options.generate_assembly = true;
         } else if (strcmp(argv[i], "-E") == 0) {
             options.preprocess_only = true;
+        } else if (strcmp(argv[i], "-w") == 0) {
+            options.enable_warnings = false;
+        } else if (strcmp(argv[i], "-Wextra") == 0) {
+            options.enable_warnings = true;
+            // 可以在这里添加额外的警告选项
+        } else if (strcmp(argv[i], "-pedantic") == 0) {
+            options.enable_warnings = true;
+            // 严格模式
+        } else if (strcmp(argv[i], "-fPIC") == 0) {
+            // 位置无关代码，暂时忽略
+        } else if (strcmp(argv[i], "-shared") == 0) {
+            // 共享库，暂时忽略
+        } else if (strcmp(argv[i], "-static") == 0) {
+            // 静态链接，暂时忽略
         } else if (argv[i][0] != '-') {
             if (!input_file) {
                 input_file = argv[i];

@@ -109,6 +109,12 @@ typedef enum {
     TOKEN_ENUM,
     TOKEN_SIZEOF,
 
+    // 模块系统关键字(NOTES: not c99)
+    TOKEN_MODULE,        // module
+    TOKEN_IMPORT,        // import
+    TOKEN_EXPORT,        // export
+    TOKEN_FROM,          // from
+
     // 预处理器指令
     TOKEN_INCLUDE,       // include
     TOKEN_DEFINE,        // define

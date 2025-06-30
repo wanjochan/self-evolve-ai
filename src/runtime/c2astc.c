@@ -330,6 +330,10 @@ static struct {
     {"void", TOKEN_VOID},
     {"volatile", TOKEN_VOLATILE},
     {"while", TOKEN_WHILE},
+    {"module", TOKEN_MODULE},
+    {"import", TOKEN_IMPORT},
+    {"export", TOKEN_EXPORT},
+    {"from", TOKEN_FROM},
     {NULL, TOKEN_EOF}
 };
 
@@ -1675,6 +1679,12 @@ static struct ASTNode* parse_statement(Parser *parser) {
                 return NULL;
             }
             return ast_create_node(ASTC_CONTINUE_STMT, token->line, token->column);
+        case TOKEN_MODULE:
+            return parse_module_statement(parser);
+        case TOKEN_IMPORT:
+            return parse_import_statement(parser);
+        case TOKEN_EXPORT:
+            return parse_export_statement(parser);
         default:
             // 表达式语句
             return parse_expression_statement(parser);
@@ -6124,4 +6134,101 @@ unsigned char* ast_to_astc_bytecode_with_options(struct ASTNode* ast, const C2As
 unsigned char* ast_to_astc_bytecode(struct ASTNode* ast, size_t* out_size) {
     C2AstcOptions default_options = c2astc_default_options();
     return ast_to_astc_bytecode_with_options(ast, &default_options, out_size);
+}
+
+// ===============================================
+// 模块系统解析函数
+// ===============================================
+
+// 解析模块声明: module name;
+static struct ASTNode* parse_module_statement(Parser *parser) {
+    if (!match(parser, TOKEN_MODULE)) {
+        parser_error(parser, "预期module关键字");
+        return NULL;
+    }
+
+    Token *token = peek(parser);
+    if (!token || token->type != TOKEN_IDENTIFIER) {
+        parser_error(parser, "预期模块名");
+        return NULL;
+    }
+
+    struct ASTNode *module_node = ast_create_node(AST_MODULE, token->line, token->column);
+    module_node->value.string_value = strdup(token->value);
+    advance(parser);
+
+    if (!match(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "预期分号");
+        ast_free_node(module_node);
+        return NULL;
+    }
+
+    return module_node;
+}
+
+// 解析导入语句: import name from "path";
+static struct ASTNode* parse_import_statement(Parser *parser) {
+    if (!match(parser, TOKEN_IMPORT)) {
+        parser_error(parser, "预期import关键字");
+        return NULL;
+    }
+
+    Token *token = peek(parser);
+    if (!token || token->type != TOKEN_IDENTIFIER) {
+        parser_error(parser, "预期导入名称");
+        return NULL;
+    }
+
+    struct ASTNode *import_node = ast_create_node(AST_IMPORT, token->line, token->column);
+    import_node->value.string_value = strdup(token->value);
+    advance(parser);
+
+    if (match(parser, TOKEN_FROM)) {
+        token = peek(parser);
+        if (!token || token->type != TOKEN_STRING_LITERAL) {
+            parser_error(parser, "预期字符串路径");
+            ast_free_node(import_node);
+            return NULL;
+        }
+
+        // 创建子节点存储路径
+        struct ASTNode *path_node = ast_create_node(ASTC_STRING_LITERAL, token->line, token->column);
+        path_node->value.string_value = strdup(token->value);
+        ast_add_child(import_node, path_node);
+        advance(parser);
+    }
+
+    if (!match(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "预期分号");
+        ast_free_node(import_node);
+        return NULL;
+    }
+
+    return import_node;
+}
+
+// 解析导出语句: export name;
+static struct ASTNode* parse_export_statement(Parser *parser) {
+    if (!match(parser, TOKEN_EXPORT)) {
+        parser_error(parser, "预期export关键字");
+        return NULL;
+    }
+
+    Token *token = peek(parser);
+    if (!token || token->type != TOKEN_IDENTIFIER) {
+        parser_error(parser, "预期导出名称");
+        return NULL;
+    }
+
+    struct ASTNode *export_node = ast_create_node(AST_EXPORT, token->line, token->column);
+    export_node->value.string_value = strdup(token->value);
+    advance(parser);
+
+    if (!match(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "预期分号");
+        ast_free_node(export_node);
+        return NULL;
+    }
+
+    return export_node;
 }
