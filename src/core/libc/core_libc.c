@@ -6,6 +6,8 @@
  */
 
 #include "core_libc.h"
+#include "../include/logger.h"
+#include "../include/astc_native_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

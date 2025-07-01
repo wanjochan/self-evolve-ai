@@ -10,9 +10,13 @@
 不要随便修改ASTC的定义，除非有非常充分的理由！s
  */
 
-// TODO: [Module] 添加模块导入/导出表结构
-// TODO: [Module] 实现符号引用和解析机制
-// TODO: [Module] 设计模块间依赖表示方式
+// ===== 模块系统节点类型 =====
+// ASTC_MODULE_DECL,           // 模块声明
+// ASTC_EXPORT_DECL,           // 导出声明
+// ASTC_IMPORT_DECL,           // 导入声明
+// ASTC_REQUIRES_DECL,         // 依赖声明
+// ASTC_MODULE_ATTRIBUTE,      // 模块属性
+// ASTC_SYMBOL_REF,            // 符号引用
 
 //IMPORTANT
 typedef enum {

@@ -23,6 +23,12 @@
 // Maximum length of export names
 #define NATIVE_MAX_NAME_LENGTH 256
 
+// Maximum length of module metadata strings
+#define NATIVE_MAX_MODULE_NAME 128
+#define NATIVE_MAX_VERSION_STRING 32
+#define NATIVE_MAX_AUTHOR_NAME 64
+#define NATIVE_MAX_DESCRIPTION 256
+
 // Architecture types
 typedef enum {
     NATIVE_ARCH_X86_64 = 1,
@@ -41,27 +47,59 @@ typedef enum {
 typedef enum {
     NATIVE_EXPORT_FUNCTION = 1,
     NATIVE_EXPORT_VARIABLE = 2,
-    NATIVE_EXPORT_CONSTANT = 3
+    NATIVE_EXPORT_CONSTANT = 3,
+    NATIVE_EXPORT_TYPE = 4,
+    NATIVE_EXPORT_INTERFACE = 5
 } NativeExportType;
 
-// .native file header (64 bytes, aligned)
+// Module flags
+typedef enum {
+    NATIVE_FLAG_NONE = 0,
+    NATIVE_FLAG_RELOCATABLE = 1,
+    NATIVE_FLAG_POSITION_INDEPENDENT = 2,
+    NATIVE_FLAG_DEBUG_INFO = 4,
+    NATIVE_FLAG_OPTIMIZED = 8,
+    NATIVE_FLAG_SIGNED = 16
+} NativeModuleFlags;
+
+// Module metadata (embedded in .native file)
+typedef struct {
+    char module_name[NATIVE_MAX_MODULE_NAME];
+    char version_string[NATIVE_MAX_VERSION_STRING];
+    char author[NATIVE_MAX_AUTHOR_NAME];
+    char description[NATIVE_MAX_DESCRIPTION];
+    uint32_t version_major;
+    uint32_t version_minor;
+    uint32_t version_patch;
+    uint32_t build_timestamp;
+    uint32_t flags;              // NativeModuleFlags
+    uint32_t dependencies_count; // Number of dependencies
+    uint64_t dependencies_offset; // Offset to dependencies table
+    uint32_t reserved[3];        // Reserved for future use
+} NativeMetadata;
+
+// .native file header (128 bytes, aligned)
 typedef struct {
     uint32_t magic;              // Magic number: "NATV"
     uint32_t version;            // Format version
     uint32_t architecture;       // Target architecture
     uint32_t module_type;        // Module type
-    
+
     uint64_t code_offset;        // Offset to machine code
     uint64_t code_size;          // Size of machine code
     uint64_t data_offset;        // Offset to data section
     uint64_t data_size;          // Size of data section
-    
+
     uint64_t export_table_offset; // Offset to export table
     uint32_t export_count;       // Number of exports
     uint32_t entry_point_offset; // Entry point offset in code
-    
+
+    uint64_t metadata_offset;    // Offset to metadata section
+    uint64_t relocation_offset;  // Offset to relocation table
+    uint32_t relocation_count;   // Number of relocations
+
     uint64_t checksum;           // CRC64 checksum
-    uint32_t reserved[2];        // Reserved for future use
+    uint32_t reserved[4];        // Reserved for future use
 } NativeHeader;
 
 // Export table entry
@@ -80,12 +118,40 @@ typedef struct {
     NativeExport exports[];            // Variable-length array
 } NativeExportTable;
 
+// Dependency entry
+typedef struct {
+    char module_name[NATIVE_MAX_MODULE_NAME];
+    uint32_t version_major;
+    uint32_t version_minor;
+    uint32_t version_patch;
+    uint32_t flags;              // Dependency flags
+} NativeDependency;
+
+// Relocation types
+typedef enum {
+    NATIVE_RELOC_ABSOLUTE = 1,   // Absolute address
+    NATIVE_RELOC_RELATIVE = 2,   // Relative address
+    NATIVE_RELOC_SYMBOL = 3,     // Symbol reference
+    NATIVE_RELOC_IMPORT = 4      // Import from dependency
+} NativeRelocationType;
+
+// Relocation entry
+typedef struct {
+    uint64_t offset;             // Offset in code/data to patch
+    uint32_t type;               // NativeRelocationType
+    uint32_t symbol_index;       // Index into symbol table
+    int64_t addend;              // Addend for relocation
+} NativeRelocation;
+
 // Complete .native module structure
 typedef struct {
     NativeHeader header;
+    NativeMetadata* metadata;
     uint8_t* code_section;
     uint8_t* data_section;
     NativeExportTable* export_table;
+    NativeDependency* dependencies;
+    NativeRelocation* relocations;
 } NativeModule;
 
 // Function prototypes for .native format handling
@@ -145,6 +211,43 @@ const NativeExport* native_module_find_export(const NativeModule* module, const 
  * Get export address (for runtime linking)
  */
 void* native_module_get_export_address(const NativeModule* module, const char* name);
+
+/**
+ * Add dependency to module
+ */
+int native_module_add_dependency(NativeModule* module, const char* name,
+                                uint32_t major, uint32_t minor, uint32_t patch);
+
+/**
+ * Add relocation to module
+ */
+int native_module_add_relocation(NativeModule* module, uint64_t offset,
+                                NativeRelocationType type, uint32_t symbol_index, int64_t addend);
+
+/**
+ * Resolve relocations in loaded module
+ */
+int native_module_resolve_relocations(NativeModule* module);
+
+/**
+ * Check if module satisfies dependency
+ */
+bool native_module_satisfies_dependency(const NativeModule* module, const NativeDependency* dep);
+
+/**
+ * Get module metadata
+ */
+const NativeMetadata* native_module_get_metadata(const NativeModule* module);
+
+/**
+ * Set module metadata
+ */
+int native_module_set_metadata(NativeModule* module, const NativeMetadata* metadata);
+
+/**
+ * Free module memory
+ */
+void native_module_free(NativeModule* module);
 
 // Utility macros
 #define NATIVE_ALIGN(size, alignment) (((size) + (alignment) - 1) & ~((alignment) - 1))

@@ -9,61 +9,131 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "runtime/core_astc.h"
+#include "../core/include/core_astc.h"
+#include "../core/include/logger.h"
 
 // Version information
 #define ASTC2ASM_VERSION "1.0.0"
 
+// Assembly output format types
+typedef enum {
+    ASM_FORMAT_PSEUDO = 0,   // Pseudo-assembly (readable)
+    ASM_FORMAT_INTEL = 1,    // Intel x86/x64 syntax
+    ASM_FORMAT_AT_T = 2,     // AT&T syntax
+    ASM_FORMAT_ARM = 3,      // ARM assembly syntax
+    ASM_FORMAT_WASM = 4      // WebAssembly text format
+} AsmFormat;
+
 // Output formatting options
 typedef struct {
+    AsmFormat format;       // Assembly format to use
     int show_addresses;     // Show bytecode addresses
     int show_hex_dump;      // Show hex dump alongside assembly
     int show_comments;      // Show explanatory comments
+    int show_types;         // Show data types
+    int show_stack_effects; // Show stack effects
+    int optimize_output;    // Optimize for readability
     int indent_level;       // Current indentation level
     FILE* output;           // Output file handle
 } AsmOutputOptions;
 
-// ASTC instruction names for disassembly
-static const char* astc_opcode_names[] = {
-    [0x00] = "NOP",
-    [0x01] = "LOAD_CONST",
-    [0x02] = "LOAD_VAR", 
-    [0x03] = "STORE_VAR",
-    [0x04] = "ADD",
-    [0x05] = "SUB",
-    [0x06] = "MUL",
-    [0x07] = "DIV",
-    [0x08] = "MOD",
-    [0x09] = "AND",
-    [0x0A] = "OR",
-    [0x0B] = "XOR",
-    [0x0C] = "NOT",
-    [0x0D] = "SHL",
-    [0x0E] = "SHR",
-    [0x0F] = "CMP",
-    [0x10] = "JMP",
-    [0x11] = "JZ",
-    [0x12] = "JNZ",
-    [0x13] = "CALL",
-    [0x14] = "RET",
-    [0x15] = "PUSH",
-    [0x16] = "POP",
-    [0x20] = "LIBC_CALL",
-    [0x21] = "USER_CALL",
-    [0x30] = "STRING_LITERAL",
-    [0x31] = "INT_LITERAL",
-    [0x32] = "FLOAT_LITERAL",
-    [0x40] = "IF_STMT",
-    [0x41] = "WHILE_STMT",
-    [0x42] = "FOR_STMT",
-    [0x50] = "FUNC_DEF",
-    [0x51] = "VAR_DECL",
-    [0x52] = "EXPR_STMT",
-    [0x90] = "MODULE_DECL",
-    [0x91] = "IMPORT",
-    [0x92] = "EXPORT",
-    [0xFF] = "END"
+// Enhanced ASTC instruction mapping
+typedef struct {
+    const char* pseudo_name;    // Pseudo-assembly name
+    const char* intel_name;     // Intel syntax equivalent
+    const char* att_name;       // AT&T syntax equivalent
+    const char* arm_name;       // ARM syntax equivalent
+    const char* description;    // Human-readable description
+    int stack_effect;           // Net stack effect (-1 = pop, +1 = push, 0 = neutral)
+} ASTCInstructionInfo;
+
+// Enhanced instruction mapping table
+static const ASTCInstructionInfo astc_instructions[] = {
+    [AST_NOP] = {"nop", "nop", "nop", "nop", "No operation", 0},
+    [AST_UNREACHABLE] = {"unreachable", "ud2", "ud2", "udf", "Unreachable code", 0},
+
+    // Constants
+    [AST_I32_CONST] = {"i32.const", "mov", "movl", "mov", "32-bit integer constant", +1},
+    [AST_I64_CONST] = {"i64.const", "mov", "movq", "mov", "64-bit integer constant", +1},
+    [AST_F32_CONST] = {"f32.const", "movss", "movss", "vmov.f32", "32-bit float constant", +1},
+    [AST_F64_CONST] = {"f64.const", "movsd", "movsd", "vmov.f64", "64-bit float constant", +1},
+
+    // Memory operations
+    [AST_I32_LOAD] = {"i32.load", "mov", "movl", "ldr", "Load 32-bit integer", 0},
+    [AST_I64_LOAD] = {"i64.load", "mov", "movq", "ldr", "Load 64-bit integer", 0},
+    [AST_I32_STORE] = {"i32.store", "mov", "movl", "str", "Store 32-bit integer", -2},
+    [AST_I64_STORE] = {"i64.store", "mov", "movq", "str", "Store 64-bit integer", -2},
+
+    // Arithmetic operations
+    [AST_I32_ADD] = {"i32.add", "add", "addl", "add", "Add 32-bit integers", -1},
+    [AST_I32_SUB] = {"i32.sub", "sub", "subl", "sub", "Subtract 32-bit integers", -1},
+    [AST_I32_MUL] = {"i32.mul", "imul", "imull", "mul", "Multiply 32-bit integers", -1},
+    [AST_I32_DIV_S] = {"i32.div_s", "idiv", "idivl", "sdiv", "Signed divide 32-bit", -1},
+    [AST_I32_DIV_U] = {"i32.div_u", "div", "divl", "udiv", "Unsigned divide 32-bit", -1},
+
+    // Comparison operations
+    [AST_I32_EQ] = {"i32.eq", "cmp", "cmpl", "cmp", "Compare equal", -1},
+    [AST_I32_NE] = {"i32.ne", "cmp", "cmpl", "cmp", "Compare not equal", -1},
+    [AST_I32_LT_S] = {"i32.lt_s", "cmp", "cmpl", "cmp", "Compare less than (signed)", -1},
+    [AST_I32_GT_S] = {"i32.gt_s", "cmp", "cmpl", "cmp", "Compare greater than (signed)", -1},
+
+    // Bitwise operations
+    [AST_I32_AND] = {"i32.and", "and", "andl", "and", "Bitwise AND", -1},
+    [AST_I32_OR] = {"i32.or", "or", "orl", "orr", "Bitwise OR", -1},
+    [AST_I32_XOR] = {"i32.xor", "xor", "xorl", "eor", "Bitwise XOR", -1},
+    [AST_I32_SHL] = {"i32.shl", "shl", "shll", "lsl", "Shift left", -1},
+    [AST_I32_SHR_S] = {"i32.shr_s", "sar", "sarl", "asr", "Arithmetic shift right", -1},
+    [AST_I32_SHR_U] = {"i32.shr_u", "shr", "shrl", "lsr", "Logical shift right", -1},
+
+    // Control flow
+    [AST_BR] = {"br", "jmp", "jmp", "b", "Unconditional branch", 0},
+    [AST_BR_IF] = {"br_if", "jnz", "jnz", "bne", "Conditional branch", -1},
+    [AST_RETURN] = {"return", "ret", "ret", "bx lr", "Return from function", 0},
+    [AST_CALL] = {"call", "call", "call", "bl", "Function call", 0},
+    [AST_CALL_INDIRECT] = {"call_indirect", "call", "call", "blx", "Indirect function call", -1},
+
+    // Stack operations
+    [AST_DROP] = {"drop", "pop", "pop", "pop", "Drop top stack value", -1},
+    [AST_SELECT] = {"select", "cmov", "cmov", "csel", "Select value based on condition", -1},
+
+    // Extended ASTC instructions
+    [ASTC_FUNC_DECL] = {"func", ".func", ".func", ".func", "Function declaration", 0},
+    [ASTC_VAR_DECL] = {"local", ".local", ".local", ".local", "Local variable declaration", 0},
+    [ASTC_RETURN_STMT] = {"return", "ret", "ret", "bx lr", "Return statement", 0},
 };
+
+// Get instruction name based on format
+const char* get_instruction_name(ASTNodeType type, AsmFormat format) {
+    if (type >= sizeof(astc_instructions) / sizeof(astc_instructions[0])) {
+        return "unknown";
+    }
+
+    const ASTCInstructionInfo* info = &astc_instructions[type];
+    switch (format) {
+        case ASM_FORMAT_PSEUDO: return info->pseudo_name;
+        case ASM_FORMAT_INTEL: return info->intel_name;
+        case ASM_FORMAT_AT_T: return info->att_name;
+        case ASM_FORMAT_ARM: return info->arm_name;
+        case ASM_FORMAT_WASM: return info->pseudo_name; // Use pseudo for WASM
+        default: return info->pseudo_name;
+    }
+}
+
+// Get instruction description
+const char* get_instruction_description(ASTNodeType type) {
+    if (type >= sizeof(astc_instructions) / sizeof(astc_instructions[0])) {
+        return "Unknown instruction";
+    }
+    return astc_instructions[type].description;
+}
+
+// Get stack effect
+int get_stack_effect(ASTNodeType type) {
+    if (type >= sizeof(astc_instructions) / sizeof(astc_instructions[0])) {
+        return 0;
+    }
+    return astc_instructions[type].stack_effect;
+}
 
 // Function prototypes
 void print_usage(const char* program_name);
