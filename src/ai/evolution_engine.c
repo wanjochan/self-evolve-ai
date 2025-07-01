@@ -6,6 +6,9 @@
 
 #include "evolution_engine.h"
 #include "code_analyzer.h"
+#include "../core/include/logger.h"
+#include "../core/include/module_communication.h"
+#include "../core/include/astc_native_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +32,7 @@ int evolution_engine_init(void) {
         return 0;
     }
     
+    LOG_AI_INFO("AI Evolution Engine: Initializing autonomous code evolution system");
     printf("🤖 AI Evolution Engine: Initializing autonomous code evolution system\n");
     
     // 初始化状态

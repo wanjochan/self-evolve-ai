@@ -9,7 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "runtime/c2astc.h"
+#include "../core/include/core_astc.h"
+#include "../core/include/logger.h"
+#include "../core/include/astc_program_modules.h"
 
 #define ASTC_MAGIC "ASTC"
 #define ASTC_VERSION 1
