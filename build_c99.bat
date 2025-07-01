@@ -1,25 +1,30 @@
 @echo off
-echo === Building C99 Compiler System ===
+echo === Building C99 Compiler System (TinyCC-Free Version) ===
 
-set TCC=external\tcc-win\tcc\tcc.exe
+REM ============================================================
+REM NOTICE: This script has been updated to eliminate TinyCC dependencies
+REM It now uses the independent build system
+REM ============================================================
 
 echo.
-echo === Step 1: Build Tools (Reuse from evolver0) ===
-echo Building tool_c2astc...
-%TCC% -o bin\tool_c2astc.exe src\tool_c2astc.c src\runtime\compiler_c2astc.c -Isrc\runtime
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: tool_c2astc build failed!
+echo === Step 1: Verify Independent Tools ===
+echo Checking for independent toolchain...
+
+if not exist "bin\tool_c2astc.exe" (
+    echo ERROR: tool_c2astc.exe not found
+    echo Please run build0_independent.bat first to create independent tools
     exit /b 1
 )
-echo SUCCESS: tool_c2astc built
 
-echo Building tool_astc2rt...
-%TCC% -o bin\tool_astc2rt.exe src\tool_astc2rt.c src\runtime\compiler_astc2rt.c src\runtime\compiler_c2astc.c src\runtime\compiler_codegen.c src\runtime\compiler_codegen_x64.c -Isrc\runtime
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: tool_astc2rt build failed!
-    exit /b 2
+if not exist "bin\tool_astc2native.exe" (
+    echo ERROR: tool_astc2native.exe not found
+    echo Please run build0_independent.bat first to create independent tools
+    exit /b 1
 )
-echo SUCCESS: tool_astc2rt built
+
+echo SUCCESS: Independent tools verified
+echo   - tool_c2astc.exe (C to ASTC compiler)
+echo   - tool_astc2native.exe (ASTC to native converter)
 
 echo.
 echo === Step 2: Build C99 Loader Layer ===

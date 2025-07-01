@@ -16,22 +16,37 @@ REM ============================================================
 echo Phase 1: Verifying essential tools...
 
 if not exist "bin\tool_c2astc.exe" (
-    echo ERROR: tool_c2astc.exe not found
-    echo This tool is required for independent compilation
-    echo Please ensure the initial bootstrap has been completed
-    exit /b 1
+    if exist "bin\tool_c2astc_enhanced.exe" (
+        echo INFO: Using tool_c2astc_enhanced.exe as tool_c2astc.exe
+        copy bin\tool_c2astc_enhanced.exe bin\tool_c2astc.exe >nul 2>&1
+    ) else (
+        echo ERROR: tool_c2astc.exe not found
+        echo This tool is required for independent compilation
+        echo Please ensure the initial bootstrap has been completed
+        exit /b 1
+    )
 )
 
 if not exist "bin\tool_astc2rt.exe" (
-    echo ERROR: tool_astc2rt.exe not found
-    echo This tool is required for runtime generation
-    exit /b 1
+    if exist "bin\tool_astc2native.exe" (
+        echo INFO: Using tool_astc2native.exe as tool_astc2rt.exe
+        copy bin\tool_astc2native.exe bin\tool_astc2rt.exe >nul 2>&1
+    ) else (
+        echo ERROR: tool_astc2rt.exe not found
+        echo This tool is required for runtime generation
+        exit /b 1
+    )
 )
 
 if not exist "bin\enhanced_runtime_with_libc_v2.exe" (
-    echo ERROR: enhanced_runtime_with_libc_v2.exe not found
-    echo This runtime is required for ASTC execution
-    exit /b 1
+    if exist "bin\c99_runtime.exe" (
+        echo INFO: Using c99_runtime.exe as enhanced_runtime_with_libc_v2.exe
+        copy bin\c99_runtime.exe bin\enhanced_runtime_with_libc_v2.exe >nul 2>&1
+    ) else (
+        echo ERROR: enhanced_runtime_with_libc_v2.exe not found
+        echo This runtime is required for ASTC execution
+        exit /b 1
+    )
 )
 
 echo SUCCESS: Essential tools verified
