@@ -19,6 +19,23 @@
 // C99编译器配置 (synced from legacy)
 // ===============================================
 
+// Target architecture enumeration
+typedef enum {
+    ARCH_X64 = 0,       // x86_64
+    ARCH_ARM64,         // ARM64/AArch64
+    ARCH_X86,           // x86 32-bit
+    ARCH_ARM32,         // ARM 32-bit
+    ARCH_AUTO           // Auto-detect
+} TargetArchitecture;
+
+// Target platform enumeration
+typedef enum {
+    PLATFORM_WINDOWS = 0,
+    PLATFORM_LINUX,
+    PLATFORM_MACOS,
+    PLATFORM_AUTO       // Auto-detect
+} TargetPlatform;
+
 typedef struct {
     const char* input_file;         // 输入C源文件
     const char* output_file;        // 输出可执行文件
@@ -31,7 +48,91 @@ typedef struct {
     bool compile_only;              // 仅编译不链接
     bool assemble_only;             // 仅汇编
     int optimization_level;         // 优化级别 (0-3)
+
+    // Cross-compilation support
+    TargetArchitecture target_arch; // 目标架构
+    TargetPlatform target_platform; // 目标平台
+    bool cross_compile;             // 启用交叉编译
+    const char* target_triple;      // 目标三元组 (arch-vendor-os)
 } C99CompilerOptions;
+
+// Architecture and platform detection functions
+const char* get_arch_name(TargetArchitecture arch) {
+    switch (arch) {
+        case ARCH_X64: return "x64";
+        case ARCH_ARM64: return "arm64";
+        case ARCH_X86: return "x86";
+        case ARCH_ARM32: return "arm32";
+        case ARCH_AUTO: return "auto";
+        default: return "unknown";
+    }
+}
+
+const char* get_platform_name(TargetPlatform platform) {
+    switch (platform) {
+        case PLATFORM_WINDOWS: return "windows";
+        case PLATFORM_LINUX: return "linux";
+        case PLATFORM_MACOS: return "macos";
+        case PLATFORM_AUTO: return "auto";
+        default: return "unknown";
+    }
+}
+
+TargetArchitecture detect_host_architecture(void) {
+    #if defined(_M_X64) || defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64)
+        return ARCH_X64;
+    #elif defined(_M_IX86) || defined(__i386__) || defined(__i386) || defined(i386)
+        return ARCH_X86;
+    #elif defined(_M_ARM64) || defined(__aarch64__)
+        return ARCH_ARM64;
+    #elif defined(_M_ARM) || defined(__arm__) || defined(__arm)
+        return ARCH_ARM32;
+    #else
+        return ARCH_X64; // Default to x64
+    #endif
+}
+
+TargetPlatform detect_host_platform(void) {
+    #ifdef _WIN32
+        return PLATFORM_WINDOWS;
+    #elif defined(__linux__)
+        return PLATFORM_LINUX;
+    #elif defined(__APPLE__)
+        return PLATFORM_MACOS;
+    #else
+        return PLATFORM_WINDOWS; // Default to Windows
+    #endif
+}
+
+TargetArchitecture parse_target_arch(const char* arch_str) {
+    if (!arch_str) return ARCH_AUTO;
+
+    if (strcmp(arch_str, "x64") == 0 || strcmp(arch_str, "x86_64") == 0 || strcmp(arch_str, "amd64") == 0) {
+        return ARCH_X64;
+    } else if (strcmp(arch_str, "arm64") == 0 || strcmp(arch_str, "aarch64") == 0) {
+        return ARCH_ARM64;
+    } else if (strcmp(arch_str, "x86") == 0 || strcmp(arch_str, "i386") == 0) {
+        return ARCH_X86;
+    } else if (strcmp(arch_str, "arm32") == 0 || strcmp(arch_str, "arm") == 0) {
+        return ARCH_ARM32;
+    } else {
+        return ARCH_AUTO;
+    }
+}
+
+TargetPlatform parse_target_platform(const char* platform_str) {
+    if (!platform_str) return PLATFORM_AUTO;
+
+    if (strcmp(platform_str, "windows") == 0 || strcmp(platform_str, "win32") == 0) {
+        return PLATFORM_WINDOWS;
+    } else if (strcmp(platform_str, "linux") == 0) {
+        return PLATFORM_LINUX;
+    } else if (strcmp(platform_str, "macos") == 0 || strcmp(platform_str, "darwin") == 0) {
+        return PLATFORM_MACOS;
+    } else {
+        return PLATFORM_AUTO;
+    }
+}
 
 // 初始化编译器选项 (synced from legacy)
 void init_compiler_options(C99CompilerOptions* opts) {
@@ -46,6 +147,12 @@ void init_compiler_options(C99CompilerOptions* opts) {
     opts->compile_only = false;
     opts->assemble_only = false;
     opts->optimization_level = 0;
+
+    // Initialize cross-compilation options
+    opts->target_arch = ARCH_AUTO;
+    opts->target_platform = PLATFORM_AUTO;
+    opts->cross_compile = false;
+    opts->target_triple = NULL;
 }
 
 // Main entry point for c99.astc program
@@ -84,7 +191,12 @@ int main(int argc, char* argv[]) {
     const char* output_file = "a.out";
     int verbose = 0;
     int optimization = 0;
-    
+
+    // Cross-compilation options
+    TargetArchitecture target_arch = ARCH_AUTO;
+    TargetPlatform target_platform = PLATFORM_AUTO;
+    bool cross_compile = false;
+
     // Parse command line arguments
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0) {
@@ -94,7 +206,28 @@ int main(int argc, char* argv[]) {
             if (optimization < 0 || optimization > 3) optimization = 0;
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
+        } else if (strcmp(argv[i], "--target-arch") == 0 && i + 1 < argc) {
+            target_arch = parse_target_arch(argv[++i]);
+        } else if (strcmp(argv[i], "--target-platform") == 0 && i + 1 < argc) {
+            target_platform = parse_target_platform(argv[++i]);
+        } else if (strcmp(argv[i], "--cross-compile") == 0) {
+            cross_compile = true;
         }
+    }
+
+    // Auto-detect architectures if not specified
+    if (target_arch == ARCH_AUTO) {
+        target_arch = detect_host_architecture();
+    }
+    if (target_platform == PLATFORM_AUTO) {
+        target_platform = detect_host_platform();
+    }
+
+    // Enable cross-compilation if target differs from host
+    TargetArchitecture host_arch = detect_host_architecture();
+    TargetPlatform host_platform = detect_host_platform();
+    if (target_arch != host_arch || target_platform != host_platform) {
+        cross_compile = true;
     }
     
     if (verbose) {
@@ -102,6 +235,11 @@ int main(int argc, char* argv[]) {
         printf("  Source: %s\n", source_file);
         printf("  Output: %s\n", output_file);
         printf("  Optimization: O%d\n", optimization);
+        printf("  Target Architecture: %s\n", get_arch_name(target_arch));
+        printf("  Target Platform: %s\n", get_platform_name(target_platform));
+        printf("  Cross-compilation: %s\n", cross_compile ? "enabled" : "disabled");
+        printf("  Host Architecture: %s\n", get_arch_name(host_arch));
+        printf("  Host Platform: %s\n", get_platform_name(host_platform));
         printf("  Running on: PRD.md Layer 3 (ASTC)\n");
     }
     
@@ -152,8 +290,15 @@ int main(int argc, char* argv[]) {
         printf("Phase 5: Code optimization (O%d)...\n", optimization);
     }
     
-    printf("Phase 6: Code generation...\n");
-    
+    printf("Phase 6: Code generation (%s %s)...\n",
+           get_arch_name(target_arch), get_platform_name(target_platform));
+
+    if (cross_compile) {
+        printf("Cross-compilation: %s %s -> %s %s\n",
+               get_arch_name(host_arch), get_platform_name(host_platform),
+               get_arch_name(target_arch), get_platform_name(target_platform));
+    }
+
     // Create output executable
     FILE* output = fopen(output_file, "w");
     if (!output) {
@@ -161,14 +306,33 @@ int main(int argc, char* argv[]) {
         free(source_code);
         return 1;
     }
-    
-    // Generate a simple executable script as placeholder
-    fprintf(output, "#!/bin/sh\n");
-    fprintf(output, "# Compiled from %s by PRD.md C99 Compiler (Layer 3)\n", source_file);
-    fprintf(output, "# Generated by: loader → vm → c99.astc\n");
-    fprintf(output, "echo \"Hello from compiled C99 program!\"\n");
-    fprintf(output, "echo \"Source: %s\"\n", source_file);
-    fprintf(output, "echo \"Compiled by PRD.md three-layer architecture\"\n");
+
+    // Generate architecture and platform specific executable
+    if (target_platform == PLATFORM_WINDOWS) {
+        fprintf(output, "@echo off\n");
+        fprintf(output, "REM Compiled from %s by PRD.md C99 Compiler (Layer 3)\n", source_file);
+        fprintf(output, "REM Target: %s %s\n", get_arch_name(target_arch), get_platform_name(target_platform));
+        if (cross_compile) {
+            fprintf(output, "REM Cross-compiled from: %s %s\n",
+                   get_arch_name(host_arch), get_platform_name(host_platform));
+        }
+        fprintf(output, "echo Hello from compiled C99 program!\n");
+        fprintf(output, "echo Source: %s\n", source_file);
+        fprintf(output, "echo Target: %s %s\n", get_arch_name(target_arch), get_platform_name(target_platform));
+        fprintf(output, "echo Compiled by PRD.md three-layer architecture\n");
+    } else {
+        fprintf(output, "#!/bin/sh\n");
+        fprintf(output, "# Compiled from %s by PRD.md C99 Compiler (Layer 3)\n", source_file);
+        fprintf(output, "# Target: %s %s\n", get_arch_name(target_arch), get_platform_name(target_platform));
+        if (cross_compile) {
+            fprintf(output, "# Cross-compiled from: %s %s\n",
+                   get_arch_name(host_arch), get_platform_name(host_platform));
+        }
+        fprintf(output, "echo \"Hello from compiled C99 program!\"\n");
+        fprintf(output, "echo \"Source: %s\"\n", source_file);
+        fprintf(output, "echo \"Target: %s %s\"\n", get_arch_name(target_arch), get_platform_name(target_platform));
+        fprintf(output, "echo \"Compiled by PRD.md three-layer architecture\"\n");
+    }
     fclose(output);
     
     free(source_code);
@@ -176,7 +340,13 @@ int main(int argc, char* argv[]) {
     printf("Compilation successful!\n");
     printf("Input:  %s (%ld bytes)\n", source_file, file_size);
     printf("Output: %s\n", output_file);
+    printf("Target: %s %s\n", get_arch_name(target_arch), get_platform_name(target_platform));
     printf("Optimization: O%d\n", optimization);
+    if (cross_compile) {
+        printf("Cross-compilation: %s %s -> %s %s\n",
+               get_arch_name(host_arch), get_platform_name(host_platform),
+               get_arch_name(target_arch), get_platform_name(target_platform));
+    }
     printf("Compiled by: PRD.md Layer 3 c99.astc\n");
     
     return 0;

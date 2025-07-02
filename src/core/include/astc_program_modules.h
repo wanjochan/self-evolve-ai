@@ -7,9 +7,9 @@
 #ifndef ASTC_PROGRAM_MODULES_H
 #define ASTC_PROGRAM_MODULES_H
 
-#include "astc_native_bridge.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "astc_native_bridge.h"
 
 #ifdef __cplusplus
 extern "C" {

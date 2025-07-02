@@ -24,7 +24,7 @@ Layer 3 Program: {program}.astc     //用户程序（比如c99、evolver{version
     evolver0:
         return evolve() //基于c99他stage1开始进入stage2的开发,TODO
 ```
-no
+
 layer-loader:
 作为统一入口点,实现了架构无关的加载器
 自动检测当前硬件架构和操作系统
@@ -43,6 +43,18 @@ layer-program:
 支持多种程序类型(如c99编译器、evolver等)
 未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
+
+## dev roadmap (by master)
+- layer 1 loader (windows exe)
+- layer 2 native module (vm, libc)
+- layer 3 program (c99 windows 64 x86)
+- build tcc with c99 // test c99 working good
+- layer 3 program c99 supports cross build
+- cross build layer 1 loader (linux, macos)
+- cross build layer 2 vm (arm, riscv, mips, etc.)
+- build loader2 with c99
+
+
 ## stage1 dev flow
 loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 
 .\bin\layer1\loader_x64_64.exe -m bin\layer2\vm_x64_64.native bin\layer3\c99.astc -- test_hello.c -o hello.exe
@@ -54,13 +66,11 @@ loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat an
 
 ## 5. 实现路线图
 
-### Phase 1: 自举完成
+### Phase 1: 自举
 
-### Phase 2: VM与模块分离
+### Phase 2: 生态完善
 
-### Phase 3: 生态完善
-
-### Phase 4: AI进化
+### Phase 3: AI进化
 
 ## 6. 技术经验总结
 

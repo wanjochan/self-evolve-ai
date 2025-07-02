@@ -12,6 +12,7 @@
 #include "../core/include/core_astc.h"
 #include "../core/include/logger.h"
 #include "../core/include/astc_program_modules.h"
+#include "../compiler/c2astc.h"
 
 #define ASTC_MAGIC "ASTC"
 #define ASTC_VERSION 1

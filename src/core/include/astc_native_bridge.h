@@ -18,14 +18,14 @@ extern "C" {
 #define ASTC_MAX_CALL_PARAMS 16
 
 // ASTC data types for bridge operations
-typedef enum {
-    ASTC_TYPE_VOID = 0,
-    ASTC_TYPE_I32 = 1,
-    ASTC_TYPE_I64 = 2,
-    ASTC_TYPE_F32 = 3,
-    ASTC_TYPE_F64 = 4,
-    ASTC_TYPE_PTR = 5,
-    ASTC_TYPE_STRING = 6
+typedef enum ASTCDataType {
+    ASTC_BRIDGE_TYPE_VOID = 0,
+    ASTC_BRIDGE_TYPE_I32 = 1,
+    ASTC_BRIDGE_TYPE_I64 = 2,
+    ASTC_BRIDGE_TYPE_F32 = 3,
+    ASTC_BRIDGE_TYPE_F64 = 4,
+    ASTC_BRIDGE_TYPE_PTR = 5,
+    ASTC_BRIDGE_TYPE_STRING = 6
 } ASTCDataType;
 
 // ASTC value container
@@ -113,13 +113,13 @@ int astc_native_get_interface_info(const char* interface_name, ASTCNativeInterfa
 
 // Convenience macros for creating ASTC values
 
-#define ASTC_VALUE_I32(val) ((ASTCValue){.type = ASTC_TYPE_I32, .data.i32 = (val)})
-#define ASTC_VALUE_I64(val) ((ASTCValue){.type = ASTC_TYPE_I64, .data.i64 = (val)})
-#define ASTC_VALUE_F32(val) ((ASTCValue){.type = ASTC_TYPE_F32, .data.f32 = (val)})
-#define ASTC_VALUE_F64(val) ((ASTCValue){.type = ASTC_TYPE_F64, .data.f64 = (val)})
-#define ASTC_VALUE_PTR(val) ((ASTCValue){.type = ASTC_TYPE_PTR, .data.ptr = (val)})
-#define ASTC_VALUE_STR(val) ((ASTCValue){.type = ASTC_TYPE_STRING, .data.str = (val)})
-#define ASTC_VALUE_VOID() ((ASTCValue){.type = ASTC_TYPE_VOID})
+#define ASTC_VALUE_I32(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_I32, .data.i32 = (val)})
+#define ASTC_VALUE_I64(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_I64, .data.i64 = (val)})
+#define ASTC_VALUE_F32(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_F32, .data.f32 = (val)})
+#define ASTC_VALUE_F64(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_F64, .data.f64 = (val)})
+#define ASTC_VALUE_PTR(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_PTR, .data.ptr = (val)})
+#define ASTC_VALUE_STR(val) ((ASTCValue){.type = ASTC_BRIDGE_TYPE_STRING, .data.str = (val)})
+#define ASTC_VALUE_VOID() ((ASTCValue){.type = ASTC_BRIDGE_TYPE_VOID})
 
 // Convenience macros for creating call signatures
 

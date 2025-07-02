@@ -124,6 +124,16 @@ typedef enum {
     TOKEN_ERROR_PP,      // error (预处理器)
     TOKEN_WARNING,       // warning
 
+    // 模块系统相关标记
+    TOKEN_MODULE,        // module
+    TOKEN_EXPORT,        // export
+    TOKEN_IMPORT,        // import
+    TOKEN_FROM,          // from
+    TOKEN_VERSION,       // version
+    TOKEN_REQUIRES,      // requires
+    TOKEN_PROVIDES,      // provides
+    TOKEN_ATTRIBUTE,     // attribute
+
     // 特殊标记
     TOKEN_ERROR,
     TOKEN_UNKNOWN

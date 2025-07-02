@@ -6,7 +6,7 @@
 #define C2ASTC_H
 
 #include <stdbool.h>
-#include "core_astc.h"
+#include "../core/include/core_astc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,6 +43,36 @@ typedef struct {
     char macros[32][256];       // 宏定义列表 (最多32个)
     int macro_count;            // 宏定义数量
 } C2AstcOptions;
+
+/**
+ * 字节码生成器上下文
+ */
+typedef struct {
+    int optimize_level;         // 优化级别
+    bool enable_extensions;     // 是否启用扩展
+    bool emit_debug_info;       // 是否生成调试信息
+    
+    // 符号表
+    struct {
+        char *names[1024];      // 符号名称
+        void *addresses[1024];  // 符号地址
+        int count;              // 符号数量
+    } symbols;
+    
+    // 字节码生成状态
+    struct {
+        unsigned char *buffer;  // 字节码缓冲区
+        size_t size;           // 当前大小
+        size_t capacity;       // 缓冲区容量
+    } bytecode;
+    
+    // 调试信息
+    struct {
+        int *line_numbers;     // 行号表
+        int *columns;          // 列号表
+        int count;             // 调试信息条目数
+    } debug_info;
+} BytecodeContext;
 
 // ===============================================
 // API 函数
@@ -219,6 +249,19 @@ struct ASTNode* create_unary_op_node(int op, struct ASTNode *operand, int line, 
  * @return 创建的节点
  */
 struct ASTNode* create_call_expr_node(struct ASTNode *callee, struct ASTNode **args, int arg_count, int line, int column);
+
+/**
+ * 生成字节码
+ * 
+ * @param ast AST根节点
+ * @param ctx 字节码生成器上下文
+ * @param bytecode 字节码缓冲区指针
+ * @param size 当前字节码大小
+ * @param capacity 缓冲区容量
+ * @return 成功返回true，失败返回false
+ */
+bool generate_bytecode(struct ASTNode* ast, BytecodeContext* ctx, 
+                      unsigned char** bytecode, size_t* size, size_t* capacity);
 
 #ifdef __cplusplus
 }
