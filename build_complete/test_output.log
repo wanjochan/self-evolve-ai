@@ -1,8 +1,0 @@
-Loaded ASTC program: 68 bytes
-ASTC Header: version=1, data_size=52, entry_point=0
-Executing ASTC program...
-DEBUG: LIBC_CALL func_id=0x0030, arg_count=1
-Self-hosted toolchain works!
-DEBUG: LIBC_CALL successful, return_value=29
-Execution completed: 6 instructions executed
-Program return value: 0

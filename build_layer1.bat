@@ -48,7 +48,7 @@ echo Building loader_x86_32.exe...
 echo ==============================
 
 REM Compile loader for x86 32-bit (if supported)
-%TCC% -m32 -o "bin\layer1\loader_x86_32.exe" "src\layer1\loader_ultra_safe.c"
+%TCC% -m32 -o "bin\layer1\loader_x86_32.exe" "src\layer1\loader.c"
 
 if %ERRORLEVEL% equ 0 (
     echo Success: loader_x86_32.exe compiled successfully
