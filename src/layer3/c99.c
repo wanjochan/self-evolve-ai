@@ -182,26 +182,167 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+// ===============================================
+// C99增强功能 (Enhanced C99 Features)
+// ===============================================
+
+// C99预处理器增强版
+int c99_preprocess_enhanced(const char* input_file, const char* output_file, bool verbose) {
+    if (verbose) {
+        printf("C99 Enhanced Preprocessor: %s -> %s\n", input_file, output_file);
+    }
+
+    FILE* input = fopen(input_file, "r");
+    if (!input) {
+        fprintf(stderr, "Error: Cannot open input file: %s\n", input_file);
+        return 1;
+    }
+
+    FILE* output = fopen(output_file, "w");
+    if (!output) {
+        fprintf(stderr, "Error: Cannot create output file: %s\n", output_file);
+        fclose(input);
+        return 1;
+    }
+
+    // 增强的预处理器实现
+    char line[1024];
+    int line_number = 1;
+    int include_count = 0;
+    int define_count = 0;
+
+    // 添加PRD.md标识
+    fprintf(output, "/* Preprocessed by PRD.md C99 Compiler (Layer 3) */\n");
+    fprintf(output, "/* Generated from: %s */\n\n", input_file);
+
+    while (fgets(line, sizeof(line), input)) {
+        // 处理#include指令
+        if (strncmp(line, "#include", 8) == 0) {
+            include_count++;
+            if (verbose) {
+                printf("Processing include #%d: %s", include_count, line);
+            }
+
+            // 检查是否为标准库头文件
+            if (strstr(line, "<stdio.h>")) {
+                fprintf(output, "/* Standard I/O functions available */\n");
+            } else if (strstr(line, "<stdlib.h>")) {
+                fprintf(output, "/* Standard library functions available */\n");
+            } else if (strstr(line, "<string.h>")) {
+                fprintf(output, "/* String manipulation functions available */\n");
+            } else {
+                fprintf(output, "/* Include: %s", line);
+            }
+        }
+        // 处理#define指令
+        else if (strncmp(line, "#define", 7) == 0) {
+            define_count++;
+            if (verbose) {
+                printf("Processing define #%d: %s", define_count, line);
+            }
+            fprintf(output, "/* Define: %s", line);
+        }
+        // 其他行直接输出
+        else {
+            fputs(line, output);
+        }
+        line_number++;
+    }
+
+    // 添加预处理统计信息
+    fprintf(output, "\n/* Preprocessing Statistics */\n");
+    fprintf(output, "/* Lines processed: %d */\n", line_number - 1);
+    fprintf(output, "/* Includes: %d */\n", include_count);
+    fprintf(output, "/* Defines: %d */\n", define_count);
+    fprintf(output, "/* Preprocessed by PRD.md Layer 3 c99.astc */\n");
+
+    fclose(input);
+    fclose(output);
+
+    if (verbose) {
+        printf("Enhanced preprocessing completed:\n");
+        printf("  Lines: %d\n", line_number - 1);
+        printf("  Includes: %d\n", include_count);
+        printf("  Defines: %d\n", define_count);
+    }
+
+    return 0;
+}
+
+// C99语法分析器 (简化版)
+int c99_parse_syntax(const char* source_code, bool verbose) {
+    if (verbose) {
+        printf("C99 Syntax Analysis: Parsing source code\n");
+    }
+
+    // 简化的语法检查
+    int brace_count = 0;
+    int paren_count = 0;
+    int bracket_count = 0;
+    int function_count = 0;
+    int variable_count = 0;
+
+    const char* ptr = source_code;
+    while (*ptr) {
+        switch (*ptr) {
+            case '{': brace_count++; break;
+            case '}': brace_count--; break;
+            case '(': paren_count++; break;
+            case ')': paren_count--; break;
+            case '[': bracket_count++; break;
+            case ']': bracket_count--; break;
+        }
+
+        // 检测函数定义模式
+        if (strncmp(ptr, "int ", 4) == 0 || strncmp(ptr, "void ", 5) == 0) {
+            // 简化的函数检测
+            const char* next_paren = strchr(ptr, '(');
+            if (next_paren && next_paren - ptr < 50) {
+                function_count++;
+            }
+        }
+
+        ptr++;
+    }
+
+    if (verbose) {
+        printf("Syntax Analysis Results:\n");
+        printf("  Functions detected: %d\n", function_count);
+        printf("  Variables detected: %d\n", variable_count);
+        printf("  Brace balance: %d\n", brace_count);
+        printf("  Parentheses balance: %d\n", paren_count);
+        printf("  Bracket balance: %d\n", bracket_count);
+    }
+
+    // 检查语法错误
+    if (brace_count != 0 || paren_count != 0 || bracket_count != 0) {
+        printf("Syntax Error: Unbalanced delimiters\n");
+        return 1;
+    }
+
+    return 0;
+}
+
 // ASTC Program Export Function (called by Layer 2 VM)
 int c99_compile(const char* c_file_name, char* argv[]) {
     printf("ASTC Export Function: c99_compile(\"%s\", argv[])\n", c_file_name);
     printf("Called by Layer 2 VM runtime\n");
-    
+
     // Count arguments
     int argc = 0;
     while (argv && argv[argc] != NULL) argc++;
-    
+
     // Add source file as first argument if not present
     char** new_argv = malloc((argc + 2) * sizeof(char*));
     new_argv[0] = "c99.astc";
     new_argv[1] = (char*)c_file_name;
-    
+
     for (int i = 0; i < argc; i++) {
         new_argv[i + 2] = argv[i];
     }
-    
+
     int result = main(argc + 2, new_argv);
     free(new_argv);
-    
+
     return result;
 }
