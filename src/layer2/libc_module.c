@@ -19,6 +19,10 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 // ===============================================
 // LibC Module Interface (PRD.md compliant)
 // ===============================================

@@ -43,6 +43,10 @@ layer-program:
 支持多种程序类型(如c99编译器、evolver等)
 未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
+## stage1 dev flow
+loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 
+.\bin\layer1\loader_x64_64.exe -m bin\layer2\vm_x64_64.native bin\layer3\c99.astc -- test_hello.c -o hello.exe
+
 ### 核心技术
 - **ASTC字节码**: 可扩展的计算表示 (core_astc.h)
 - **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native_format.h)
