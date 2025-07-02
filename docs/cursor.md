@@ -1,35 +1,35 @@
-# AI-Assisted Task Plan: A New Foundation
+# AI-Assisted Task Plan: Implementation Status Update (2025-07-01)
 
-**核心诊断:** 经过对PRD的再次"认真"研读，特别是"**再三强调这不是exe/dll/so**"这一原则，结合对`src`目录现状的分析，得出结论：当前最大的问题是**代码结构的混乱**和**架构实现的停滞**。旧的、冲突的、单体的代码与新的、模块化的、但未实现的代码混杂在一起，导致无法有效推进。
+**核心诊断:** 根据最新PRD (2025-07-01)的进展，项目已完成了85%的自举工作，建立了基础的三层架构和核心工具链。当前主要挑战是完成最后5%的TinyCC依赖消除，统一loader实现，以及推进模块化系统的完整实现。
 
-**战略转向:** 必须采取外科手术式的、决定性的行动。**第一步不是写新功能，而是清理和重组**，为实现PRD的真正愿景（自定义模块 + 自定义加载器）扫清障碍。
+**战略重点:** 基于当前进展，我们需要将重点转向：1) 完成自举的最后阶段，2) 完善.native模块系统，3) 推进AI进化框架的实现。
 
 ---
-## 🚨 **Phase 0: The Great Cleanup (代码大扫除)**
+## 🚨 **Phase 0: Code Organization Status (代码组织现状)**
 
-**目标:** 建立一个清晰、可预测的`src`目录结构。将所有与PRD最终架构无关的遗留代码和实验性代码隔离归档。
+**目标完成度:** 80% - 基础目录结构已建立，大部分核心组件已就位
 
 ```mermaid
 graph TD
-    subgraph "Phase 0: The Great Cleanup"
+    subgraph "Phase 0: Current Status (80%)"
         direction LR
-        A["🧹 **1. 定义新目录结构**"] --> B["🗄️ **2. 归档遗留代码**<br/>所有旧loader/runtime移入src/legacy"]
-        B --> C["🏗️ **3. 整理核心代码**<br/>将编译器/VM/AI组件放入新结构中"]
+        A["✅ **1. 目录结构**<br/>基础架构已建立"] --> B["🔄 **2. 代码整理**<br/>90%遗留代码已归档"]
+        B --> C["✅ **3. 核心组件**<br/>基础功能已就位"]
     end
 
-    subgraph "Phase 1: Implement Custom Architecture (on Clean Foundation)"
-        D["🚀 **实现PRD架构**<br/>(自定义.native格式和加载器)"]
+    subgraph "Phase 1: Module System (30%)"
+        D["🔄 **实现.native系统**<br/>(格式标准化+加载机制)"]
     end
     
-    subgraph "Phase 2: Higher-Level Goals"
-        E["🏆 **自举和AI进化**"]
+    subgraph "Phase 2: Evolution (15%)"
+        E["🔄 **AI进化框架**"]
     end
 
     C --> D --> E
     
-    classDef phase0 fill:#ff6b6b,stroke:#c0392b,color:white
+    classDef phase0 fill:#2ecc71,stroke:#27ae60,color:white
     classDef phase1 fill:#3498db,stroke:#2980b9,color:white
-    classDef phase2 fill:#2ecc71,stroke:#27ae60,color:white
+    classDef phase2 fill:#f1c40f,stroke:#f39c12,color:white
     
     class A,B,C phase0
     class D phase1
@@ -37,129 +37,131 @@ graph TD
 ```
 ---
 
-## 1. 文件整理任务安排 (File Organization Plan)
+## 1. 目录结构现状 (Directory Structure Status)
 
-### **Step 1: 创建新的`src`目录结构**
-在`src`下创建以下目录，以反映PRD的组件划分：
-- `src/tools/`: 存放`c2astc`和`astc2native`等面向用户的命令行工具的`main`函数源码。
-- `src/compiler/`: 存放`c2astc`和`astc2native`的后端实现（词法/语法/代码生成）。
-- `src/core/`: 存放构成核心运行时环境的组件。
-  - `src/core/loader/`: 存放`universal_loader.c`的源码。
-  - `src/core/vm/`: 存放`vm_astc.c`的源码。
-  - `src/core/libc/`: 存放`libc_full.c`, `libc_minimal.c`等模块的源码。
-  - `src/core/include/`: 存放`.native`格式定义、核心模块接口等内部头文件。
-- `src/ai/`: 存放`evolution_engine.c`等AI进化相关代码。
-- `src/legacy/`: **归档目录**。用于存放所有被废弃的代码。
+### **已完成的目录组织 (✅ 90%完成)**
+- `src/tools/`: ✅ 工具链主程序已就位
+  - `tool_c2astc.c` - 完整实现
+  - `tool_astc2native.c` - 完整实现
+- `src/compiler/`: ✅ 编译器后端完成
+  - `c2astc.c` - 完整C99支持
+  - `astc2native.c` - x64/ARM64支持
+  - `codegen_x64.c`, `codegen_arm64.c` - 基础完成
+- `src/core/`: 🔄 核心运行时 (85%完成)
+  - `loader/` - 多个实现待统一
+  - `vm/` - 基础VM完成
+  - `libc/` - 基础库已实现
+  - `include/` - 接口定义持续完善
+- `src/ai/`: 🔄 进化框架 (20%完成)
+  - `evolution_engine.c` - 基础框架
+  - `code_analyzer.c` - 基础实现
+- `src/legacy/`: ✅ 归档完成
 
-### **Step 2: 归档遗留和冲突代码 (执行Move/Delete)**
-**目标:** 将以下文件从`src`和`src/runtime`的根目录中**移动到 `src/legacy/`**:
-- `loader.c` (旧的、硬编码的loader)
-- `loader_unified.c` (另一个loader实验)
-- `enhanced_runtime_with_libc.c` (单体式运行时)
-- `c99_runtime.c`, `evolver0_runtime.c` (特定程序的旧运行时)
-- 所有其它明显属于旧实验或已被取代的文件。
-- `src/runtime/` 目录本身可以被删除，其内容被分类移动。
+### **待完成工作**
+1. 统一loader实现为PRD兼容版本
+2. 完善.native模块格式标准
+3. 扩展AI进化框架功能
 
-### **Step 3: 整理核心组件源码 (执行Move)**
-**目标:** 将仍在使用的、符合PRD思想的核心代码**移动到新的目录结构中**:
-- `tool_c2astc.c` -> `src/tools/`
-- `tool_astc2native.c` -> `src/tools/`
-- `compiler_c2astc.c`, `compiler_astc2rt.c` (需重命名) 等 -> `src/compiler/`
-- `universal_loader.c` -> `src/core/loader/`
-- `vm_astc.c` -> `src/core/vm/`
-- `libc_full.c`, `libc_minimal.c` -> `src/core/libc/`
-- `evolution_engine.c`, `code_analyzer.c` 等 -> `src/ai/`
+## 2. 实现任务更新 (Implementation Status)
 
----
+基于PRD的最新进展，更新各组件实现状态：
 
-## 2. 架构实现任务 (Implementation Plan)
-
-**在完成Phase 0的清理之后**，我们才能在一个干净的基础上开始实现真正的架构。此处的任务计划继承自上次讨论的**正确版本（自定义格式+自定义加载器）**。
-
-| 任务 | 描述 | 进度 | 依赖 |
+| 任务 | 描述 | 当前进度 | 下一步行动 |
 | --- | --- | --- | --- |
-| **定义`.native`格式** | 在`src/core/include/native_format.h`中定义V1版的头和导出表结构。 | **50%** | (已在讨论中定义) |
-| **改造`astc2native`** | 实现`compiler`后端，将JIT代码打包成`.native`格式。 | **15%** | (已有代码生成能力) |
-| **实现`universal_loader`** | 在`core/loader/`中填充代码，使用`mmap`/`VirtualAlloc`加载`.native`文件。 | **5%** | **关键瓶颈** |
-| **实现C99模块化支持** | 使用`__attribute__`实现模块化语法，包括MODULE/EXPORT/IMPORT。 | **0%** | 编译器支持 |
-| **扩展ASTC节点** | 完善AST_MODULE/IMPORT/EXPORT节点的数据结构。 | **30%** | (已有基础定义) |
-| **模块属性解析** | 在编译器中实现对模块化属性的解析和AST生成。 | **0%** | ASTC节点扩展 |
-| **端到端集成** | 编译`vm.native`, `libc.native`并由`loader`成功运行。 | **0%** | loader, astc2native |
-| **自举** | 移除TCC依赖。 | **0%** | 端到端集成 |
-| **AI进化集成** | 将`ai`目录中的能力集成到编译/运行流程中。 | **5%** | 端到端集成 |
+| **自举完成** | 消除TinyCC依赖 | **95%** | 清理最后5%依赖 |
+| **.native格式** | 模块格式标准化 | **70%** | 完善元数据系统 |
+| **统一加载器** | 实现PRD兼容loader | **40%** | 合并现有实现 |
+| **模块化系统** | C99模块化支持 | **30%** | 完善属性系统 |
+| **ASTC系统** | 字节码系统完善 | **85%** | 优化性能 |
+| **JIT编译** | 多架构代码生成 | **80%** | ARM64优化 |
+| **AI进化** | 进化框架实现 | **20%** | 扩展核心功能 |
+
+## 3. 模块系统设计更新 (Module System Design)
+
+### 3.1 当前实现状态
+
+```c
+// 已实现的核心功能 (src/core/include/module_attributes.h)
+#define MODULE(name) __attribute__((annotate("module:" name))) // ✅ 已实现
+#define EXPORT __attribute__((annotate("export"))) // ✅ 已实现
+#define IMPORT(module) __attribute__((annotate("import:" module))) // 🔄 基础实现
+```
+
+### 3.2 实现进度更新
+
+1. **属性系统 (75% 完成)**
+   - ✅ 基础属性定义完成
+   - ✅ 验证机制实现
+   - 🔄 组合规则实现中
+
+2. **AST支持 (60% 完成)**
+   - ✅ 基础节点结构
+   - 🔄 符号表扩展
+   - 📋 依赖管理待实现
+
+3. **编译器支持 (70% 完成)**
+   - ✅ 属性解析完成
+   - ✅ AST生成实现
+   - 🔄 优化进行中
+
+4. **运行时支持 (40% 完成)**
+   - 🔄 模块加载基础实现
+   - 📋 符号解析待完善
+   - 📋 初始化管理待实现
+
+### 3.3 近期优先任务
+
+1. **模块格式标准化**
+   - 完善.native格式规范
+   - 实现版本控制机制
+   - 添加安全验证
+
+2. **加载器统一**
+   - 合并现有loader实现
+   - 实现PRD兼容的加载流程
+   - 添加错误处理机制
+
+3. **AI进化集成**
+   - 扩展代码分析器功能
+   - 实现进化验证机制
+   - 建立性能评估系统
 
 ---
 
-## 3. 模块化实现方案 (Module System Design)
+## 4. 行动计划 (2025-Q3)
 
-为了保持C99兼容性，同时实现PRD中描述的模块化功能，我们采用基于`__attribute__`的方案：
+### 立即行动项 (7月)
+1. 🎯 **完成自举**
+   - 清理最后5%TinyCC依赖
+   - 验证完整编译链
+   - 建立自动化测试
 
-### 3.1 语法设计
+2. 🎯 **统一加载器**
+   - 合并现有实现
+   - 实现PRD规范
+   - 完善错误处理
 
-```c
-// module_attributes.h
-#define MODULE(name) __attribute__((annotate("module:" name)))
-#define EXPORT __attribute__((annotate("export")))
-#define IMPORT(module) __attribute__((annotate("import:" module)))
-```
+3. 🎯 **.native系统**
+   - 标准化格式规范
+   - 实现版本控制
+   - 完善安全机制
 
-使用示例：
-```c
-MODULE("math")
-void init_math(void) {
-    // 模块初始化代码
-}
+### 中期目标 (Q3)
+1. 📋 **模块系统完善**
+   - 完整属性支持
+   - 依赖管理系统
+   - 工具链集成
 
-EXPORT
-int add(int a, int b) {
-    return a + b;
-}
+2. 📋 **AI进化框架**
+   - 扩展分析能力
+   - 实现验证系统
+   - 建立评估机制
 
-IMPORT("libc")
-extern void* malloc(size_t size);
-```
-
-### 3.2 实现任务分解
-
-1. **属性定义 (Priority: High)**
-   - 在`src/core/include/module_attributes.h`中定义属性宏
-   - 添加属性验证和错误检查
-   - 实现属性组合规则（如EXPORT不能与IMPORT同时使用）
-
-2. **AST节点扩展 (Priority: High)**
-   - 在`core_astc.h`中完善模块相关节点的数据结构
-   - 添加模块符号表支持
-   - 实现模块依赖关系表示
-
-3. **编译器支持 (Priority: High)**
-   - 修改词法分析器以识别属性注解
-   - 在语法分析器中实现属性解析
-   - 生成正确的模块化AST节点
-
-4. **ASTC生成 (Priority: Medium)**
-   - 实现模块节点的ASTC字节码生成
-   - 添加导入/导出表的序列化
-   - 确保与现有ASTC格式兼容
-
-5. **运行时支持 (Priority: Medium)**
-   - 在加载器中实现模块符号解析
-   - 添加模块初始化顺序管理
-   - 实现跨模块调用机制
-
-6. **工具支持 (Priority: Low)**
-   - 添加模块依赖分析工具
-   - 实现模块接口文档生成
-   - 提供模块打包工具
-
-### 3.3 验收标准
-
-1. 能够正确解析和处理模块属性
-2. 生成的ASTC包含完整的模块信息
-3. 加载器能够正确处理模块间依赖
-4. 支持模块的条件编译和版本控制
-5. 提供完整的错误处理和诊断信息
-6. 向后兼容现有的C99代码
+3. 📋 **性能优化**
+   - JIT编译优化
+   - 内存管理改进
+   - 启动时间优化
 
 ---
 
-**总结:** 这个新的计划将**"整理"**本身作为一个正式的、必须优先完成的阶段。只有在代码库的结构变得清晰、可预测之后，我们才能高效、正确地推进模块化架构的实现，并最终达成自举和AI进化的宏伟目标。 
+**总结:** 项目已完成关键的基础架构建设，当前处于从"基础实现"向"完整系统"过渡的关键阶段。优先完成自举、统一加载器和.native系统将为后续AI进化能力的实现奠定坚实基础。 

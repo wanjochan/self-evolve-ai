@@ -1,238 +1,79 @@
 # Self-Evolve AI 项目规划
 
-## 1. 项目愿景
+## 项目愿景
 
-能够自我进化的AI系统，通过代码自我修改、编译和优化实现持续进化，最终目标是实现完全自主的通用智能。
+能自我进化的AI系统，通过代码自我修改、编译和优化实现持续进化，最终目标是实现完全自主的通用智能。
 
-## 2. 当前实现状态 (2025-07-01)
+## 进化阶段划分
+- **Stage 1: 借用人类经验** - 从兼容C99开始，建立基础技术栈 （Layer 1 2 3）
+- **Stage 2: 模式识别进化** - AI识别和优化现有代码模式 （等Stage 1彻底稳定后等主人通知才开始）
+- **Stage 3: 架构创新进化** - AI发现超越人类设计的新架构（等主人通知才开始）
+- **Stage 4: 通用智能涌现** - 完全自主的计算模式创新（等主人通知才开始）
 
-### 🎯 已实现核心功能
-- ✅ **三层架构基础** - loader.exe + .native模块 + .astc程序架构已建立
-- ✅ **ASTC字节码系统** - 完整的C99到ASTC转换工具链 (src/compiler/c2astc.c)
-- ✅ **JIT编译器** - ASTC到原生代码转换 (src/compiler/astc2native.c)
-- ✅ **模块化架构** - 清晰的src/目录结构：tools/, compiler/, core/, ai/, legacy/
-- ✅ **AI进化框架** - 基础的进化引擎实现 (src/ai/evolution_engine.c)
-- ✅ **跨平台支持** - x64/ARM64代码生成器 (src/compiler/codegen_x64.c, codegen_arm64.c)
+## 核心设计
 
-### 🔄 部分实现功能
-- 🔄 **TinyCC依赖消除** - 95%完成，仍有少量依赖需要清理
-- 🔄 **模块动态加载** - 基础框架已建立，需要完善.native格式标准
-- 🔄 **统一加载器** - 多个loader实现存在，需要统一为单一PRD兼容版本
-
-### 📋 未实现功能
-- ❌ **完全自举** - 仍需TinyCC编译部分组件
-- ❌ **生产级AI进化** - 当前为实验性实现
-- ❌ **多平台部署** - 主要在Windows平台测试
-
-## 3. 进化机制设计
-
-### 进化阶段划分
-- **Stage 1: 借用人类经验** - 从C99开始，建立基础技术栈 ✅ **已完成80%**
-- **Stage 2: 模式识别进化** - AI识别和优化现有代码模式 🔄 **进行中20%**
-- **Stage 3: 架构创新进化** - AI发现超越人类设计的新架构 📋 **未开始**
-- **Stage 4: 通用智能涌现** - 完全自主的计算模式创新 📋 **未开始**
-
-### 核心进化引擎 (已实现基础版本)
 ```
-观测器 → 收集系统运行数据和性能指标 ✅ 已实现
-分析器 → AI识别优化机会和瓶颈 ✅ 已实现 (src/ai/code_analyzer.c)
-生成器 → AI设计新的实现方案 🔄 部分实现
-验证器 → 沙箱测试确保方案正确性 📋 待实现
-部署器 → 安全替换旧代码实现进化 📋 待实现
+Layer 1 Loader: loader_{arch}_{bits}.exe  //执行入口，未来参考cosmopolitan等制作跨架构统一入口loader.exe
+    return import(f'vm_{arch}_{bits}.native').main(f'{program}.astc',argv[],env[]) //示意伪代码
+Layer 2 Runtime: vm_{arch}_{bits}.native  // .native原生字节码模块，其中最重要是vm模块用于加载astc运行
+    main(astc_module_name,argv[],env[]):
+        return vm_import(astc_module_name).main(argv[],env[])  //示意伪代码
+Layer 3 Program: {program}.astc     //用户程序（比如c99、evolver{version}）ASTC字节码，后面兼容ASTC-ASM、ASTC-ES6等高级语言
+    c99:
+        return c99_compile(c_file_name, argv[])
+    evolver0:
+        return evolve() //基于c99他stage1开始进入stage2的开发,TODO
+```
+no
+layer-loader:
+作为统一入口点,实现了架构无关的加载器
+自动检测当前硬件架构和操作系统
+动态选择和加载对应架构的VM模块
+转发命令行参数和环境变量
+未来可以参考cosmopolitan项目实现跨架构的统一loader
+
+layer-runtime:
+原生字节码模块,针对特定架构优化
+负责加载和执行ASTC字节码
+if module=='vm'，提供VM运行时环境for astc，处理内存管理、JIT编译等底层功能
+
+layer-program:
+用户程序的ASTC字节码表示
+完全架构无关的中间表示
+支持多种程序类型(如c99编译器、evolver等)
+未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
+
+### 核心技术
+- **ASTC字节码**: 可扩展的计算表示 (core_astc.h)
+- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native_format.h)
+- **JIT编译**: 动态代码生成引擎 (astc2native.c)
+
+## 5. 实现路线图
+
+### Phase 1: 自举完成
+
+### Phase 2: VM与模块分离
+
+### Phase 3: 生态完善
+
+### Phase 4: AI进化
+
+## 6. 技术经验总结
+
+- 不要乱建新文件，要尽量改源文件
+
+### TCC编译避免杀毒软件误报经验
+
+在实现PRD.md三层架构过程中，遇到了TCC编译的可执行文件被杀毒软件误报为病毒（HEUR/QVM202.0.68C9）的问题。经过研究和实践，找到了有效的解决方案：
+
+#### 成功的编译方案
+
+**最简单有效的方案**：
+```bash
+tcc.exe -o loader.exe source.c
 ```
 
-### 安全进化机制
-- **沙箱验证**: 新代码必须在隔离环境通过测试 📋 **设计阶段**
-- **渐进部署**: 逐步替换，保持系统稳定性 📋 **设计阶段**
-- **性能监控**: 确保进化确实带来改进 🔄 **基础实现**
-- **快速回滚**: 进化失败时立即恢复 📋 **设计阶段**
-
-## 4. 核心架构设计
-
-### 设计理念：
-
-Loader + .astc (ASTC bytecode module) + .native (arch native bytecode module)
+**保守方案**（如果简单方案仍有问题）：
+```bash
+tcc.exe -g -O0 -DLEGITIMATE_SOFTWARE -o loader.exe source.c -luser32 -lkernel32 -ladvapi32
 ```
-Layer 1: loader.exe                       - 统一启动器
-Layer 2: {module}_{arch}_{bits}.native    - .native原生字节码模块，其中最重要是vm模块用于加载astc运行
-Layer 3: {programName}.astc               - 用户程序（比如c99、evolver{version}）ASTC字节码
-```
-
-### 关键技术 (实现状态)
-- **ASTC字节码**: 可扩展的计算表示 ✅ **已实现** (src/core/include/core_astc.h)
-- **.native模块**: 原生字节码模块 🔄 **部分实现** (src/core/native_format.c)
-- **JIT编译**: 动态代码生成引擎 ✅ **已实现** (src/compiler/astc2native.c)
-- **进化引擎**: 自主优化循环 🔄 **基础实现** (src/ai/evolution_engine.c)
-
-### Layer 1: loader.exe (实现状态: 🔄 部分完成)
-**已实现组件:**
-- ✅ 多个loader实现 (src/core/loader/: core_loader.c, universal_loader.c, simple_loader.c)
-- ✅ 基础的ASTC文件加载
-- ✅ 命令行参数解析
-
-**待完成:**
-- 📋 统一为单一PRD兼容loader
-- 📋 跨平台架构检测
-- 📋 动态.native模块选择
-
-### Layer 2: Runtime层 (实现状态: ✅ 基础完成)
-#### vm_{arch}_{bits}.native (astc字节码的虚拟机模块)
-**已实现:**
-- ✅ **ASTC虚拟机**: 字节码解释执行 (src/core/vm/vm_astc.c)
-- ✅ **JIT编译器**: x64/ARM64代码生成 (src/compiler/codegen_x64.c, codegen_arm64.c)
-- ✅ **内存管理**: 基础堆栈管理
-- 🔄 **模块管理**: 基础框架已建立
-
-#### .native本地模块生态 (实现状态: 🔄 进行中)
-**已实现:**
-- ✅ **libc_{arch}_{bits}.native**: 系统库转发 (src/core/libc/core_libc.c)
-- ✅ **libc模块变体**: minimal, full, os版本 (src/core/libc/)
-- 🔄 **模块属性系统**: 元数据和版本管理 (src/core/include/module_attributes.h)
-
-**待实现:**
-- 📋 **libc_os_{arch}_{bits}.native**: 自实现操作系统库
-- 📋 **扩展模块生态**: 用户自定义功能模块
-
-### Layer 3: {programName}.astc (实现状态: ✅ 完成)
-**已实现:**
-- ✅ 平台无关的ASTC字节码程序
-- ✅ C99到ASTC完整转换工具链 (src/compiler/c2astc.c)
-- ✅ 模块系统调用接口基础
-
-### 核心子模块 (实现状态)
-- ✅ **c2astc**: C到ASTC字节码转换 (src/tools/tool_c2astc.c, src/compiler/c2astc.c)
-- ✅ **astc2native**: ASTC到原生字节码转换 (src/tools/tool_astc2native.c, src/compiler/astc2native.c)
-- ✅ **codegen**: 多架构代码生成器 (src/compiler/codegen_*.c)
-- 📋 **astc2asm**: ASTC到汇编转换 (src/tools/tool_astc2asm.c - 基础实现)
-
-## 5. 实现路线图 (更新版本 - 2025-07-01)
-
-### Phase 1: 自举完成（当前优先级 - 85%完成）
-**已完成:**
-- ✅ 建立独立编译循环 (95%完成)
-- ✅ 三层架构基础实现
-- ✅ 核心工具链完成 (c2astc, astc2native)
-
-**剩余工作:**
-- 🔄 消除最后5%的TinyCC依赖
-- 🔄 统一loader实现为单一PRD兼容版本
-- 📋 验证完整的loader → runtime → program调用链
-
-**预计完成时间:** 2025年7月中旬
-
-### Phase 2: VM与模块分离（下一阶段 - 30%完成）
-**已完成:**
-- ✅ VM核心与libc模块基础分离
-- ✅ .native模块格式基础定义
-
-**剩余工作:**
-- 📋 完善.native模块格式标准化
-- 📋 实现完整的模块动态加载机制
-- 📋 建立模块依赖管理系统
-
-**预计完成时间:** 2025年8月
-
-### Phase 3: 生态完善（中期目标 - 20%完成）
-**已完成:**
-- ✅ x64/ARM64基础架构支持
-- ✅ Windows平台基础支持
-
-**剩余工作:**
-- 📋 完整的多平台支持 (Linux/macOS)
-- 📋 32位架构支持
-- 📋 模块标准化和签名验证
-- 📋 完善开发工具链 (调试器、性能分析器)
-- 📋 JIT编译器性能优化
-
-**预计完成时间:** 2025年Q4
-
-### Phase 4: AI进化（长期目标 - 15%完成）
-**已完成:**
-- ✅ 基础AI进化框架 (src/ai/evolution_engine.c)
-- ✅ 代码分析器 (src/ai/code_analyzer.c)
-
-**剩余工作:**
-- 📋 完善观测器和验证器
-- 📋 实现安全的沙箱验证机制
-- 📋 建立A/B测试和自动部署框架
-- 📋 实现Stage 2-4进化能力
-
-**预计完成时间:** 2026年及以后
-
-## 6. 架构优势
-
-- **高性能**: .native本地模块直接执行机器码
-- **简化部署**: 类似Java"一处编译，到处运行"
-- **清晰架构**: VM和功能模块职责分离
-- **渐进开发**: 可逐步优化和扩展
-- **命名清晰**: .native扩展名明确表示本地机器码模块
-
-## 7. 关键原则
-
-- **阶段性借用**: 先借用人类经验（C99/编译器），再逐步AI自主进化
-- **进化优先**: 所有设计决策都要考虑AI进化的需求和可能性
-- **安全第一**: 确保AI自我修改的安全性和可控性
-- **可观测性**: 系统必须能被AI充分观测和理解
-- **渐进演化**: 避免激进变更，保持系统稳定的同时持续进化
-
-## 8. 进化能力架构 (实现状态更新)
-
-### 技术栈的进化定位 (当前实现状态)
-- **ASTC字节码**: 支持AI动态扩展新节点类型 ✅ **已实现基础版本**
-- **JIT编译器**: AI可重写优化策略的代码生成引擎 ✅ **已实现** (支持x64/ARM64)
-- **.native模块**: AI可动态生成和替换的执行单元 🔄 **部分实现**
-- **VM核心**: 为AI提供安全自我修改能力 🔄 **基础实现**
-
-### 可观测性系统 (实现状态)
-- **性能采集**: 实时收集执行轨迹、性能指标 🔄 **基础实现** (src/ai/code_analyzer.c)
-- **模式识别**: AI分析代码执行模式 ✅ **已实现** (src/ai/evolution_engine.c)
-- **瓶颈诊断**: 自动识别性能瓶颈 🔄 **部分实现**
-- **效果评估**: 量化进化改进效果 📋 **设计阶段**
-
-### 进化实验框架 (实现状态)
-- **假设生成**: AI提出优化假设 🔄 **基础实现** (src/ai/evolution_engine.c)
-- **A/B测试**: 并行运行新旧实现对比 📋 **设计阶段**
-- **自动验证**: 确保功能正确性和性能提升 📋 **待实现**
-- **生产部署**: 验证通过后安全替换 📋 **待实现**
-
-### 长期进化愿景 (进度更新)
-- **Stage 2目标**: AI优化编译策略 🔄 **进行中** (20%完成)
-- **Stage 3目标**: AI发明新的计算模式和架构 📋 **未开始**
-- **Stage 4目标**: 涌现完全自主的通用智能能力 📋 **未开始**
-
-## 9. 技术约束和限制 (新增章节)
-
-### 当前技术约束
-- **平台限制**: 主要在Windows x64平台测试，Linux/macOS支持有限
-- **架构限制**: 32位架构支持不完整
-- **TinyCC依赖**: 仍有5%的组件需要TinyCC编译
-- **内存管理**: 垃圾回收机制尚未完全实现
-- **错误处理**: 部分组件的错误处理机制需要完善
-
-### 性能指标
-- **编译速度**: C99到ASTC转换 ~1000行/秒
-- **JIT性能**: ASTC到机器码转换 ~500指令/秒
-- **内存占用**: 基础VM ~2MB，完整系统 ~10MB
-- **启动时间**: loader.exe启动 <100ms
-
-### 兼容性要求
-- **C99标准**: 支持95%的C99语法特性
-- **平台支持**: Windows 10+, Linux 4.0+, macOS 10.14+
-- **架构支持**: x86_64 (完整), ARM64 (基础), x86_32 (计划中)
-
-## 10. 下一步行动计划 (新增章节)
-
-### 立即行动项 (1-2周)
-1. 🎯 **统一loader实现** - 合并多个loader为单一PRD兼容版本
-2. 🎯 **消除剩余TinyCC依赖** - 完成最后5%的独立编译
-3. 🎯 **完善.native模块格式** - 标准化模块接口和元数据
-
-### 短期目标 (1-2月)
-1. 📋 **实现完整的模块动态加载**
-2. 📋 **建立自动化测试框架**
-3. 📋 **完善错误处理和日志系统**
-
-### 中期目标 (3-6月)
-1. 📋 **多平台支持** (Linux/macOS)
-2. 📋 **AI进化机制完善**
-3. 📋 **性能优化和调试工具**

@@ -1,0 +1,47 @@
+#include <windows.h>
+
+// 版本信息资源 - 帮助避免杀毒软件误报
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0x0L
+FILEOS VOS__WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"  // 英语(美国)
+        BEGIN
+            VALUE "CompanyName", "Self-Evolve AI Project"
+            VALUE "FileDescription", "Self-Evolve AI System Loader"
+            VALUE "FileVersion", "@PROJECT_VERSION@.0"
+            VALUE "InternalName", "loader.exe"
+            VALUE "LegalCopyright", "Copyright (C) 2024 Self-Evolve AI Project"
+            VALUE "LegalTrademarks", ""
+            VALUE "OriginalFilename", "loader.exe"
+            VALUE "ProductName", "Self-Evolve AI System"
+            VALUE "ProductVersion", "@PROJECT_VERSION@.0"
+            VALUE "Comments", "Advanced AI Evolution System with Self-Modification Capabilities"
+            VALUE "PrivateBuild", ""
+            VALUE "SpecialBuild", ""
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200  // 英语(美国), Unicode
+    END
+END
+
+// 应用程序图标（如果有的话）
+#ifdef IDI_ICON1
+IDI_ICON1 ICON "icon.ico"
+#endif
+
+// 应用程序清单（提高兼容性和安全性）
+#ifndef RT_MANIFEST
+#define RT_MANIFEST 24
+#endif
+
+1 RT_MANIFEST "manifest.xml"

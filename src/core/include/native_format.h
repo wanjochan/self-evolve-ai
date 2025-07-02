@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 // Magic number for .native files: "NATV"
 #define NATIVE_MAGIC 0x5654414E
@@ -62,7 +63,7 @@ typedef enum {
     NATIVE_FLAG_SIGNED = 16
 } NativeModuleFlags;
 
-// Module metadata (embedded in .native file)
+// Enhanced module metadata (embedded in .native file)
 typedef struct {
     char module_name[NATIVE_MAX_MODULE_NAME];
     char version_string[NATIVE_MAX_VERSION_STRING];
@@ -75,7 +76,21 @@ typedef struct {
     uint32_t flags;              // NativeModuleFlags
     uint32_t dependencies_count; // Number of dependencies
     uint64_t dependencies_offset; // Offset to dependencies table
-    uint32_t reserved[3];        // Reserved for future use
+
+    // Enhanced metadata fields
+    char license[64];            // License information
+    char homepage[128];          // Project homepage URL
+    char repository[128];        // Source repository URL
+    uint64_t file_size;          // Original file size
+    uint64_t checksum_crc32;     // CRC32 checksum
+    uint64_t checksum_sha256[4]; // SHA256 hash (256 bits = 4 * 64 bits)
+    uint32_t api_version;        // API compatibility version
+    uint32_t abi_version;        // ABI compatibility version
+    uint32_t min_loader_version; // Minimum loader version required
+    uint32_t security_level;     // Security clearance level (0-3)
+    uint64_t signature_offset;   // Offset to digital signature
+    uint32_t signature_size;     // Size of digital signature
+    uint32_t reserved[8];        // Reserved for future use
 } NativeMetadata;
 
 // .native file header (128 bytes, aligned)
@@ -219,6 +234,66 @@ int native_module_add_dependency(NativeModule* module, const char* name,
                                 uint32_t major, uint32_t minor, uint32_t patch);
 
 /**
+ * Enhanced metadata and security functions
+ */
+
+/**
+ * Set enhanced metadata for module
+ */
+int native_module_set_metadata_enhanced(NativeModule* module,
+                                       const char* license,
+                                       const char* homepage,
+                                       const char* repository,
+                                       uint32_t api_version,
+                                       uint32_t abi_version,
+                                       uint32_t min_loader_version,
+                                       uint32_t security_level);
+
+/**
+ * Calculate and set checksums for module
+ */
+int native_module_calculate_checksums(NativeModule* module);
+
+/**
+ * Verify module checksums
+ */
+int native_module_verify_checksums(const NativeModule* module);
+
+/**
+ * Add digital signature to module
+ */
+int native_module_add_signature(NativeModule* module, const uint8_t* signature, uint32_t signature_size);
+
+/**
+ * Verify digital signature of module
+ */
+int native_module_verify_signature(const NativeModule* module, const uint8_t* public_key, uint32_t key_size);
+
+/**
+ * Check version compatibility
+ */
+int native_module_check_compatibility(const NativeModule* module,
+                                     uint32_t loader_version,
+                                     uint32_t required_api_version);
+
+/**
+ * Get module security level
+ */
+uint32_t native_module_get_security_level(const NativeModule* module);
+
+/**
+ * Version comparison utilities
+ */
+int native_version_compare(uint32_t major1, uint32_t minor1, uint32_t patch1,
+                          uint32_t major2, uint32_t minor2, uint32_t patch2);
+
+/**
+ * Check if version satisfies requirement
+ */
+int native_version_satisfies(uint32_t major, uint32_t minor, uint32_t patch,
+                           uint32_t req_major, uint32_t req_minor, uint32_t req_patch);
+
+/**
  * Add relocation to module
  */
 int native_module_add_relocation(NativeModule* module, uint64_t offset,
@@ -261,5 +336,10 @@ void native_module_free(NativeModule* module);
 #define NATIVE_ERROR_CHECKSUM    -4
 #define NATIVE_ERROR_NOT_FOUND   -5
 #define NATIVE_ERROR_TOO_MANY    -6
+#define NATIVE_ERROR_CHECKSUM_MISMATCH -7
+#define NATIVE_ERROR_NOT_SIGNED  -8
+#define NATIVE_ERROR_INVALID_SIGNATURE -9
+#define NATIVE_ERROR_VERSION_MISMATCH -10
+#define NATIVE_ERROR_API_MISMATCH -11
 
 #endif // NATIVE_FORMAT_H

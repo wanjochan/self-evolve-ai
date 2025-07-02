@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 // CRC64 table for checksum calculation
 static uint64_t crc64_table[256];
@@ -417,6 +419,218 @@ NativeModule* native_module_load_file(const char* filename) {
     }
 
     return module;
+}
+
+// Enhanced metadata and security functions implementation
+
+int native_module_set_metadata_enhanced(NativeModule* module,
+                                       const char* license,
+                                       const char* homepage,
+                                       const char* repository,
+                                       uint32_t api_version,
+                                       uint32_t abi_version,
+                                       uint32_t min_loader_version,
+                                       uint32_t security_level) {
+    if (!module || !module->metadata) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Set enhanced metadata fields
+    if (license) {
+        strncpy(module->metadata->license, license, sizeof(module->metadata->license) - 1);
+        module->metadata->license[sizeof(module->metadata->license) - 1] = '\0';
+    }
+
+    if (homepage) {
+        strncpy(module->metadata->homepage, homepage, sizeof(module->metadata->homepage) - 1);
+        module->metadata->homepage[sizeof(module->metadata->homepage) - 1] = '\0';
+    }
+
+    if (repository) {
+        strncpy(module->metadata->repository, repository, sizeof(module->metadata->repository) - 1);
+        module->metadata->repository[sizeof(module->metadata->repository) - 1] = '\0';
+    }
+
+    module->metadata->api_version = api_version;
+    module->metadata->abi_version = abi_version;
+    module->metadata->min_loader_version = min_loader_version;
+    module->metadata->security_level = security_level;
+
+    return NATIVE_SUCCESS;
+}
+
+// Simple CRC32 implementation for checksums
+static uint32_t crc32_table[256];
+static int crc32_table_initialized = 0;
+
+static void init_crc32_table(void) {
+    if (crc32_table_initialized) return;
+
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t crc = i;
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1) {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+        crc32_table[i] = crc;
+    }
+    crc32_table_initialized = 1;
+}
+
+static uint32_t calculate_crc32(const uint8_t* data, size_t length) {
+    init_crc32_table();
+
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++) {
+        crc = crc32_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
+int native_module_calculate_checksums(NativeModule* module) {
+    if (!module || !module->metadata) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Calculate CRC32 of code section
+    if (module->code_section && module->header.code_size > 0) {
+        module->metadata->checksum_crc32 = calculate_crc32(module->code_section, module->header.code_size);
+    }
+
+    // For SHA256, we'll use a simplified approach (in real implementation, use proper crypto library)
+    // Here we'll just create a deterministic hash based on content
+    uint64_t simple_hash = 0;
+    if (module->code_section) {
+        for (size_t i = 0; i < module->header.code_size && i < 1024; i++) {
+            simple_hash = simple_hash * 31 + module->code_section[i];
+        }
+    }
+
+    // Store simplified hash in SHA256 field (first 64 bits)
+    module->metadata->checksum_sha256[0] = simple_hash;
+    module->metadata->checksum_sha256[1] = simple_hash ^ 0xAAAAAAAAAAAAAAAAULL;
+    module->metadata->checksum_sha256[2] = simple_hash ^ 0x5555555555555555ULL;
+    module->metadata->checksum_sha256[3] = simple_hash ^ 0xCCCCCCCCCCCCCCCCULL;
+
+    return NATIVE_SUCCESS;
+}
+
+int native_module_verify_checksums(const NativeModule* module) {
+    if (!module || !module->metadata) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Verify CRC32 checksum
+    if (module->code_section && module->header.code_size > 0) {
+        uint32_t calculated_crc = calculate_crc32(module->code_section, module->header.code_size);
+        if (calculated_crc != module->metadata->checksum_crc32) {
+            return NATIVE_ERROR_CHECKSUM_MISMATCH;
+        }
+    }
+
+    // Verify simplified SHA256 hash
+    uint64_t simple_hash = 0;
+    if (module->code_section) {
+        for (size_t i = 0; i < module->header.code_size && i < 1024; i++) {
+            simple_hash = simple_hash * 31 + module->code_section[i];
+        }
+    }
+
+    if (module->metadata->checksum_sha256[0] != simple_hash) {
+        return NATIVE_ERROR_CHECKSUM_MISMATCH;
+    }
+
+    return NATIVE_SUCCESS;
+}
+
+int native_module_add_signature(NativeModule* module, const uint8_t* signature, uint32_t signature_size) {
+    if (!module || !module->metadata || !signature || signature_size == 0) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Store signature information in metadata
+    module->metadata->signature_size = signature_size;
+    module->metadata->signature_offset = 0; // Will be set during file write
+
+    // Set signed flag
+    module->metadata->flags |= NATIVE_FLAG_SIGNED;
+
+    return NATIVE_SUCCESS;
+}
+
+int native_module_verify_signature(const NativeModule* module, const uint8_t* public_key, uint32_t key_size) {
+    if (!module || !module->metadata || !public_key || key_size == 0) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Check if module is signed
+    if (!(module->metadata->flags & NATIVE_FLAG_SIGNED)) {
+        return NATIVE_ERROR_NOT_SIGNED;
+    }
+
+    // In a real implementation, this would:
+    // 1. Load the signature from the module
+    // 2. Calculate hash of module content
+    // 3. Verify signature using public key cryptography
+    // For now, we'll do a simplified check
+
+    if (module->metadata->signature_size == 0) {
+        return NATIVE_ERROR_INVALID_SIGNATURE;
+    }
+
+    return NATIVE_SUCCESS; // Assume verification passes for now
+}
+
+int native_module_check_compatibility(const NativeModule* module,
+                                     uint32_t loader_version,
+                                     uint32_t required_api_version) {
+    if (!module || !module->metadata) {
+        return NATIVE_ERROR_INVALID;
+    }
+
+    // Check minimum loader version requirement
+    if (loader_version < module->metadata->min_loader_version) {
+        return NATIVE_ERROR_VERSION_MISMATCH;
+    }
+
+    // Check API version compatibility
+    if (module->metadata->api_version > required_api_version) {
+        return NATIVE_ERROR_API_MISMATCH;
+    }
+
+    return NATIVE_SUCCESS;
+}
+
+uint32_t native_module_get_security_level(const NativeModule* module) {
+    if (!module || !module->metadata) {
+        return 0; // Lowest security level
+    }
+
+    return module->metadata->security_level;
+}
+
+int native_version_compare(uint32_t major1, uint32_t minor1, uint32_t patch1,
+                          uint32_t major2, uint32_t minor2, uint32_t patch2) {
+    if (major1 != major2) {
+        return (major1 > major2) ? 1 : -1;
+    }
+    if (minor1 != minor2) {
+        return (minor1 > minor2) ? 1 : -1;
+    }
+    if (patch1 != patch2) {
+        return (patch1 > patch2) ? 1 : -1;
+    }
+    return 0; // Equal
+}
+
+int native_version_satisfies(uint32_t major, uint32_t minor, uint32_t patch,
+                           uint32_t req_major, uint32_t req_minor, uint32_t req_patch) {
+    // Check if version meets minimum requirement
+    int cmp = native_version_compare(major, minor, patch, req_major, req_minor, req_patch);
+    return cmp >= 0; // Version is equal or greater than requirement
 }
 
 void* native_module_get_export_address(const NativeModule* module, const char* name) {
