@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../core/include/native_format.h"
+#include "../core/native.h"
 #include "../compiler/astc2native.h"
 #include "../core/include/core_astc.h"
 

@@ -1,12 +1,12 @@
 /**
- * native_format.h - Custom .native Module Format Definition
- * 
+ * native.h - Custom .native Module Format Definition
+ *
  * Defines the V1 format for .native modules as specified in PRD.md
  * This is the core format for our custom architecture.
  */
 
-#ifndef NATIVE_FORMAT_H
-#define NATIVE_FORMAT_H
+#ifndef NATIVE_H
+#define NATIVE_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -342,4 +342,4 @@ void native_module_free(NativeModule* module);
 #define NATIVE_ERROR_VERSION_MISMATCH -10
 #define NATIVE_ERROR_API_MISMATCH -11
 
-#endif // NATIVE_FORMAT_H
+#endif // NATIVE_H
