@@ -57,6 +57,24 @@ typedef struct {
     clock_t end_time;
 } PerformanceStats;
 
+/**
+ * Loaded VM Module structure for managing native modules
+ */
+typedef struct {
+    void* mapped_memory;           // mmap映射的内存地址
+    size_t mapped_size;            // 映射的内存大小
+    const char* module_path;       // Path to module
+    DetectedArchitecture arch;     // Architecture
+
+    // .native模块的入口点 (从映射内存中解析)
+    void* entry_point;             // 模块入口点
+    void* code_section;            // 代码段地址
+    size_t code_size;              // 代码段大小
+
+    // 执行函数指针 (指向映射内存中的机器码)
+    int (*vm_execute)(const char* astc_file, int argc, char* argv[]);
+} LoadedVMModule;
+
 // ===============================================
 // Architecture Detection Functions
 // ===============================================
@@ -200,5 +218,52 @@ char* safe_strdup(const char* str);
  * @return Number of characters written, or -1 on error
  */
 int safe_snprintf(char* buffer, size_t size, const char* format, ...);
+
+// ===============================================
+// VM Module Management Functions
+// ===============================================
+
+/**
+ * Parse native module format and set up execution entry points
+ * @param mapped_memory Pointer to mapped native module memory
+ * @param file_size Size of the native module file
+ * @param vm_module VM module structure to populate
+ * @return 0 on success, -1 on error
+ */
+int parse_native_module(void* mapped_memory, size_t file_size, LoadedVMModule* vm_module);
+
+/**
+ * Load VM module from file path
+ * @param vm_path Path to the .native VM module file
+ * @param vm_module VM module structure to populate
+ * @param config Loader configuration
+ * @return 0 on success, -1 on error
+ */
+int load_vm_module(const char* vm_path, LoadedVMModule* vm_module, const UnifiedLoaderConfig* config);
+
+/**
+ * Unload VM module and free resources
+ * @param vm_module VM module structure to unload
+ */
+void unload_vm_module(LoadedVMModule* vm_module);
+
+/**
+ * Execute ASTC program via native module
+ * @param vm_module Loaded VM module
+ * @param astc_file Path to ASTC program file
+ * @param argc Number of arguments
+ * @param argv Argument array
+ * @return Program exit code
+ */
+int execute_astc_via_native_module(LoadedVMModule* vm_module, const char* astc_file, int argc, char* argv[]);
+
+/**
+ * Execute program through the VM module
+ * @param vm_module Loaded VM module
+ * @param config Loader configuration
+ * @param stats Performance statistics (optional)
+ * @return Program exit code
+ */
+int execute_program(LoadedVMModule* vm_module, const UnifiedLoaderConfig* config, PerformanceStats* stats);
 
 #endif // UTILS_H

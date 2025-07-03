@@ -19,7 +19,7 @@
 #include <unistd.h>
 #endif
 
-#include "../core/include/native_format.h"
+#include "../include/native_format.h"
 
 // ===============================================
 // Module Loading Infrastructure
