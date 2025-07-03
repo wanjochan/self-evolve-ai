@@ -171,8 +171,8 @@ int construct_vm_module_path(char* buffer, size_t buffer_size, const UnifiedLoad
     const char* arch_str = get_architecture_string(arch);
     int bits = get_architecture_bits(arch);
     
-    // Construct PRD-compliant path: vm_{arch}_{bits}.native
-    snprintf(buffer, buffer_size, "vm_%s_%d.native", arch_str, bits);
+    // Construct PRD-compliant path: bin/layer2/vm_{arch}_{bits}.native
+    snprintf(buffer, buffer_size, "bin\\layer2\\vm_%s_%d.native", arch_str, bits);
     
     return 0;
 }

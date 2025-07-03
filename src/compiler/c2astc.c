@@ -1535,4 +1535,314 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
     return ast;
 }
 
-// ... existing code ...
+// ===============================================
+// AST节点管理函数实现
+// ===============================================
+
+struct ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
+    struct ASTNode* node = (struct ASTNode*)calloc(1, sizeof(struct ASTNode));
+    if (!node) {
+        set_error("内存分配失败");
+        return NULL;
+    }
+
+    node->type = type;
+    node->line = line;
+    node->column = column;
+
+    return node;
+}
+
+void ast_free(struct ASTNode *node) {
+    if (!node) return;
+
+    // 根据节点类型释放特定的数据
+    switch (node->type) {
+        case ASTC_EXPR_IDENTIFIER:
+            free(node->data.identifier.name);
+            break;
+
+        case ASTC_EXPR_STRING_LITERAL:
+            free(node->data.string_literal.value);
+            break;
+
+        case ASTC_BINARY_OP:
+            ast_free(node->data.binary_op.left);
+            ast_free(node->data.binary_op.right);
+            break;
+
+        case ASTC_UNARY_OP:
+            ast_free(node->data.unary_op.operand);
+            break;
+
+        case ASTC_CALL_EXPR:
+            ast_free(node->data.call_expr.callee);
+            for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                ast_free(node->data.call_expr.args[i]);
+            }
+            free(node->data.call_expr.args);
+            break;
+
+        case ASTC_TRANSLATION_UNIT:
+            for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                ast_free(node->data.translation_unit.declarations[i]);
+            }
+            free(node->data.translation_unit.declarations);
+            break;
+
+        case ASTC_FUNC_DECL:
+            free(node->data.func_decl.name);
+            ast_free(node->data.func_decl.return_type);
+            for (int i = 0; i < node->data.func_decl.param_count; i++) {
+                ast_free(node->data.func_decl.params[i]);
+            }
+            free(node->data.func_decl.params);
+            ast_free(node->data.func_decl.body);
+            break;
+
+        case ASTC_VAR_DECL:
+        case ASTC_PARAM_DECL:
+            free(node->data.var_decl.name);
+            ast_free(node->data.var_decl.type);
+            ast_free(node->data.var_decl.initializer);
+            break;
+
+        case AST_MODULE:
+            free(node->data.module_decl.name);
+            free(node->data.module_decl.version);
+            free(node->data.module_decl.author);
+            break;
+
+        case AST_IMPORT:
+            free(node->data.import_decl.module_name);
+            free(node->data.import_decl.import_name);
+            free(node->data.import_decl.local_name);
+            break;
+
+        case AST_EXPORT:
+            free(node->data.export_decl.name);
+            free(node->data.export_decl.alias);
+            break;
+
+        // 对于其他节点类型，使用默认处理
+        default:
+            // 简单节点类型不需要特殊处理
+            break;
+    }
+
+    free(node);
+}
+
+// ===============================================
+// 缺失的解析函数实现
+// ===============================================
+
+// 解析表达式 (简化实现)
+static struct ASTNode* parse_expression(Parser* parser) {
+    // 简化实现：只解析基本表达式
+    return parse_assignment(parser);
+}
+
+// 解析赋值表达式
+static struct ASTNode* parse_assignment(Parser* parser) {
+    // 简化实现：直接解析逻辑或表达式
+    return parse_logical_or(parser);
+}
+
+// 解析逻辑或表达式
+static struct ASTNode* parse_logical_or(Parser* parser) {
+    return parse_logical_and(parser);
+}
+
+// 解析逻辑与表达式
+static struct ASTNode* parse_logical_and(Parser* parser) {
+    return parse_equality(parser);
+}
+
+// 解析相等性表达式
+static struct ASTNode* parse_equality(Parser* parser) {
+    return parse_relational(parser);
+}
+
+// 解析关系表达式
+static struct ASTNode* parse_relational(Parser* parser) {
+    return parse_additive(parser);
+}
+
+// 解析加法表达式
+static struct ASTNode* parse_additive(Parser* parser) {
+    return parse_multiplicative(parser);
+}
+
+// 解析乘法表达式
+static struct ASTNode* parse_multiplicative(Parser* parser) {
+    return parse_unary(parser);
+}
+
+// 解析一元表达式
+static struct ASTNode* parse_unary(Parser* parser) {
+    return parse_primary(parser);
+}
+
+// 解析基本表达式
+static struct ASTNode* parse_primary(Parser* parser) {
+    Token* token = peek(parser);
+    if (!token) {
+        parser_error(parser, "预期表达式");
+        return NULL;
+    }
+
+    switch (token->type) {
+        case TOKEN_IDENTIFIER: {
+            struct ASTNode* node = ast_create_node(ASTC_EXPR_IDENTIFIER, token->line, token->column);
+            if (node) {
+                node->data.identifier.name = strdup(token->value);
+            }
+            advance(parser);
+            return node;
+        }
+
+        case TOKEN_NUMBER: {
+            struct ASTNode* node = ast_create_node(ASTC_EXPR_CONSTANT, token->line, token->column);
+            if (node) {
+                node->data.constant.type = ASTC_TYPE_INT;
+                node->data.constant.int_val = atoll(token->value);
+            }
+            advance(parser);
+            return node;
+        }
+
+        case TOKEN_STRING_LITERAL: {
+            struct ASTNode* node = ast_create_node(ASTC_EXPR_STRING_LITERAL, token->line, token->column);
+            if (node) {
+                node->data.string_literal.value = strdup(token->value);
+            }
+            advance(parser);
+            return node;
+        }
+
+        default:
+            parser_error(parser, "无效的表达式");
+            return NULL;
+    }
+}
+
+// 解析结构体或联合体 (简化实现)
+static struct ASTNode* parse_struct_or_union(Parser* parser) {
+    Token* token = peek(parser);
+    if (!token) {
+        parser_error(parser, "预期struct或union");
+        return NULL;
+    }
+
+    struct ASTNode* node = ast_create_node(ASTC_TYPE_STRUCT, token->line, token->column);
+    if (!node) return NULL;
+
+    advance(parser); // 跳过struct/union关键字
+
+    // 简化实现：跳过结构体定义
+    if (match(parser, TOKEN_LBRACE)) {
+        // 跳过到匹配的右大括号
+        int brace_count = 1;
+        while (brace_count > 0 && peek(parser)) {
+            Token* t = advance(parser);
+            if (t->type == TOKEN_LBRACE) brace_count++;
+            else if (t->type == TOKEN_RBRACE) brace_count--;
+        }
+    }
+
+    return node;
+}
+
+// 解析枚举 (简化实现)
+static struct ASTNode* parse_enum(Parser* parser) {
+    Token* token = peek(parser);
+    if (!token) {
+        parser_error(parser, "预期enum");
+        return NULL;
+    }
+
+    struct ASTNode* node = ast_create_node(ASTC_TYPE_ENUM, token->line, token->column);
+    if (!node) return NULL;
+
+    advance(parser); // 跳过enum关键字
+
+    // 简化实现：跳过枚举定义
+    if (match(parser, TOKEN_LBRACE)) {
+        int brace_count = 1;
+        while (brace_count > 0 && peek(parser)) {
+            Token* t = advance(parser);
+            if (t->type == TOKEN_LBRACE) brace_count++;
+            else if (t->type == TOKEN_RBRACE) brace_count--;
+        }
+    }
+
+    return node;
+}
+
+// 解析指针类型 (简化实现)
+static struct ASTNode* parse_pointer_type(Parser* parser, struct ASTNode* base_type) {
+    struct ASTNode* node = ast_create_node(ASTC_TYPE_POINTER, 0, 0);
+    if (!node) {
+        ast_free(base_type);
+        return NULL;
+    }
+
+    // 简化实现：不处理复杂的指针类型
+    return node;
+}
+
+// 解析复合语句 (简化实现)
+static struct ASTNode* parse_compound_statement(Parser* parser) {
+    if (!match(parser, TOKEN_LBRACE)) {
+        parser_error(parser, "预期'{'");
+        return NULL;
+    }
+
+    struct ASTNode* node = ast_create_node(ASTC_COMPOUND_STMT, 0, 0);
+    if (!node) return NULL;
+
+    // 简化实现：跳过到匹配的右大括号
+    int brace_count = 1;
+    while (brace_count > 0 && peek(parser)) {
+        Token* t = advance(parser);
+        if (t->type == TOKEN_LBRACE) brace_count++;
+        else if (t->type == TOKEN_RBRACE) brace_count--;
+    }
+
+    return node;
+}
+
+// 其他缺失的解析函数 (简化实现)
+static struct ASTNode* parse_statement(Parser* parser) {
+    // 简化实现：返回空语句
+    return ast_create_node(ASTC_STMT_NONE, 0, 0);
+}
+
+static struct ASTNode* parse_expression_statement(Parser* parser) {
+    return parse_expression(parser);
+}
+
+static struct ASTNode* parse_if_statement(Parser* parser) {
+    return ast_create_node(ASTC_IF_STMT, 0, 0);
+}
+
+static struct ASTNode* parse_while_statement(Parser* parser) {
+    return ast_create_node(ASTC_WHILE_STMT, 0, 0);
+}
+
+static struct ASTNode* parse_for_statement(Parser* parser) {
+    return ast_create_node(ASTC_FOR_STMT, 0, 0);
+}
+
+static struct ASTNode* parse_return_statement(Parser* parser) {
+    return ast_create_node(ASTC_RETURN_STMT, 0, 0);
+}
+
+static struct ASTNode* parse_array_type(Parser* parser, struct ASTNode* element_type) {
+    return ast_create_node(ASTC_TYPE_ARRAY, 0, 0);
+}
+
+static struct ASTNode* parse_function_type(Parser* parser, struct ASTNode* return_type) {
+    return ast_create_node(ASTC_TYPE_FUNCTION, 0, 0);
+}
