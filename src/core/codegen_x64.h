@@ -1,7 +1,7 @@
 #ifndef CODEGENX64_64_H
 #define CODEGENX64_64_H
 
-#include "core_astc.h"
+#include "astc.h"
 #include "astc2native.h"
 
 // 生成单个函数的x86-64汇编代码

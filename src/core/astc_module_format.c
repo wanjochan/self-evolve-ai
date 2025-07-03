@@ -5,7 +5,7 @@
  * including imports, exports, dependencies, and metadata.
  */
 
-#include "include/core_astc.h"
+#include "astc.h"
 #include "include/logger.h"
 #include <stdio.h>
 #include <stdlib.h>

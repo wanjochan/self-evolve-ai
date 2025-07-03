@@ -45,16 +45,20 @@ layer-program:
 
 
 ## dev roadmap (by human master)
-- core
-    - src/core/include/core_astc.h      # core def about astc
-    - src/core/include/native_format.h  # our native module
-    - src/utils.[ch]                       # core utils for our system
-        - arch and bits dector, not using macro
-        - mmap-alike utils
-        - open+exec wrapper
-        - native module loader for .native
-    - src/vm_module.c
-    - src/libc_module.c
+- src/core/   # the real core with module system
+    - astc.h     # core def about ASTC
+    - native_format.h  # our native module format def
+    - utils.[ch]                       # core utils for our system
+        - arch and bits dector (must) not using macro)
+        - mmap-alike utils (copy and chmod exec)
+        - build and write .native bytecodes modules
+        - loader for .native
+- src/ext/    # todo next
+    - astc.h      # core def about astc
+    - astc_module.c            # native module that convert C to ASTC vise versa
+    - vm_module.c              # native module that vm that load .astc
+    - libc_module.c            # native module that of libc forwader 
+    - 
 
 - layer 1 loader (windows exe)
 - layer 2 native module (vm, libc), will be loaded by mmap() alike. (not libdl or ffi)

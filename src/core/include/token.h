@@ -8,7 +8,7 @@
 #ifndef TOKEN_H
 #define TOKEN_H
 
-#include "core_astc.h"  // 引入ASTC定义，避免重复
+#include "../astc.h"  // 引入ASTC定义，避免重复
 
 // 标记类型
 typedef enum {

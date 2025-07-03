@@ -7,7 +7,7 @@
 #ifndef ASTC_MODULE_FORMAT_H
 #define ASTC_MODULE_FORMAT_H
 
-#include "core_astc.h"
+#include "../astc.h"
 #include <stdint.h>
 #include <stdbool.h>
 

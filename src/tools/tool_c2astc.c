@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "../core/include/core_astc.h"
+#include "../core/astc.h"
 #include "../core/include/logger.h"
 #include "../core/include/astc_program_modules.h"
 #include "../compiler/c2astc.h"

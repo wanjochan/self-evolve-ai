@@ -9,3 +9,5 @@ cursor_screenshot.png
 tools/vscode_augment_status.png
 tools/*.png
 tools/vscode_ui_dump*.json
+*.un~
+*.c~

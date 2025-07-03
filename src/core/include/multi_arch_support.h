@@ -8,7 +8,7 @@
 #define MULTI_ARCH_SUPPORT_H
 
 #include "astc_platform_compat.h"
-#include "core_astc.h"
+#include "../astc.h"
 #include <stdint.h>
 #include <stdbool.h>
 
