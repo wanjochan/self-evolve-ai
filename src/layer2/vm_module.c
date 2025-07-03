@@ -152,7 +152,7 @@ void vm_core_cleanup(void) {
     vm_initialized = false;
 }
 
-int vm_core_execute_astc(const char* astc_file, int argc, char* argv[]) {
+__declspec(dllexport) int vm_core_execute_astc(const char* astc_file, int argc, char* argv[]) {
     if (!vm_initialized) {
         fprintf(stderr, "VM Core Error: VM not initialized\n");
         return -1;
@@ -318,6 +318,7 @@ const char* vm_module_license = "MIT";
 const char* vm_exports[] = {
     "vm_native_main",
     "vm_get_interface",
+    "vm_core_execute_astc",
     NULL
 };
 
@@ -347,27 +348,61 @@ int execute_astc_bytecode(const uint8_t* bytecode, uint32_t size, int argc, char
     if (size > 100) {  // c99.astc应该比较大
         printf("VM Core: Detected C99 compiler program\n");
 
-        // 模拟C99编译器的执行
+        // 真正的C99编译器执行 - 调用TCC
         if (argc >= 2) {
             const char* source_file = argv[1];
+            const char* output_file = "a.exe";  // 默认输出文件
+
+            // 解析输出文件参数
+            for (int i = 2; i < argc - 1; i++) {
+                if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+                    output_file = argv[i + 1];
+                    break;
+                }
+            }
+
             printf("VM Core: C99 compiler processing: %s\n", source_file);
+            printf("VM Core: Output file: %s\n", output_file);
 
             // 检查源文件是否存在
             FILE* test_file = fopen(source_file, "r");
-            if (test_file) {
-                fclose(test_file);
-                printf("VM Core: Source file found, compiling...\n");
-
-                // 模拟编译过程
-                printf("VM Core: Compilation successful!\n");
-                printf("VM Core: Output would be generated\n");
-                return 0;
-            } else {
+            if (!test_file) {
                 printf("VM Core: Source file not found: %s\n", source_file);
                 return 1;
             }
+            fclose(test_file);
+
+            // 构建TCC命令
+            char tcc_command[1024];
+            snprintf(tcc_command, sizeof(tcc_command),
+                    "external\\tcc-win\\tcc\\tcc.exe -o \"%s\" \"%s\"",
+                    output_file, source_file);
+
+            printf("VM Core: Executing TCC: %s\n", tcc_command);
+
+            // 调用TCC编译器
+            int result = system(tcc_command);
+
+            if (result == 0) {
+                printf("VM Core: Compilation successful!\n");
+                printf("VM Core: Generated executable: %s\n", output_file);
+
+                // 验证输出文件是否生成
+                FILE* output_test = fopen(output_file, "rb");
+                if (output_test) {
+                    fclose(output_test);
+                    printf("VM Core: Output file verified\n");
+                } else {
+                    printf("VM Core: Warning: Output file not found\n");
+                }
+
+                return 0;
+            } else {
+                printf("VM Core: Compilation failed with code: %d\n", result);
+                return result;
+            }
         } else {
-            printf("VM Core: C99 compiler usage: <source.c> [options]\n");
+            printf("VM Core: C99 compiler usage: <source.c> [-o output.exe]\n");
             return 1;
         }
     } else {

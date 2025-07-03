@@ -44,9 +44,9 @@ layer-program:
 未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
 
-## dev roadmap (by master)
+## dev roadmap (by human master)
 - layer 1 loader (windows exe)
-- layer 2 native module (vm, libc)
+- layer 2 native module (vm, libc), will be loaded by mmap() alike. (not libdl or ffi)
 - layer 3 program (c99 windows 64 x86)
 - build tcc with c99 // test c99 working good
 - layer 3 program c99 supports cross build
