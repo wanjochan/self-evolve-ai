@@ -15,8 +15,8 @@ if "%1"=="clean" (
 )
 
 REM Build the test executable
-echo Building JIT core tests...
-..\external\tcc-win\tcc\tcc.exe -o test_jit_core.exe test_jit_core.c ..\src\core\jit.c ..\src\core\utils.c
+echo Building JIT extension tests...
+..\external\tcc-win\tcc\tcc.exe -o test_jit_core.exe test_jit_core.c ..\src\ext\jit\jit.c ..\src\core\utils.c
 
 REM Check if compilation was successful
 if errorlevel 1 (

@@ -25,7 +25,9 @@
 #include "../../core/astc.h"
 #include "../../core/native.h"
 #include "../../core/utils.h"
-#include "../../core/jit.h"
+
+// Include optional JIT extension
+#include "../jit/jit.h"
 
 // Include ASTC module
 extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);
@@ -966,20 +968,26 @@ static const char* astc_jit_get_last_error(void) {
 }
 
 /**
- * Initialize ASTC+JIT system
+ * Initialize ASTC+JIT system (with optional JIT extension)
  */
 static int astc_jit_init(void) {
     // Set default options
-    g_default_astc_jit_options.use_jit = true;
+    g_default_astc_jit_options.use_jit = false; // Default to false, enable if JIT available
     g_default_astc_jit_options.cache_results = true;
     g_default_astc_jit_options.optimization_level = 1;
     g_default_astc_jit_options.verbose = false;
     safe_strncpy(g_default_astc_jit_options.temp_dir, "temp", sizeof(g_default_astc_jit_options.temp_dir));
 
-    // Initialize JIT cache
-    if (jit_cache_init(1024 * 1024) != 0) { // 1MB cache
-        astc_jit_set_error("Failed to initialize JIT cache");
-        return -1;
+    // Check if JIT extension is available
+    if (jit_ext_check_availability() == JIT_AVAILABLE) {
+        if (jit_ext_init() == 0) {
+            g_default_astc_jit_options.use_jit = true;
+            printf("VM: JIT extension enabled\n");
+        } else {
+            printf("VM: JIT extension initialization failed, using fallback\n");
+        }
+    } else {
+        printf("VM: JIT extension not available, using ASTC interpretation\n");
     }
 
     return 0;
@@ -989,7 +997,9 @@ static int astc_jit_init(void) {
  * Cleanup ASTC+JIT system
  */
 static void astc_jit_cleanup(void) {
-    jit_cache_cleanup();
+    if (g_default_astc_jit_options.use_jit) {
+        jit_ext_cleanup();
+    }
 }
 
 /**
