@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <math.h>
+#include <errno.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -85,6 +87,491 @@ static bool libc_initialized = false;
 static uint64_t malloc_count = 0;
 static uint64_t free_count = 0;
 static uint64_t total_allocated = 0;
+
+// ===============================================
+// Extended LibC Function Implementations
+// ===============================================
+
+// File I/O Functions
+FILE* libc_fopen(const char* filename, const char* mode) {
+    if (!filename || !mode) {
+        return NULL;
+    }
+    printf("LibC: fopen(%s, %s)\n", filename, mode);
+    return fopen(filename, mode);
+}
+
+int libc_fclose(FILE* stream) {
+    if (!stream) {
+        return EOF;
+    }
+    printf("LibC: fclose()\n");
+    return fclose(stream);
+}
+
+size_t libc_fread(void* ptr, size_t size, size_t count, FILE* stream) {
+    if (!ptr || !stream) {
+        return 0;
+    }
+    printf("LibC: fread(size=%zu, count=%zu)\n", size, count);
+    return fread(ptr, size, count, stream);
+}
+
+size_t libc_fwrite(const void* ptr, size_t size, size_t count, FILE* stream) {
+    if (!ptr || !stream) {
+        return 0;
+    }
+    printf("LibC: fwrite(size=%zu, count=%zu)\n", size, count);
+    return fwrite(ptr, size, count, stream);
+}
+
+int libc_fseek(FILE* stream, long offset, int whence) {
+    if (!stream) {
+        return -1;
+    }
+    printf("LibC: fseek(offset=%ld, whence=%d)\n", offset, whence);
+    return fseek(stream, offset, whence);
+}
+
+long libc_ftell(FILE* stream) {
+    if (!stream) {
+        return -1L;
+    }
+    printf("LibC: ftell()\n");
+    return ftell(stream);
+}
+
+int libc_feof(FILE* stream) {
+    if (!stream) {
+        return 1;
+    }
+    return feof(stream);
+}
+
+int libc_ferror(FILE* stream) {
+    if (!stream) {
+        return 1;
+    }
+    return ferror(stream);
+}
+
+// String Functions (Extended)
+char* libc_strcpy(char* dest, const char* src) {
+    if (!dest || !src) {
+        return dest;
+    }
+    printf("LibC: strcpy()\n");
+    return strcpy(dest, src);
+}
+
+char* libc_strncpy(char* dest, const char* src, size_t n) {
+    if (!dest || !src) {
+        return dest;
+    }
+    printf("LibC: strncpy(n=%zu)\n", n);
+    return strncpy(dest, src, n);
+}
+
+char* libc_strcat(char* dest, const char* src) {
+    if (!dest || !src) {
+        return dest;
+    }
+    printf("LibC: strcat()\n");
+    return strcat(dest, src);
+}
+
+char* libc_strncat(char* dest, const char* src, size_t n) {
+    if (!dest || !src) {
+        return dest;
+    }
+    printf("LibC: strncat(n=%zu)\n", n);
+    return strncat(dest, src, n);
+}
+
+int libc_strcmp(const char* s1, const char* s2) {
+    if (!s1 || !s2) {
+        return 0;
+    }
+    printf("LibC: strcmp()\n");
+    return strcmp(s1, s2);
+}
+
+int libc_strncmp(const char* s1, const char* s2, size_t n) {
+    if (!s1 || !s2) {
+        return 0;
+    }
+    printf("LibC: strncmp(n=%zu)\n", n);
+    return strncmp(s1, s2, n);
+}
+
+char* libc_strchr(const char* s, int c) {
+    if (!s) {
+        return NULL;
+    }
+    printf("LibC: strchr(c=%c)\n", c);
+    return strchr(s, c);
+}
+
+char* libc_strrchr(const char* s, int c) {
+    if (!s) {
+        return NULL;
+    }
+    printf("LibC: strrchr(c=%c)\n", c);
+    return strrchr(s, c);
+}
+
+char* libc_strstr(const char* haystack, const char* needle) {
+    if (!haystack || !needle) {
+        return NULL;
+    }
+    printf("LibC: strstr()\n");
+    return strstr(haystack, needle);
+}
+
+// ===============================================
+// Enhanced Memory Management
+// ===============================================
+
+// Memory statistics
+typedef struct {
+    size_t total_allocated;
+    size_t total_freed;
+    size_t current_usage;
+    size_t peak_usage;
+    size_t allocation_count;
+    size_t free_count;
+} MemoryStats;
+
+static MemoryStats g_memory_stats = {0};
+
+// Simple memory pool for small allocations
+#define MEMORY_POOL_SIZE 1024 * 1024  // 1MB pool
+#define SMALL_ALLOC_THRESHOLD 256      // Allocations <= 256 bytes use pool
+
+static char g_memory_pool[MEMORY_POOL_SIZE];
+static size_t g_pool_offset = 0;
+static bool g_pool_enabled = true;
+
+// Enhanced malloc with statistics and pool
+void* libc_malloc_enhanced(size_t size) {
+    if (size == 0) {
+        return NULL;
+    }
+
+    void* ptr = NULL;
+
+    // Use memory pool for small allocations
+    if (g_pool_enabled && size <= SMALL_ALLOC_THRESHOLD &&
+        g_pool_offset + size <= MEMORY_POOL_SIZE) {
+        ptr = &g_memory_pool[g_pool_offset];
+        g_pool_offset += size;
+        printf("LibC: malloc_enhanced(%zu) from pool -> %p\n", size, ptr);
+    } else {
+        // Use system malloc for large allocations
+        ptr = malloc(size);
+        printf("LibC: malloc_enhanced(%zu) from system -> %p\n", size, ptr);
+    }
+
+    if (ptr) {
+        g_memory_stats.total_allocated += size;
+        g_memory_stats.current_usage += size;
+        g_memory_stats.allocation_count++;
+
+        if (g_memory_stats.current_usage > g_memory_stats.peak_usage) {
+            g_memory_stats.peak_usage = g_memory_stats.current_usage;
+        }
+    }
+
+    return ptr;
+}
+
+// Enhanced free with statistics
+void libc_free_enhanced(void* ptr) {
+    if (!ptr) {
+        return;
+    }
+
+    // Check if pointer is from memory pool
+    if (ptr >= (void*)g_memory_pool &&
+        ptr < (void*)(g_memory_pool + MEMORY_POOL_SIZE)) {
+        printf("LibC: free_enhanced(%p) from pool (no-op)\n", ptr);
+        // Pool memory is not individually freed
+    } else {
+        printf("LibC: free_enhanced(%p) to system\n", ptr);
+        free(ptr);
+    }
+
+    g_memory_stats.free_count++;
+}
+
+// Memory statistics functions
+void libc_get_memory_stats(MemoryStats* stats) {
+    if (stats) {
+        *stats = g_memory_stats;
+    }
+}
+
+void libc_print_memory_stats(void) {
+    printf("=== LibC Memory Statistics ===\n");
+    printf("Total allocated: %zu bytes\n", g_memory_stats.total_allocated);
+    printf("Total freed: %zu bytes\n", g_memory_stats.total_freed);
+    printf("Current usage: %zu bytes\n", g_memory_stats.current_usage);
+    printf("Peak usage: %zu bytes\n", g_memory_stats.peak_usage);
+    printf("Allocation count: %zu\n", g_memory_stats.allocation_count);
+    printf("Free count: %zu\n", g_memory_stats.free_count);
+    printf("Pool usage: %zu / %d bytes (%.1f%%)\n",
+           g_pool_offset, MEMORY_POOL_SIZE,
+           (double)g_pool_offset / MEMORY_POOL_SIZE * 100.0);
+    printf("==============================\n");
+}
+
+void libc_reset_memory_stats(void) {
+    memset(&g_memory_stats, 0, sizeof(MemoryStats));
+    g_pool_offset = 0;
+}
+
+// ===============================================
+// Math Functions
+// ===============================================
+
+// Trigonometric functions
+double libc_sin(double x) {
+    printf("LibC: sin(%f)\n", x);
+    return sin(x);
+}
+
+double libc_cos(double x) {
+    printf("LibC: cos(%f)\n", x);
+    return cos(x);
+}
+
+double libc_tan(double x) {
+    printf("LibC: tan(%f)\n", x);
+    return tan(x);
+}
+
+double libc_asin(double x) {
+    printf("LibC: asin(%f)\n", x);
+    return asin(x);
+}
+
+double libc_acos(double x) {
+    printf("LibC: acos(%f)\n", x);
+    return acos(x);
+}
+
+double libc_atan(double x) {
+    printf("LibC: atan(%f)\n", x);
+    return atan(x);
+}
+
+double libc_atan2(double y, double x) {
+    printf("LibC: atan2(%f, %f)\n", y, x);
+    return atan2(y, x);
+}
+
+// Exponential and logarithmic functions
+double libc_exp(double x) {
+    printf("LibC: exp(%f)\n", x);
+    return exp(x);
+}
+
+double libc_log(double x) {
+    printf("LibC: log(%f)\n", x);
+    return log(x);
+}
+
+double libc_log10(double x) {
+    printf("LibC: log10(%f)\n", x);
+    return log10(x);
+}
+
+double libc_pow(double base, double exponent) {
+    printf("LibC: pow(%f, %f)\n", base, exponent);
+    return pow(base, exponent);
+}
+
+double libc_sqrt(double x) {
+    printf("LibC: sqrt(%f)\n", x);
+    return sqrt(x);
+}
+
+// Rounding and remainder functions
+double libc_ceil(double x) {
+    printf("LibC: ceil(%f)\n", x);
+    return ceil(x);
+}
+
+double libc_floor(double x) {
+    printf("LibC: floor(%f)\n", x);
+    return floor(x);
+}
+
+double libc_fabs(double x) {
+    printf("LibC: fabs(%f)\n", x);
+    return fabs(x);
+}
+
+double libc_fmod(double x, double y) {
+    printf("LibC: fmod(%f, %f)\n", x, y);
+    return fmod(x, y);
+}
+
+// Hyperbolic functions
+double libc_sinh(double x) {
+    printf("LibC: sinh(%f)\n", x);
+    return sinh(x);
+}
+
+double libc_cosh(double x) {
+    printf("LibC: cosh(%f)\n", x);
+    return cosh(x);
+}
+
+double libc_tanh(double x) {
+    printf("LibC: tanh(%f)\n", x);
+    return tanh(x);
+}
+
+// Integer math functions
+int libc_abs(int x) {
+    printf("LibC: abs(%d)\n", x);
+    return abs(x);
+}
+
+long libc_labs(long x) {
+    printf("LibC: labs(%ld)\n", x);
+    return labs(x);
+}
+
+// Random number functions
+int libc_rand(void) {
+    int result = rand();
+    printf("LibC: rand() -> %d\n", result);
+    return result;
+}
+
+void libc_srand(unsigned int seed) {
+    printf("LibC: srand(%u)\n", seed);
+    srand(seed);
+}
+
+// ===============================================
+// Error Handling and errno Management
+// ===============================================
+
+// Thread-local errno simulation (simplified)
+static int g_libc_errno = 0;
+
+// Error message table
+static const char* error_messages[] = {
+    "Success",                          // 0
+    "Operation not permitted",          // EPERM
+    "No such file or directory",        // ENOENT
+    "No such process",                  // ESRCH
+    "Interrupted system call",          // EINTR
+    "I/O error",                        // EIO
+    "No such device or address",        // ENXIO
+    "Argument list too long",           // E2BIG
+    "Exec format error",                // ENOEXEC
+    "Bad file number",                  // EBADF
+    "No child processes",               // ECHILD
+    "Try again",                        // EAGAIN
+    "Out of memory",                    // ENOMEM
+    "Permission denied",                // EACCES
+    "Bad address",                      // EFAULT
+    "Block device required",            // ENOTBLK
+    "Device or resource busy",          // EBUSY
+    "File exists",                      // EEXIST
+    "Cross-device link",                // EXDEV
+    "No such device",                   // ENODEV
+    "Not a directory",                  // ENOTDIR
+    "Is a directory",                   // EISDIR
+    "Invalid argument",                 // EINVAL
+    "File table overflow",              // ENFILE
+    "Too many open files",              // EMFILE
+    "Not a typewriter",                 // ENOTTY
+    "Text file busy",                   // ETXTBSY
+    "File too large",                   // EFBIG
+    "No space left on device",         // ENOSPC
+    "Illegal seek",                     // ESPIPE
+    "Read-only file system",            // EROFS
+    "Too many links"                    // EMLINK
+};
+
+#define MAX_ERROR_CODE (sizeof(error_messages) / sizeof(error_messages[0]) - 1)
+
+// Get current errno
+int* libc_get_errno_ptr(void) {
+    return &g_libc_errno;
+}
+
+int libc_get_errno(void) {
+    return g_libc_errno;
+}
+
+void libc_set_errno(int error_code) {
+    g_libc_errno = error_code;
+    printf("LibC: errno set to %d (%s)\n", error_code, libc_strerror(error_code));
+}
+
+void libc_clear_errno(void) {
+    g_libc_errno = 0;
+}
+
+// Error message functions
+char* libc_strerror(int errnum) {
+    static char unknown_error[64];
+
+    if (errnum >= 0 && errnum <= MAX_ERROR_CODE) {
+        return (char*)error_messages[errnum];
+    } else {
+        snprintf(unknown_error, sizeof(unknown_error), "Unknown error %d", errnum);
+        return unknown_error;
+    }
+}
+
+void libc_perror(const char* s) {
+    if (s && *s) {
+        printf("%s: %s\n", s, libc_strerror(g_libc_errno));
+    } else {
+        printf("%s\n", libc_strerror(g_libc_errno));
+    }
+}
+
+// Error checking wrapper functions
+void* libc_malloc_safe(size_t size) {
+    void* ptr = libc_malloc_enhanced(size);
+    if (!ptr && size > 0) {
+        libc_set_errno(12); // ENOMEM
+    }
+    return ptr;
+}
+
+FILE* libc_fopen_safe(const char* filename, const char* mode) {
+    FILE* file = libc_fopen(filename, mode);
+    if (!file) {
+        libc_set_errno(2); // ENOENT - simplified error handling
+    }
+    return file;
+}
+
+int libc_fclose_safe(FILE* stream) {
+    int result = libc_fclose(stream);
+    if (result != 0) {
+        libc_set_errno(9); // EBADF - simplified error handling
+    }
+    return result;
+}
+
+// Error reporting functions
+void libc_print_error_stats(void) {
+    printf("=== LibC Error Statistics ===\n");
+    printf("Current errno: %d (%s)\n", g_libc_errno, libc_strerror(g_libc_errno));
+    printf("Error handling: Enhanced\n");
+    printf("Thread safety: Simplified (single-threaded)\n");
+    printf("============================\n");
+}
 
 // ===============================================
 // LibC Function Implementations

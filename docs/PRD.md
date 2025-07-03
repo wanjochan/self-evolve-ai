@@ -44,17 +44,29 @@ layer-program:
 未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
 
+
+
+## stage1 dev flow
+loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 
+.\bin\layer1\loader_x64_64.exe -m bin\layer2\vm_x64_64.native bin\layer3\c99.astc -- test_hello.c -o hello.exe
+
+### 核心技术
+- **ASTC字节码**: 可扩展的计算表示 (core_astc.h)
+- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native_format.h)
+- **JIT编译**: 动态代码生成引擎 (astc2native.c)
+
+## 5. 实现路线图
+
 ## dev roadmap (by human master)
-- src/core/   # the real core with module system
-    - astc.h     # core def about ASTC
-    - native_format.h  # our native module format def
-    - utils.[ch]                       # core utils for our system
-        - arch and bits dector (must) not using macro)
-        - mmap-alike utils (copy and chmod exec)
-        - build and write .native bytecodes modules
-        - loader for .native
-- src/ext/    # todo next
-    - astc.h      # core def about astc
+- src/core/                    # the real core
+    - astc.h                   # core def about ASTC
+    - jit.[c|h]                # byte code emitter, maybe should merge with native?
+    - native.[c|h]             # native module handlers
+    - utils.[c|h]              # the very core utils
+        - arch and bits detector (must not using macro)
+        - bytecode tool functios 
+- src/ext/    # the extended modules
+    - utils_ext.c              # more utility functions
     - astc_module.c            # native module that convert C to ASTC vise versa
     - vm_module.c              # native module that vm that load .astc
     - libc_module.c            # native module that of libc forwader 
@@ -70,17 +82,6 @@ layer-program:
 - build loader2 with c99
 
 - src/utils.c:: libdl-alike, libffi-alike
-
-## stage1 dev flow
-loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 
-.\bin\layer1\loader_x64_64.exe -m bin\layer2\vm_x64_64.native bin\layer3\c99.astc -- test_hello.c -o hello.exe
-
-### 核心技术
-- **ASTC字节码**: 可扩展的计算表示 (core_astc.h)
-- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native_format.h)
-- **JIT编译**: 动态代码生成引擎 (astc2native.c)
-
-## 5. 实现路线图
 
 ### Phase 1: 自举
 

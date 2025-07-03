@@ -1,8 +1,4 @@
-/**
- * native_format.c - Implementation of .native module format
- */
-
-#include "include/native_format.h"
+#include "native.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

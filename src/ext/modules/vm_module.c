@@ -25,6 +25,11 @@
 #include "../../core/astc.h"
 #include "../../core/native.h"
 #include "../../core/utils.h"
+#include "../../core/jit.h"
+
+// Include ASTC module
+extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);
+extern int astc2native(const char* astc_file_path, const char* native_file_path, const char* target_arch);
 
 // ===============================================
 // VM Module Interface (PRD.md compliant)
@@ -46,7 +51,7 @@ typedef struct JITContext {
     uint8_t* output_buffer;
     size_t output_size;
     size_t output_offset;
-    Architecture arch;
+    DetectedArchitecture arch;
 } JITContext;
 
 /**
@@ -914,6 +919,282 @@ size_t vm_jit_emit_exit(uint8_t* output, JITContext* ctx, uint8_t exit_code) {
 // JIT Support Structures already defined above
 
 // ===============================================
+// ASTC+JIT Integration Interface
+// ===============================================
+
+/**
+ * ASTC+JIT compilation options
+ */
+typedef struct {
+    bool use_jit;                 // Enable JIT compilation
+    bool cache_results;           // Cache compilation results
+    int optimization_level;       // 0=none, 1=basic, 2=aggressive
+    bool verbose;                 // Verbose output
+    char temp_dir[256];          // Temporary directory for intermediate files
+} ASTCJITOptions;
+
+/**
+ * ASTC+JIT compilation result
+ */
+typedef struct {
+    void* entry_point;           // JIT compiled entry point
+    size_t code_size;            // Generated code size
+    uint64_t compile_time_us;    // Compilation time in microseconds
+    bool from_cache;             // Whether result was from cache
+    char error_message[512];     // Error message if compilation failed
+} ASTCJITResult;
+
+// Global ASTC+JIT state
+static ASTCJITOptions g_default_astc_jit_options = {0};
+static char g_astc_jit_error[512] = {0};
+
+/**
+ * Set ASTC+JIT error message
+ */
+static void astc_jit_set_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(g_astc_jit_error, sizeof(g_astc_jit_error), format, args);
+    va_end(args);
+}
+
+/**
+ * Get ASTC+JIT last error
+ */
+static const char* astc_jit_get_last_error(void) {
+    return g_astc_jit_error[0] ? g_astc_jit_error : NULL;
+}
+
+/**
+ * Initialize ASTC+JIT system
+ */
+static int astc_jit_init(void) {
+    // Set default options
+    g_default_astc_jit_options.use_jit = true;
+    g_default_astc_jit_options.cache_results = true;
+    g_default_astc_jit_options.optimization_level = 1;
+    g_default_astc_jit_options.verbose = false;
+    safe_strncpy(g_default_astc_jit_options.temp_dir, "temp", sizeof(g_default_astc_jit_options.temp_dir));
+
+    // Initialize JIT cache
+    if (jit_cache_init(1024 * 1024) != 0) { // 1MB cache
+        astc_jit_set_error("Failed to initialize JIT cache");
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * Cleanup ASTC+JIT system
+ */
+static void astc_jit_cleanup(void) {
+    jit_cache_cleanup();
+}
+
+/**
+ * Compile C source to executable using ASTC+JIT (replaces TCC)
+ */
+static int astc_jit_compile_c_to_executable(const char* c_file, const char* exe_file, const ASTCJITOptions* options, ASTCJITResult* result) {
+    if (!c_file || !exe_file) {
+        astc_jit_set_error("Invalid file paths");
+        return -1;
+    }
+
+    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
+
+    if (opts->verbose) {
+        printf("VM: ASTC+JIT compiling %s -> %s\n", c_file, exe_file);
+    }
+
+    uint64_t start_time = get_current_time_us();
+
+    // Initialize result
+    if (result) {
+        memset(result, 0, sizeof(ASTCJITResult));
+    }
+
+    // Step 1: Create temporary ASTC file
+    char temp_astc_file[512];
+    safe_snprintf(temp_astc_file, sizeof(temp_astc_file), "%s/%s.astc", opts->temp_dir, "temp_compile");
+
+    // Step 2: C to ASTC compilation
+    if (c2astc(c_file, temp_astc_file, NULL) != 0) {
+        astc_jit_set_error("C to ASTC compilation failed");
+        return -1;
+    }
+
+    if (opts->verbose) {
+        printf("VM: C to ASTC compilation completed\n");
+    }
+
+    // Step 3: ASTC to native compilation
+    if (astc2native(temp_astc_file, exe_file, NULL) != 0) {
+        astc_jit_set_error("ASTC to native compilation failed");
+        remove(temp_astc_file); // Cleanup
+        return -1;
+    }
+
+    if (opts->verbose) {
+        printf("VM: ASTC to native compilation completed\n");
+    }
+
+    // Cleanup temporary file
+    remove(temp_astc_file);
+
+    // Update result
+    if (result) {
+        result->compile_time_us = get_current_time_us() - start_time;
+        result->from_cache = false;
+
+        // Get file size
+        FILE* exe_test = fopen(exe_file, "rb");
+        if (exe_test) {
+            fseek(exe_test, 0, SEEK_END);
+            result->code_size = ftell(exe_test);
+            fclose(exe_test);
+        }
+    }
+
+    if (opts->verbose) {
+        printf("VM: ASTC+JIT compilation completed successfully\n");
+    }
+
+    return 0;
+}
+
+/**
+ * Compile C source to JIT code for immediate execution
+ */
+static int astc_jit_compile_c_to_jit(const char* c_file, void** entry_point, size_t* code_size, const ASTCJITOptions* options) {
+    if (!c_file || !entry_point || !code_size) {
+        astc_jit_set_error("Invalid parameters for JIT compilation");
+        return -1;
+    }
+
+    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
+
+    if (opts->verbose) {
+        printf("VM: JIT compiling C source: %s\n", c_file);
+    }
+
+    // Step 1: Create temporary ASTC file
+    char temp_astc_file[512];
+    safe_snprintf(temp_astc_file, sizeof(temp_astc_file), "%s/jit_temp.astc", opts->temp_dir);
+
+    // Step 2: C to ASTC compilation
+    if (c2astc(c_file, temp_astc_file, NULL) != 0) {
+        astc_jit_set_error("C to ASTC compilation failed for JIT");
+        return -1;
+    }
+
+    // Step 3: Load ASTC bytecode
+    void* astc_data;
+    size_t astc_size;
+    if (read_file_to_buffer(temp_astc_file, &astc_data, &astc_size) != 0) {
+        astc_jit_set_error("Failed to read ASTC file for JIT");
+        remove(temp_astc_file);
+        return -1;
+    }
+
+    // Step 4: JIT compile ASTC bytecode
+    int result = astc_jit_compile_astc_to_jit((uint8_t*)astc_data, astc_size, entry_point, code_size, opts);
+
+    // Cleanup
+    free(astc_data);
+    remove(temp_astc_file);
+
+    return result;
+}
+
+/**
+ * Compile ASTC bytecode to JIT code
+ */
+static int astc_jit_compile_astc_to_jit(const uint8_t* astc_data, size_t astc_size, void** entry_point, size_t* code_size, const ASTCJITOptions* options) {
+    if (!astc_data || astc_size == 0 || !entry_point || !code_size) {
+        astc_jit_set_error("Invalid parameters for ASTC JIT compilation");
+        return -1;
+    }
+
+    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
+
+    if (opts->verbose) {
+        printf("VM: JIT compiling ASTC bytecode (%zu bytes)\n", astc_size);
+    }
+
+    // Initialize JIT compiler
+    DetectedArchitecture target_arch = detect_architecture();
+    JITOptLevel opt_level = (opts->optimization_level == 0) ? JIT_OPT_NONE :
+                           (opts->optimization_level == 1) ? JIT_OPT_BASIC : JIT_OPT_AGGRESSIVE;
+
+    uint32_t jit_flags = JIT_FLAG_NONE;
+    if (opts->cache_results) {
+        jit_flags |= JIT_FLAG_CACHE_RESULT;
+    }
+
+    JITCompiler* jit = jit_init(target_arch, opt_level, jit_flags);
+    if (!jit) {
+        astc_jit_set_error("Failed to initialize JIT compiler");
+        return -1;
+    }
+
+    // Skip ASTC header (16 bytes) and get to bytecode
+    const uint8_t* bytecode = astc_data + 16;
+    size_t bytecode_size = astc_size - 16;
+    uint32_t entry_point_offset = 0; // Assume entry point at start of bytecode
+
+    // Compile bytecode
+    JITResult jit_result = jit_compile_bytecode(jit, bytecode, bytecode_size, entry_point_offset);
+
+    if (jit_result != JIT_SUCCESS) {
+        const char* jit_error = jit_get_error_message(jit);
+        astc_jit_set_error("JIT compilation failed: %s", jit_error ? jit_error : "Unknown error");
+        jit_cleanup(jit);
+        return -1;
+    }
+
+    // Get compiled code
+    *entry_point = jit_get_entry_point(jit);
+    *code_size = jit_get_code_size(jit);
+
+    if (!*entry_point || *code_size == 0) {
+        astc_jit_set_error("JIT compilation produced no code");
+        jit_cleanup(jit);
+        return -1;
+    }
+
+    if (opts->verbose) {
+        printf("VM: JIT compilation successful (%zu bytes generated)\n", *code_size);
+    }
+
+    // Note: We don't cleanup the JIT compiler here because the compiled code is still needed
+    // In a real implementation, we'd need a way to manage the lifetime of JIT compiled code
+
+    return 0;
+}
+
+/**
+ * Execute JIT compiled code
+ */
+static int astc_jit_execute_jit_code(void* entry_point, int argc, char* argv[]) {
+    if (!entry_point) {
+        astc_jit_set_error("Invalid entry point for JIT execution");
+        return -1;
+    }
+
+    printf("VM: Executing JIT compiled code at %p\n", entry_point);
+
+    // Cast to function pointer and execute
+    typedef int (*jit_main_func_t)(int, char**);
+    jit_main_func_t jit_main = (jit_main_func_t)entry_point;
+
+    int result = jit_main(argc, argv);
+
+    printf("VM: JIT execution completed with result %d\n", result);
+    return result;
+}
+
+// ===============================================
 // VM Memory Management Implementation
 // ===============================================
 
@@ -1556,20 +1837,33 @@ int execute_astc_bytecode(const uint8_t* bytecode, uint32_t size, int argc, char
             }
             fclose(test_file);
 
-            // 构建TCC命令
-            char tcc_command[1024];
-            snprintf(tcc_command, sizeof(tcc_command),
-                    "external\\tcc-win\\tcc\\tcc.exe -o \"%s\" \"%s\"",
-                    output_file, source_file);
+            // 使用ASTC+JIT编译替换TCC
+            printf("VM Core: Using ASTC+JIT compilation instead of TCC\n");
 
-            printf("VM Core: Executing TCC: %s\n", tcc_command);
+            // Initialize ASTC+JIT if not already done
+            static bool astc_jit_initialized = false;
+            if (!astc_jit_initialized) {
+                if (astc_jit_init() != 0) {
+                    printf("VM Core: Failed to initialize ASTC+JIT system\n");
+                    return 1;
+                }
+                astc_jit_initialized = true;
+            }
 
-            // 调用TCC编译器
-            int result = system(tcc_command);
+            // Set compilation options
+            ASTCJITOptions compile_opts = g_default_astc_jit_options;
+            compile_opts.verbose = true;
+            compile_opts.optimization_level = 1;
+
+            // Compile using ASTC+JIT
+            ASTCJITResult compile_result;
+            int result = astc_jit_compile_c_to_executable(source_file, output_file, &compile_opts, &compile_result);
 
             if (result == 0) {
-                printf("VM Core: Compilation successful!\n");
+                printf("VM Core: ASTC+JIT compilation successful!\n");
                 printf("VM Core: Generated executable: %s\n", output_file);
+                printf("VM Core: Compilation time: %llu microseconds\n", (unsigned long long)compile_result.compile_time_us);
+                printf("VM Core: Output size: %zu bytes\n", compile_result.code_size);
 
                 // 验证输出文件是否生成
                 FILE* output_test = fopen(output_file, "rb");
@@ -1582,7 +1876,11 @@ int execute_astc_bytecode(const uint8_t* bytecode, uint32_t size, int argc, char
 
                 return 0;
             } else {
-                printf("VM Core: Compilation failed with code: %d\n", result);
+                printf("VM Core: ASTC+JIT compilation failed\n");
+                const char* error = astc_jit_get_last_error();
+                if (error) {
+                    printf("VM Core: Error: %s\n", error);
+                }
                 return result;
             }
         } else {
