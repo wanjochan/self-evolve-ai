@@ -1,14 +1,15 @@
 /**
- * loader.c - Simplified PRD-Compatible Loader (Layer 1)
+ * loader.c - Enhanced PRD-Compatible Loader (Layer 1)
  *
- * Simplified loader implementation for initial PRD.md compliance.
- * This version focuses on basic functionality without complex dependencies.
+ * Enhanced loader implementation following PRD.md three-layer architecture.
+ * Integrates with the new core module system and VM architecture.
  *
  * PRD.md Layer 1: loader_{arch}.exe
  * - Cross-platform unified startup
  * - Hardware environment detection
  * - Load corresponding vm_{arch}_{bits}.native
  * - Unified entry point for simplified deployment
+ * - Integration with core module system
  *
  * Architecture: loader_{arch}.exe -> vm_{arch}_{bits}.native -> {program}.astc
  */
@@ -17,17 +18,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <time.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/mman.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#endif
 #include <stdbool.h>
+#include <time.h>
+#include <stdarg.h>
+
+// Include core system components
+#include "../core/utils.h"
+#include "../core/native.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -41,273 +38,497 @@
 #else
 #include <unistd.h>
 #include <sys/utsname.h>
-#endif
-#include <stdbool.h>
-#include <time.h>
-#include <stdarg.h>
-
-
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #endif
 
-// #include "../include/native_format.h" // Removed - not needed for basic loader
-#include "../core/utils.h"
-
 // ===============================================
-// Unified Loader Configuration
+// Loader Core Interface Definitions
 // ===============================================
 
-// UnifiedLoaderConfig is now defined in utils.h
+/**
+ * Loader configuration structure
+ */
+typedef struct {
+    DetectedArchitecture target_arch;  // Target architecture
+    int target_bits;                   // Architecture bits (32/64)
+    char vm_module_path[512];          // Path to VM module
+    char program_path[512];            // Path to program to execute
+    int argc;                          // Program arguments count
+    char** argv;                       // Program arguments
+    bool verbose;                      // Verbose output
+    bool force_arch;                   // Force specific architecture
+} LoaderConfig;
 
-// PerformanceStats is now defined in utils.h
+/**
+ * Loader interface structure
+ */
+typedef struct {
+    // Lifecycle management
+    int (*init)(LoaderConfig* config);
+    void (*cleanup)(void);
+
+    // Architecture detection
+    DetectedArchitecture (*detect_architecture)(void);
+    int (*get_architecture_bits)(DetectedArchitecture arch);
+    const char* (*get_architecture_name)(DetectedArchitecture arch);
+
+    // VM module management
+    int (*load_vm_module)(const char* vm_path);
+    int (*unload_vm_module)(void);
+    int (*execute_program)(const char* program_path, int argc, char* argv[]);
+
+    // Command line processing
+    int (*parse_command_line)(int argc, char* argv[], LoaderConfig* config);
+    void (*print_usage)(const char* program_name);
+    void (*print_version)(void);
+
+    // Error handling
+    const char* (*get_last_error)(void);
+    void (*set_verbose)(bool verbose);
+} LoaderInterface;
 
 // ===============================================
-// Architecture Detection (Unified)
+// Global Loader State
 // ===============================================
 
-// DetectedArchitecture is now defined in utils.h
+static LoaderInterface* g_loader = NULL;
+static LoaderConfig g_config = {0};
+static NativeModuleHandle* g_vm_module = NULL;
+static char g_last_error[512] = {0};
+static bool g_verbose = false;
 
-// detect_architecture() is now in utils.c
 
-// get_architecture_string() and get_architecture_bits() are now in utils.c
-
-// ===============================================
-// VM Module Path Construction
-// ===============================================
-
-// construct_vm_module_path() is now in utils.c
 
 // ===============================================
-// Unified Error Handling
+// Loader Implementation Functions
 // ===============================================
 
-// print_error(), print_verbose() and other print functions are now in utils.c
+/**
+ * Set loader error message
+ */
+static void loader_set_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(g_last_error, sizeof(g_last_error), format, args);
+    va_end(args);
 
-// ===============================================
-// Unified Module Loading
-// ===============================================
-
-// LoadedVMModule is now defined in src/core/utils.h
-
-// ===============================================
-// Function Declarations
-// ===============================================
-
-// VM module functions are now in src/core/utils.c
-
-// ===============================================
-// Command Line Parsing
-// ===============================================
-
-void print_usage(const char* program_name) {
-    printf("Self-Evolve AI Unified Loader v1.0 (PRD-Compatible)\n");
-    printf("===================================================\n\n");
-
-    printf("Usage: %s [options] [program.astc] [-- program_args...]\n\n", program_name);
-
-    printf("Description:\n");
-    printf("  Cross-platform unified launcher that detects hardware environment\n");
-    printf("  and loads the appropriate vm_{arch}_{bits}.native module.\n");
-    printf("  Implements PRD.md Layer 1 specification.\n\n");
-
-    printf("Options:\n");
-    printf("  -v, --verbose         Enable verbose output\n");
-    printf("  -d, --debug           Enable debug mode\n");
-    printf("  -p, --performance     Show performance statistics\n");
-    printf("  -i, --interactive     Start in interactive mode\n");
-    printf("  -a, --autonomous      Enable autonomous AI evolution mode\n");
-    printf("  -s, --security LEVEL  Set security clearance level (0-3)\n");
-    printf("  -m, --vm-module PATH  Override VM module path\n");
-    printf("  -c, --config FILE     Load configuration from file\n");
-    printf("  -h, --help            Show this help message\n");
-    printf("  --                    Separate loader options from program arguments\n\n");
-
-    printf("Examples:\n");
-    printf("  %s program.astc                    # Basic execution\n", program_name);
-    printf("  %s -v -d program.astc              # Verbose debug mode\n", program_name);
-    printf("  %s -a --autonomous program.astc    # Autonomous evolution\n", program_name);
-    printf("  %s -i                              # Interactive mode\n", program_name);
-    printf("  %s -m custom_vm.native prog.astc   # Custom VM module\n", program_name);
-
-    printf("\nSupported architectures:\n");
-    printf("  x64_64.native          # 64-bit x86_64\n");
-    printf("  arm64_64.native        # 64-bit ARM64\n");
-    printf("  x86_32.native          # 32-bit x86\n");
-    printf("  arm32_32.native        # 32-bit ARM\n");
-
-    printf("\nPRD.md Three-Layer Architecture:\n");
-    printf("  Layer 1: loader.exe                    # This program\n");
-    printf("  Layer 2: vm_{arch}_{bits}.native       # VM module\n");
-    printf("  Layer 3: {program}.astc                # ASTC bytecode\n");
+    if (g_verbose) {
+        printf("Loader Error: %s\n", g_last_error);
+    }
 }
 
-int parse_arguments(int argc, char* argv[], UnifiedLoaderConfig* config) {
-    // Initialize default configuration
-    memset(config, 0, sizeof(UnifiedLoaderConfig));
-    config->security_level = 1; // Default security level
-
-    int i = 1;
-    while (i < argc) {
-        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            print_usage(argv[0]);
-            return 1; // Exit with success
-        }
-        else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
-            config->verbose_mode = true;
-        }
-        else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
-            config->debug_mode = true;
-        }
-        else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--performance") == 0) {
-            config->performance_stats = true;
-        }
-        else if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interactive") == 0) {
-            config->interactive_mode = true;
-        }
-        else if (strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "--autonomous") == 0) {
-            config->autonomous_mode = true;
-        }
-        else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--security") == 0) {
-            if (i + 1 >= argc) {
-                print_error("Security level option requires a value");
-                return -1;
-            }
-            config->security_level = atoi(argv[++i]);
-            if (config->security_level > 3) {
-                print_error("Security level must be 0-3");
-                return -1;
-            }
-        }
-        else if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--vm-module") == 0) {
-            if (i + 1 >= argc) {
-                print_error("VM module option requires a path");
-                return -1;
-            }
-            config->vm_module_override = argv[++i];
-        }
-        else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--config") == 0) {
-            if (i + 1 >= argc) {
-                print_error("Config option requires a file path");
-                return -1;
-            }
-            config->config_file = argv[++i];
-        }
-        else if (strcmp(argv[i], "--") == 0) {
-            // Everything after -- goes to the program
-            i++;
-            config->program_argc = argc - i;
-            config->program_argv = &argv[i];
-            print_verbose(config, "Found -- separator, program_argc=%d", config->program_argc);
-            for (int j = 0; j < config->program_argc; j++) {
-                print_verbose(config, "program_argv[%d] = %s", j, config->program_argv[j]);
-            }
-            break;
-        }
-        else if (argv[i][0] == '-') {
-            print_error("Unknown option: %s", argv[i]);
-            return -1;
-        }
-        else {
-            // First non-option argument is the program file
-            if (!config->program_file) {
-                config->program_file = argv[i];
-            } else {
-                print_error("Multiple program files specified");
-                return -1;
-            }
-        }
-        i++;
+/**
+ * Initialize loader
+ */
+static int loader_init(LoaderConfig* config) {
+    if (!config) {
+        loader_set_error("Invalid configuration");
+        return -1;
     }
 
-    // Validation
-    if (!config->program_file && !config->interactive_mode) {
-        print_error("No program file specified. Use -i for interactive mode or -h for help.");
+    // Copy configuration
+    g_config = *config;
+    g_verbose = config->verbose;
+
+    // Initialize core systems
+    if (native_module_system_init() != 0) {
+        loader_set_error("Failed to initialize native module system");
         return -1;
+    }
+
+    if (g_verbose) {
+        printf("Loader: Initialized for %s architecture\n",
+               get_architecture_name(config->target_arch));
     }
 
     return 0;
 }
 
+/**
+ * Cleanup loader
+ */
+static void loader_cleanup(void) {
+    if (g_vm_module) {
+        module_unload_native(g_vm_module);
+        g_vm_module = NULL;
+    }
+
+    native_module_system_cleanup();
+
+    if (g_verbose) {
+        printf("Loader: Cleaned up\n");
+    }
+}
+
+/**
+ * Detect current architecture
+ */
+static DetectedArchitecture loader_detect_architecture(void) {
+    return detect_architecture();
+}
+
+/**
+ * Get architecture bits
+ */
+static int loader_get_architecture_bits(DetectedArchitecture arch) {
+    switch (arch) {
+        case ARCH_X86_32:
+        case ARCH_ARM32:
+            return 32;
+        case ARCH_X86_64:
+        case ARCH_ARM64:
+            return 64;
+        default:
+            return 0;
+    }
+}
+
+/**
+ * Get architecture name
+ */
+static const char* loader_get_architecture_name(DetectedArchitecture arch) {
+    return get_architecture_name(arch);
+}
+
+/**
+ * Load VM module
+ */
+static int loader_load_vm_module(const char* vm_path) {
+    if (!vm_path) {
+        loader_set_error("Invalid VM module path");
+        return -1;
+    }
+
+    if (g_verbose) {
+        printf("Loader: Loading VM module %s\n", vm_path);
+    }
+
+    // Unload existing module if any
+    if (g_vm_module) {
+        module_unload_native(g_vm_module);
+        g_vm_module = NULL;
+    }
+
+    // Load new VM module
+    g_vm_module = module_open_native(vm_path, NULL, MODULE_FLAG_NONE);
+    if (!g_vm_module) {
+        loader_set_error("Failed to load VM module: %s", vm_path);
+        return -1;
+    }
+
+    if (g_verbose) {
+        printf("Loader: Successfully loaded VM module\n");
+    }
+
+    return 0;
+}
+
+/**
+ * Unload VM module
+ */
+static int loader_unload_vm_module(void) {
+    if (!g_vm_module) {
+        return 0; // Already unloaded
+    }
+
+    if (g_verbose) {
+        printf("Loader: Unloading VM module\n");
+    }
+
+    int result = module_unload_native(g_vm_module);
+    g_vm_module = NULL;
+
+    return result;
+}
+
+/**
+ * Execute program through VM module
+ */
+static int loader_execute_program(const char* program_path, int argc, char* argv[]) {
+    if (!program_path) {
+        loader_set_error("Invalid program path");
+        return -1;
+    }
+
+    if (!g_vm_module) {
+        loader_set_error("No VM module loaded");
+        return -1;
+    }
+
+    if (g_verbose) {
+        printf("Loader: Executing program %s with %d arguments\n", program_path, argc);
+    }
+
+    // Look up VM execution function
+    typedef int (*vm_execute_func_t)(const char*, int, char**);
+    vm_execute_func_t vm_execute = (vm_execute_func_t)module_get_symbol_native(g_vm_module, "vm_core_execute_astc");
+
+    if (!vm_execute) {
+        loader_set_error("VM module does not export vm_core_execute_astc function");
+        return -1;
+    }
+
+    // Execute program
+    int result = vm_execute(program_path, argc, argv);
+
+    if (g_verbose) {
+        printf("Loader: Program execution completed with result %d\n", result);
+    }
+
+    return result;
+}
+
+/**
+ * Parse command line arguments
+ */
+static int loader_parse_command_line(int argc, char* argv[], LoaderConfig* config) {
+    if (!config) {
+        return -1;
+    }
+
+    // Initialize config with defaults
+    memset(config, 0, sizeof(LoaderConfig));
+    config->target_arch = ARCH_UNKNOWN; // Will auto-detect
+    config->target_bits = 0;
+    config->verbose = false;
+    config->force_arch = false;
+
+    int i = 1;
+    while (i < argc) {
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            config->verbose = true;
+        }
+        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            return 1; // Signal to print help
+        }
+        else if (strcmp(argv[i], "--version") == 0) {
+            return 2; // Signal to print version
+        }
+        else if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--vm-module") == 0) {
+            if (i + 1 >= argc) {
+                loader_set_error("Option %s requires an argument", argv[i]);
+                return -1;
+            }
+            safe_strncpy(config->vm_module_path, argv[i + 1], sizeof(config->vm_module_path));
+            i++; // Skip next argument
+        }
+        else if (strcmp(argv[i], "--arch") == 0) {
+            if (i + 1 >= argc) {
+                loader_set_error("Option %s requires an argument", argv[i]);
+                return -1;
+            }
+            // Parse architecture
+            const char* arch_str = argv[i + 1];
+            if (strcmp(arch_str, "x64") == 0 || strcmp(arch_str, "x86_64") == 0) {
+                config->target_arch = ARCH_X86_64;
+                config->force_arch = true;
+            } else if (strcmp(arch_str, "x86") == 0 || strcmp(arch_str, "x86_32") == 0) {
+                config->target_arch = ARCH_X86_32;
+                config->force_arch = true;
+            } else {
+                loader_set_error("Unsupported architecture: %s", arch_str);
+                return -1;
+            }
+            i++; // Skip next argument
+        }
+        else if (argv[i][0] == '-') {
+            loader_set_error("Unknown option: %s", argv[i]);
+            return -1;
+        }
+        else {
+            // This should be the program path
+            safe_strncpy(config->program_path, argv[i], sizeof(config->program_path));
+
+            // Remaining arguments are for the program
+            config->argc = argc - i - 1;
+            config->argv = (argc > i + 1) ? &argv[i + 1] : NULL;
+            break;
+        }
+        i++;
+    }
+
+    return 0;
+}
+
+/**
+ * Print usage information
+ */
+static void loader_print_usage(const char* program_name) {
+    printf("Self-Evolve AI Enhanced Loader v2.0 (PRD-Compatible)\n");
+    printf("====================================================\n\n");
+
+    printf("Usage: %s [options] [program.astc] [-- program_args...]\n\n", program_name);
+
+    printf("Description:\n");
+    printf("  Enhanced cross-platform loader with core module system integration.\n");
+    printf("  Detects hardware environment and loads appropriate VM module.\n");
+    printf("  Implements PRD.md Layer 1 specification with JIT support.\n\n");
+
+    printf("Options:\n");
+    printf("  -v, --verbose         Enable verbose output\n");
+    printf("  -m, --vm-module PATH  Override VM module path\n");
+    printf("  --arch ARCH           Force specific architecture (x64, x86)\n");
+    printf("  -h, --help            Show this help message\n");
+    printf("  --version             Show version information\n\n");
+
+    printf("Examples:\n");
+    printf("  %s program.astc                    # Basic execution\n", program_name);
+    printf("  %s -v program.astc                 # Verbose mode\n", program_name);
+    printf("  %s -m custom_vm.native prog.astc   # Custom VM module\n", program_name);
+    printf("  %s --arch x64 program.astc         # Force x64 architecture\n", program_name);
+
+    printf("\nSupported architectures: x86_64, x86_32\n");
+    printf("VM module format: vm_{arch}_{bits}.native\n");
+}
+
+/**
+ * Print version information
+ */
+static void loader_print_version(void) {
+    printf("Self-Evolve AI Enhanced Loader v2.0\n");
+    printf("Built with core module system integration\n");
+    printf("JIT compilation support: Yes\n");
+    printf("Supported architectures: x86_64, x86_32\n");
+
+    DetectedArchitecture current_arch = detect_architecture();
+    printf("Current architecture: %s (%d-bit)\n",
+           get_architecture_name(current_arch),
+           loader_get_architecture_bits(current_arch));
+}
+
+/**
+ * Get last error message
+ */
+static const char* loader_get_last_error(void) {
+    return g_last_error[0] ? g_last_error : NULL;
+}
+
+/**
+ * Set verbose mode
+ */
+static void loader_set_verbose(bool verbose) {
+    g_verbose = verbose;
+}
+
+// ===============================================
+// Loader Interface Implementation
+// ===============================================
+
+static LoaderInterface g_loader_impl = {
+    .init = loader_init,
+    .cleanup = loader_cleanup,
+    .detect_architecture = loader_detect_architecture,
+    .get_architecture_bits = loader_get_architecture_bits,
+    .get_architecture_name = loader_get_architecture_name,
+    .load_vm_module = loader_load_vm_module,
+    .unload_vm_module = loader_unload_vm_module,
+    .execute_program = loader_execute_program,
+    .parse_command_line = loader_parse_command_line,
+    .print_usage = loader_print_usage,
+    .print_version = loader_print_version,
+    .get_last_error = loader_get_last_error,
+    .set_verbose = loader_set_verbose
+};
+
 // ===============================================
 // Main Function
 // ===============================================
 
+/**
+ * Main entry point for the enhanced loader
+ */
 int main(int argc, char* argv[]) {
-    PerformanceStats stats = {0};
-    stats.start_time = clock();
+    LoaderConfig config;
+    int parse_result;
+    int exit_code = 0;
+
+    // Set global loader interface
+    g_loader = &g_loader_impl;
 
     // Parse command line arguments
-    UnifiedLoaderConfig config;
-    int parse_result = parse_arguments(argc, argv, &config);
-    if (parse_result != 0) {
-        return parse_result > 0 ? 0 : 1;
-    }
+    parse_result = g_loader->parse_command_line(argc, argv, &config);
 
-    // Print banner
-    if (config.verbose_mode || config.debug_mode) {
-        printf("Self-Evolve AI Unified Loader v1.0\n");
-        printf("==================================\n");
-    }
-
-    // Architecture detection
-    clock_t detect_start = clock();
-    DetectedArchitecture arch = detect_architecture();
-    stats.detection_time = clock() - detect_start;
-
-    if (arch == ARCH_UNKNOWN) {
-        print_error("Unsupported architecture");
+    if (parse_result == 1) {
+        // Help requested
+        g_loader->print_usage(argv[0]);
+        return 0;
+    } else if (parse_result == 2) {
+        // Version requested
+        g_loader->print_version();
+        return 0;
+    } else if (parse_result < 0) {
+        // Parse error
+        printf("Error: %s\n", g_loader->get_last_error());
+        printf("Use '%s --help' for usage information.\n", argv[0]);
         return 1;
     }
 
-    print_verbose(&config, "Detected architecture: %s (%d-bit)",
-                 get_architecture_string(arch), get_architecture_bits(arch));
+    // Set verbose mode
+    g_loader->set_verbose(config.verbose);
 
-    // Construct VM module path
-    char vm_module_path[256];
-    if (construct_vm_module_path(vm_module_path, sizeof(vm_module_path), &config) != 0) {
+    // Auto-detect architecture if not forced
+    if (config.target_arch == ARCH_UNKNOWN) {
+        config.target_arch = g_loader->detect_architecture();
+        config.target_bits = g_loader->get_architecture_bits(config.target_arch);
+
+        if (config.verbose) {
+            printf("Loader: Auto-detected architecture: %s (%d-bit)\n",
+                   g_loader->get_architecture_name(config.target_arch),
+                   config.target_bits);
+        }
+    }
+
+    // Initialize loader
+    if (g_loader->init(&config) != 0) {
+        printf("Error: Failed to initialize loader: %s\n", g_loader->get_last_error());
         return 1;
     }
 
-    print_verbose(&config, "VM module path: %s", vm_module_path);
+    // Construct VM module path if not provided
+    if (config.vm_module_path[0] == '\0') {
+        snprintf(config.vm_module_path, sizeof(config.vm_module_path),
+                "vm_%s_%d.native",
+                g_loader->get_architecture_name(config.target_arch),
+                config.target_bits);
+    }
 
     // Load VM module
-    clock_t vm_load_start = clock();
-    LoadedVMModule vm_module = {0};
-    if (load_vm_module(vm_module_path, &vm_module, &config) != 0) {
-        return 1;
-    }
-    stats.vm_load_time = clock() - vm_load_start;
-
-    // Execute program
-    int execution_result = execute_program(&vm_module, &config, &stats);
-
-    // Cleanup
-    unload_vm_module(&vm_module);
-
-    stats.end_time = clock();
-
-    // Performance statistics
-    if (config.performance_stats) {
-        printf("\n=== Performance Statistics ===\n");
-        printf("Architecture detection: %.2f ms\n",
-               (double)stats.detection_time * 1000 / CLOCKS_PER_SEC);
-        printf("VM module loading:      %.2f ms\n",
-               (double)stats.vm_load_time * 1000 / CLOCKS_PER_SEC);
-        printf("Program execution:      %.2f ms\n",
-               (double)stats.execution_time * 1000 / CLOCKS_PER_SEC);
-        printf("Total time:             %.2f ms\n",
-               (double)(stats.end_time - stats.start_time) * 1000 / CLOCKS_PER_SEC);
-        printf("==============================\n");
+    if (g_loader->load_vm_module(config.vm_module_path) != 0) {
+        printf("Error: Failed to load VM module: %s\n", g_loader->get_last_error());
+        exit_code = 1;
+        goto cleanup;
     }
 
-    if (execution_result == 0) {
-        print_verbose(&config, "Loader completed successfully");
+    // Execute program if specified
+    if (config.program_path[0] != '\0') {
+        if (config.verbose) {
+            printf("Loader: Executing program %s\n", config.program_path);
+        }
+
+        exit_code = g_loader->execute_program(config.program_path, config.argc, config.argv);
+
+        if (exit_code != 0 && config.verbose) {
+            printf("Loader: Program execution failed with code %d\n", exit_code);
+            const char* error = g_loader->get_last_error();
+            if (error) {
+                printf("Loader: Error: %s\n", error);
+            }
+        }
+    } else {
+        printf("Error: No program specified\n");
+        printf("Use '%s --help' for usage information.\n", argv[0]);
+        exit_code = 1;
     }
 
-    return execution_result;
+cleanup:
+    // Cleanup loader
+    g_loader->cleanup();
+
+    if (config.verbose) {
+        printf("Loader: Exiting with code %d\n", exit_code);
+    }
+
+    return exit_code;
 }

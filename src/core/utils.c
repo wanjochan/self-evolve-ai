@@ -247,6 +247,72 @@ void print_debug(const UnifiedLoaderConfig* config, const char* format, ...) {
     printf("\n");
 }
 
+//实际实现需遍历节表、处理重定位、加载 DLL 和绑定 IAT。参考开源项目如 https://github.com/rapid7/meterpreter 的内存加载器代码。
+//若为自定义机器码 binary（非 PE 格式），可通过 CreateFileMapping 和 MapViewOfFile 内存映射后直接执行，无需解析 PE 结构或处理重定位/导入表。需设置 PAGE_EXECUTE_READ 权限，确保机器码有效并明确入口点。注意 DEP 和 no-exec 文件系统限制。直接执行高效，优于复制到新内存。
+//TODO reference from grok:
+void ExecuteMappedFile(const wchar_t* filePath) {
+    // 打开文件
+    HANDLE hFile = CreateFile(filePath, GENERIC_READ | GENERIC_EXECUTE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        printf("无法打开文件: %d\n", GetLastError());
+        return;
+    }
+
+    // 创建文件映射
+    HANDLE hMapFile = CreateFileMapping(hFile, NULL, PAGE_EXECUTE_READ, 0, 0, NULL);
+    if (hMapFile == NULL) {
+        printf("无法创建映射: %d\n", GetLastError());
+        CloseHandle(hFile);
+        return;
+    }
+
+    // 映射到内存
+    LPVOID baseAddr = MapViewOfFile(hMapFile, FILE_MAP_EXECUTE | FILE_MAP_READ, 0, 0, 0);
+    if (baseAddr == NULL) {
+        printf("无法映射视图: %d\n", GetLastError());
+        CloseHandle(hMapFile);
+        CloseHandle(hFile);
+        return;
+    }
+
+    // 解析 PE 头部
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)baseAddr;
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+        printf("无效 DOS 签名\n");
+        goto Cleanup;
+    }
+
+    PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((BYTE*)baseAddr + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+        printf("无效 PE 签名\n");
+        goto Cleanup;
+    }
+
+    // 获取入口点
+    DWORD entryPointRVA = ntHeaders->OptionalHeader.AddressOfEntryPoint;
+    LPVOID entryPoint = (BYTE*)baseAddr + entryPointRVA;
+
+    // 简化的重定位和导入表处理（实际需完整实现）
+    // 假设基址匹配，无需重定位；导入表需手动加载 DLL 和绑定 IAT
+    printf("警告：未处理重定位和导入表，可能导致崩溃\n");
+
+    // 设置内存保护
+    DWORD oldProtect;
+    if (!VirtualProtect(baseAddr, ntHeaders->OptionalHeader.SizeOfImage, PAGE_EXECUTE_READ, &oldProtect)) {
+        printf("无法设置保护: %d\n", GetLastError());
+        goto Cleanup;
+    }
+
+    // 调用入口点（假设为简单函数，实际需根据文件类型）
+    void (*func)() = (void (*)())entryPoint;
+    func(); // 可能崩溃，需正确处理
+
+Cleanup:
+    UnmapViewOfFile(baseAddr);
+    CloseHandle(hMapFile);
+    CloseHandle(hFile);
+}
+
 // ===============================================
 // Memory Management Utilities
 // ===============================================
