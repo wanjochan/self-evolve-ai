@@ -303,7 +303,7 @@ struct ASTNode* c2astc_convert_file(const char *filename, const C2AstcOptions *o
     size_t read_size = fread(source, 1, size, file);
     fclose(file);
 
-    if (read_size != (size_t)size) {
+    if (read_size == 0 && size > 0) {
         free(source);
         set_error("读取文件失败: %s", filename);
         return NULL;
@@ -872,20 +872,50 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
         skip_whitespace(lexer);
         c = peek_char(lexer);
         if (c == '\0') break;
-        
-        advance_char(lexer);
-        
+
+        // Debug output (commented out for production)
+        // printf("Processing character: '%c' (ASCII: %d) at line %d, column %d\n",
+        //        c, (int)c, lexer->line, lexer->column);
+
         switch (c) {
-            case '(': token = create_token(TOKEN_LPAREN, "(", lexer->line, lexer->column - 1); break;
-            case ')': token = create_token(TOKEN_RPAREN, ")", lexer->line, lexer->column - 1); break;
-            case '{': token = create_token(TOKEN_LBRACE, "{", lexer->line, lexer->column - 1); break;
-            case '}': token = create_token(TOKEN_RBRACE, "}", lexer->line, lexer->column - 1); break;
-            case '[': token = create_token(TOKEN_LBRACKET, "[", lexer->line, lexer->column - 1); break;
-            case ']': token = create_token(TOKEN_RBRACKET, "]", lexer->line, lexer->column - 1); break;
-            case ';': token = create_token(TOKEN_SEMICOLON, ";", lexer->line, lexer->column - 1); break;
-            case ',': token = create_token(TOKEN_COMMA, ",", lexer->line, lexer->column - 1); break;
-            case '.': token = create_token(TOKEN_DOT, ".", lexer->line, lexer->column - 1); break;
+            case '(':
+                advance_char(lexer);
+                token = create_token(TOKEN_LPAREN, "(", lexer->line, lexer->column - 1);
+                break;
+            case ')':
+                advance_char(lexer);
+                token = create_token(TOKEN_RPAREN, ")", lexer->line, lexer->column - 1);
+                break;
+            case '{':
+                advance_char(lexer);
+                token = create_token(TOKEN_LBRACE, "{", lexer->line, lexer->column - 1);
+                break;
+            case '}':
+                advance_char(lexer);
+                token = create_token(TOKEN_RBRACE, "}", lexer->line, lexer->column - 1);
+                break;
+            case '[':
+                advance_char(lexer);
+                token = create_token(TOKEN_LBRACKET, "[", lexer->line, lexer->column - 1);
+                break;
+            case ']':
+                advance_char(lexer);
+                token = create_token(TOKEN_RBRACKET, "]", lexer->line, lexer->column - 1);
+                break;
+            case ';':
+                advance_char(lexer);
+                token = create_token(TOKEN_SEMICOLON, ";", lexer->line, lexer->column - 1);
+                break;
+            case ',':
+                advance_char(lexer);
+                token = create_token(TOKEN_COMMA, ",", lexer->line, lexer->column - 1);
+                break;
+            case '.':
+                advance_char(lexer);
+                token = create_token(TOKEN_DOT, ".", lexer->line, lexer->column - 1);
+                break;
             case '+':
+                advance_char(lexer);
                 token = create_token(TOKEN_PLUS, "+", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -904,6 +934,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '-':
+                advance_char(lexer);
                 token = create_token(TOKEN_MINUS, "-", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -927,6 +958,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '*':
+                advance_char(lexer);
                 token = create_token(TOKEN_STAR, "*", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -940,6 +972,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '/':
+                advance_char(lexer);
                 token = create_token(TOKEN_SLASH, "/", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -976,6 +1009,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '%':
+                advance_char(lexer);
                 token = create_token(TOKEN_PERCENT, "%", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -989,6 +1023,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '=':
+                advance_char(lexer);
                 token = create_token(TOKEN_ASSIGN, "=", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1002,6 +1037,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '<':
+                advance_char(lexer);
                 token = create_token(TOKEN_LT, "<", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1026,6 +1062,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '>':
+                advance_char(lexer);
                 token = create_token(TOKEN_GT, ">", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1050,6 +1087,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '!':
+                advance_char(lexer);
                 token = create_token(TOKEN_BANG, "!", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1063,6 +1101,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '&':
+                advance_char(lexer);
                 token = create_token(TOKEN_AMPERSAND, "&", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1081,6 +1120,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '|':
+                advance_char(lexer);
                 token = create_token(TOKEN_PIPE, "|", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1099,6 +1139,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                 }
                 break;
             case '^':
+                advance_char(lexer);
                 token = create_token(TOKEN_CARET, "^", lexer->line, lexer->column - 1);
                 if (!token) {
                     free(lexer);
@@ -1111,9 +1152,18 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                     token->type = TOKEN_XOR_ASSIGN;
                 }
                 break;
-            case '~': token = create_token(TOKEN_TILDE, "~", lexer->line, lexer->column - 1); break;
-            case '?': token = create_token(TOKEN_QUESTION, "?", lexer->line, lexer->column - 1); break;
-            case ':': token = create_token(TOKEN_COLON, ":", lexer->line, lexer->column - 1); break;
+            case '~':
+                advance_char(lexer);
+                token = create_token(TOKEN_TILDE, "~", lexer->line, lexer->column - 1);
+                break;
+            case '?':
+                advance_char(lexer);
+                token = create_token(TOKEN_QUESTION, "?", lexer->line, lexer->column - 1);
+                break;
+            case ':':
+                advance_char(lexer);
+                token = create_token(TOKEN_COLON, ":", lexer->line, lexer->column - 1);
+                break;
             
             case '"':
                 token = get_string(lexer);
@@ -1126,7 +1176,7 @@ static bool tokenize(const char *source, Token ***tokens, int *token_count) {
                     token = get_identifier(lexer);
                 } else {
                     free(lexer);
-                    set_error("无效的字符: %c", c);
+                    set_error("无效的字符: %c (ASCII: %d) at line %d, column %d", c, (int)c, lexer->line, lexer->column);
                     return false;
                 }
                 break;
@@ -1503,10 +1553,19 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
     // 初始化词法分析器
     Token **tokens = NULL;
     int token_count = 0;
+    printf("Starting tokenization...\n");
     if (!tokenize(source, &tokens, &token_count)) {
-        set_error("词法分析失败");
+        printf("Tokenization failed. Error: %s\n", c2astc_get_error());
         return NULL;
     }
+    printf("Tokenization successful. Token count: %d\n", token_count);
+
+    // Debug: Print all tokens (commented out for production)
+    // for (int i = 0; i < token_count; i++) {
+    //     printf("Token %d: type=%d, value='%s', line=%d, col=%d\n",
+    //            i, tokens[i]->type, tokens[i]->value ? tokens[i]->value : "(null)",
+    //            tokens[i]->line, tokens[i]->column);
+    // }
 
     // 初始化解析器
     Parser parser = {
@@ -1517,8 +1576,15 @@ struct ASTNode* c2astc_convert(const char *source, const C2AstcOptions *options)
         .symbols = {0}
     };
 
+    printf("Starting parsing...\n");
     // 解析源代码
     struct ASTNode *ast = parse_translation_unit(&parser);
+
+    if (!ast) {
+        printf("Parsing failed. Error: %s\n", c2astc_get_error());
+    } else {
+        printf("Parsing successful.\n");
+    }
 
     // 释放词法分析结果
     for (int i = 0; i < token_count; i++) {

@@ -45,6 +45,17 @@ layer-program:
 
 
 ## dev roadmap (by human master)
+- core
+    - src/core/include/core_astc.h      # core def about astc
+    - src/core/include/native_format.h  # our native module
+    - src/utils.[ch]                       # core utils for our system
+        - arch and bits dector, not using macro
+        - mmap-alike utils
+        - open+exec wrapper
+        - native module loader for .native
+    - src/vm_module.c
+    - src/libc_module.c
+
 - layer 1 loader (windows exe)
 - layer 2 native module (vm, libc), will be loaded by mmap() alike. (not libdl or ffi)
 - layer 3 program (c99 windows 64 x86)
@@ -54,6 +65,7 @@ layer-program:
 - cross build layer 2 vm (arm, riscv, mips, etc.)
 - build loader2 with c99
 
+- src/utils.c:: libdl-alike, libffi-alike
 
 ## stage1 dev flow
 loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 

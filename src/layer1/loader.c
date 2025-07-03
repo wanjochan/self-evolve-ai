@@ -56,172 +56,37 @@
 #endif
 
 // #include "../include/native_format.h" // Removed - not needed for basic loader
+#include "../utils.h"
 
 // ===============================================
 // Unified Loader Configuration
 // ===============================================
 
-typedef struct {
-    // Basic options
-    const char* program_file;      // ASTC program to execute
-    const char* vm_module_override; // Manual VM module override
-    
-    // Behavior flags
-    bool verbose_mode;             // Detailed output
-    bool debug_mode;               // Debug information
-    bool performance_stats;        // Performance measurement
-    bool interactive_mode;         // Interactive mode if no program
-    bool autonomous_mode;          // AI autonomous evolution mode
-    
-    // Advanced options
-    uint32_t security_level;       // Security clearance level
-    const char* config_file;       // Configuration file path
-    int program_argc;              // Arguments to pass to program
-    char** program_argv;           // Program arguments
-} UnifiedLoaderConfig;
+// UnifiedLoaderConfig is now defined in utils.h
 
-typedef struct {
-    clock_t start_time;
-    clock_t detection_time;
-    clock_t vm_load_time;
-    clock_t program_load_time;
-    clock_t execution_time;
-    clock_t end_time;
-} PerformanceStats;
+// PerformanceStats is now defined in utils.h
 
 // ===============================================
 // Architecture Detection (Unified)
 // ===============================================
 
-typedef enum {
-    ARCH_X86_64,
-    ARCH_ARM64,
-    ARCH_X86_32,
-    ARCH_ARM32,
-    ARCH_UNKNOWN
-} DetectedArchitecture;
+// DetectedArchitecture is now defined in utils.h
 
-DetectedArchitecture detect_architecture(void) {
-#ifdef _WIN32
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    
-    switch (si.wProcessorArchitecture) {
-        case PROCESSOR_ARCHITECTURE_AMD64:
-            return ARCH_X86_64;
-        case PROCESSOR_ARCHITECTURE_ARM64:
-            return ARCH_ARM64;
-        case PROCESSOR_ARCHITECTURE_INTEL:
-            return ARCH_X86_32;
-        case PROCESSOR_ARCHITECTURE_ARM:
-            return ARCH_ARM32;
-        default:
-            return ARCH_UNKNOWN;
-    }
-#else
-    struct utsname info;
-    if (uname(&info) != 0) {
-        return ARCH_UNKNOWN;
-    }
-    
-    if (strstr(info.machine, "x86_64") || strstr(info.machine, "amd64")) {
-        return ARCH_X86_64;
-    } else if (strstr(info.machine, "aarch64") || strstr(info.machine, "arm64")) {
-        return ARCH_ARM64;
-    } else if (strstr(info.machine, "i386") || strstr(info.machine, "i686")) {
-        return ARCH_X86_32;
-    } else if (strstr(info.machine, "arm")) {
-        return ARCH_ARM32;
-    }
-    
-    return ARCH_UNKNOWN;
-#endif
-}
+// detect_architecture() is now in utils.c
 
-const char* get_architecture_string(DetectedArchitecture arch) {
-    switch (arch) {
-        case ARCH_X86_64: return "x64";
-        case ARCH_ARM64:  return "arm64";
-        case ARCH_X86_32: return "x86";
-        case ARCH_ARM32:  return "arm32";
-        default:          return "unknown";
-    }
-}
-
-int get_architecture_bits(DetectedArchitecture arch) {
-    switch (arch) {
-        case ARCH_X86_64:
-        case ARCH_ARM64:
-            return 64;
-        case ARCH_X86_32:
-        case ARCH_ARM32:
-            return 32;
-        default:
-            return 0;
-    }
-}
+// get_architecture_string() and get_architecture_bits() are now in utils.c
 
 // ===============================================
 // VM Module Path Construction
 // ===============================================
 
-int construct_vm_module_path(char* buffer, size_t buffer_size, const UnifiedLoaderConfig* config) {
-    if (config->vm_module_override) {
-        // Use manual override
-        snprintf(buffer, buffer_size, "%s", config->vm_module_override);
-        return 0;
-    }
-    
-    // Auto-detect and construct path
-    DetectedArchitecture arch = detect_architecture();
-    if (arch == ARCH_UNKNOWN) {
-        fprintf(stderr, "Error: Unsupported architecture\n");
-        return -1;
-    }
-    
-    const char* arch_str = get_architecture_string(arch);
-    int bits = get_architecture_bits(arch);
-    
-    // Construct PRD-compliant path: bin/layer2/vm_{arch}_{bits}.native
-    snprintf(buffer, buffer_size, "bin\\layer2\\vm_%s_%d.native", arch_str, bits);
-    
-    return 0;
-}
+// construct_vm_module_path() is now in utils.c
 
 // ===============================================
 // Unified Error Handling
 // ===============================================
 
-void print_error(const char* format, ...) {
-    fprintf(stderr, "Loader Error: ");
-    va_list args;
-    va_start(args, format);
-    vfprintf(stderr, format, args);
-    va_end(args);
-    fprintf(stderr, "\n");
-}
-
-void print_verbose(const UnifiedLoaderConfig* config, const char* format, ...) {
-    if (!config->verbose_mode) return;
-    
-    printf("Loader: ");
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-    printf("\n");
-}
-
-void print_debug(const UnifiedLoaderConfig* config, const char* format, ...) {
-    if (!config->debug_mode) return;
-    
-    printf("Debug: ");
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-    printf("\n");
-}
+// print_error(), print_verbose() and other print functions are now in utils.c
 
 // ===============================================
 // Unified Module Loading
