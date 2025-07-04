@@ -630,10 +630,6 @@ int ast_validate_module(struct ASTNode* module);
 int ast_validate_export_declaration(struct ASTNode* export_decl);
 int ast_validate_import_declaration(struct ASTNode* import_decl);
 
-// ===============================================
-// ASTC Program Structure for JIT Compilation
-// ===============================================
-
 /**
  * ASTC Program structure for runtime execution
  */

@@ -1,20 +1,20 @@
 /**
- * astc2native.c - ASTC到Native转换库实现
+ * astc2native.c - ASTC到Native转换库实�?
  *
  * 正确的设计：将ASTC格式的Runtime虚拟机转换为可执行的.native文件
- * 流程: runtime.astc (ASTC虚拟机) → (JIT编译/解释器生成) → runtime{arch}{bits}.native
+ * 流程: runtime.astc (ASTC虚拟�? �?(JIT编译/解释器生�? �?runtime{arch}{bits}.native
  *
- * 架构设计：
- * 1. 解析ASTC格式的Runtime虚拟机代码
- * 2. 生成包含ASTC解释器的机器码
+ * 架构设计�?
+ * 1. 解析ASTC格式的Runtime虚拟机代�?
+ * 2. 生成包含ASTC解释器的机器�?
  * 3. 嵌入libc转发表和ASTC指令处理
  * 4. 输出完整的Runtime.rt文件
  */
 
-// TODO: [Module] 实现延迟链接和符号解析机制
-// TODO: [Module] 支持增量编译和代码缓存策略
-// TODO: [Module] 添加跨模块优化支持
-// TODO: [Module] JIT编译中实现动态符号查找
+// TODO: [Module] 实现延迟链接和符号解析机�?
+// TODO: [Module] 支持增量编译和代码缓存策�?
+// TODO: [Module] 添加跨模块优化支�?
+// TODO: [Module] JIT编译中实现动态符号查�?
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,25 +33,25 @@ int generate_rtme_file(uint8_t* code, size_t code_size, const char* output_file)
 int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_file);
 
 // ===============================================
-// 架构检测实现
+// 架构检测实�?
 // ===============================================
 
 /**
  * 检测当前运行时架构
  */
 TargetArch detect_runtime_architecture(void) {
-    // 使用编译时宏检测架构
+    // 使用编译时宏检测架�?
     #if defined(_M_X64) || defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64)
-        return ARCH_X86_64;
+        return TARGET_TARGET_ARCH_X86_64;
     #elif defined(_M_IX86) || defined(__i386__) || defined(__i386) || defined(i386)
-        return ARCH_X86_32;
+        return TARGET_TARGET_ARCH_X86_32;
     #elif defined(_M_ARM64) || defined(__aarch64__)
-        return ARCH_ARM64;
+        return TARGET_TARGET_ARCH_ARM64;
     #elif defined(_M_ARM) || defined(__arm__) || defined(__arm)
-        return ARCH_ARM32;
+        return TARGET_TARGET_ARCH_ARM32;
     #else
         printf("Warning: Unknown architecture detected, defaulting to x86_64\n");
-        return ARCH_X86_64; // 默认为x86_64而不是UNKNOWN
+        return TARGET_TARGET_ARCH_X86_64; // 默认为x86_64而不是UNKNOWN
     #endif
 }
 
@@ -62,13 +62,13 @@ TargetArch parse_target_architecture(const char* arch_str) {
     if (!arch_str) return detect_runtime_architecture();
 
     if (strcmp(arch_str, "x86_64") == 0 || strcmp(arch_str, "amd64") == 0) {
-        return ARCH_X86_64;
+        return TARGET_TARGET_ARCH_X86_64;
     } else if (strcmp(arch_str, "x86_32") == 0 || strcmp(arch_str, "i386") == 0) {
-        return ARCH_X86_32;
+        return TARGET_TARGET_ARCH_X86_32;
     } else if (strcmp(arch_str, "arm64") == 0 || strcmp(arch_str, "aarch64") == 0) {
-        return ARCH_ARM64;
+        return TARGET_TARGET_ARCH_ARM64;
     } else if (strcmp(arch_str, "arm32") == 0 || strcmp(arch_str, "arm") == 0) {
-        return ARCH_ARM32;
+        return TARGET_TARGET_ARCH_ARM32;
     } else {
         printf("Warning: Unknown architecture '%s', using runtime detection\n", arch_str);
         return detect_runtime_architecture();
@@ -76,14 +76,14 @@ TargetArch parse_target_architecture(const char* arch_str) {
 }
 
 /**
- * 检查架构是否支持
+ * 检查架构是否支�?
  */
 bool is_architecture_supported(TargetArch arch) {
     switch (arch) {
-        case ARCH_X86_64:
-        case ARCH_ARM64:
-        case ARCH_X86_32:
-        case ARCH_ARM32:
+        case TARGET_TARGET_ARCH_X86_64:
+        case TARGET_TARGET_ARCH_ARM64:
+        case TARGET_TARGET_ARCH_X86_32:
+        case TARGET_TARGET_ARCH_ARM32:
             return true;
         default:
             return false;
@@ -91,20 +91,20 @@ bool is_architecture_supported(TargetArch arch) {
 }
 
 /**
- * 获取架构名称字符串
+ * 获取架构名称字符�?
  */
 const char* get_architecture_name(TargetArch arch) {
     switch (arch) {
-        case ARCH_X86_32: return "x86_32";
-        case ARCH_X86_64: return "x86_64";
-        case ARCH_ARM32:  return "arm32";
-        case ARCH_ARM64:  return "arm64";
+        case TARGET_TARGET_ARCH_X86_32: return "x86_32";
+        case TARGET_TARGET_ARCH_X86_64: return "x86_64";
+        case TARGET_TARGET_ARCH_ARM32:  return "arm32";
+        case TARGET_TARGET_ARCH_ARM64:  return "arm64";
         default:          return "unknown";
     }
 }
 
 // ===============================================
-// 代码生成器实现
+// 代码生成器实�?
 // ===============================================
 
 CodeGen* old_codegen_init(void) {
@@ -122,7 +122,7 @@ CodeGen* old_codegen_init(void) {
     return gen;
 }
 
-// 新的ASTC代码生成器实现
+// 新的ASTC代码生成器实�?
 CodeGen* astc_codegen_init(TargetArch target_arch) {
     CodeGen* gen = malloc(sizeof(CodeGen));
     if (!gen) return NULL;
@@ -191,10 +191,10 @@ void emit_int64(CodeGen* gen, int64_t value) {
 }
 
 // ===============================================
-// 架构特定的代码生成函数
+// 架构特定的代码生成函�?
 // ===============================================
 
-// x86_64架构的代码生成函数
+// x86_64架构的代码生成函�?
 void emit_x86_64_function_prologue(CodeGen* gen) {
     emit_byte(gen, 0x55);        // push rbp
     emit_byte(gen, 0x48);        // mov rbp, rsp
@@ -216,7 +216,7 @@ void emit_x86_64_return(CodeGen* gen) {
     emit_byte(gen, 0xc3);        // ret
 }
 
-// ARM64架构的代码生成函数
+// ARM64架构的代码生成函�?
 void emit_arm64_function_prologue(CodeGen* gen) {
     // stp x29, x30, [sp, #-16]!
     emit_byte(gen, 0xfd); emit_byte(gen, 0x7b); emit_byte(gen, 0xbf); emit_byte(gen, 0xa9);
@@ -245,7 +245,7 @@ void emit_arm64_return(CodeGen* gen) {
     emit_byte(gen, 0xc0); emit_byte(gen, 0x03); emit_byte(gen, 0x5f); emit_byte(gen, 0xd6);
 }
 
-// x86_64架构的其他指令
+// x86_64架构的其他指�?
 void emit_x86_64_nop(CodeGen* gen) {
     emit_byte(gen, 0x90);        // nop
 }
@@ -291,7 +291,7 @@ void emit_x86_64_call_user(CodeGen* gen, uint32_t func_addr) {
     emit_int32(gen, (int32_t)func_addr);
 }
 
-// ARM64架构的其他指令
+// ARM64架构的其他指�?
 void emit_arm64_nop(CodeGen* gen) {
     // nop
     emit_byte(gen, 0x1f); emit_byte(gen, 0x20); emit_byte(gen, 0x03); emit_byte(gen, 0xd5);
@@ -339,7 +339,7 @@ void emit_arm64_call_user(CodeGen* gen, uint32_t func_addr) {
     emit_byte(gen, 0x94 | ((func_addr >> 21) & 0x1F));
 }
 
-// x86_32架构的基本指令（简化版，复用x86_64的大部分逻辑）
+// x86_32架构的基本指令（简化版，复用x86_64的大部分逻辑�?
 void emit_x86_32_function_prologue(CodeGen* gen) {
     emit_byte(gen, 0x55);        // push ebp
     emit_byte(gen, 0x89);        // mov ebp, esp
@@ -360,7 +360,7 @@ void emit_x86_32_nop(CodeGen* gen) {
     emit_byte(gen, 0x90);        // nop
 }
 
-// ARM32架构的基本指令（简化版）
+// ARM32架构的基本指令（简化版�?
 void emit_arm32_function_prologue(CodeGen* gen) {
     // push {fp, lr}
     emit_byte(gen, 0x00); emit_byte(gen, 0x48); emit_byte(gen, 0x2d); emit_byte(gen, 0xe9);
@@ -398,7 +398,7 @@ typedef struct {
     void (*emit_call_user)(CodeGen* gen, uint32_t func_addr);
 } ArchCodeGenTable;
 
-// x86_64代码生成表
+// x86_64代码生成�?
 static ArchCodeGenTable x86_64_table = {
     .emit_function_prologue = emit_x86_64_function_prologue,
     .emit_function_epilogue = emit_x86_64_function_epilogue,
@@ -412,7 +412,7 @@ static ArchCodeGenTable x86_64_table = {
     .emit_call_user = emit_x86_64_call_user
 };
 
-// ARM64代码生成表
+// ARM64代码生成�?
 static ArchCodeGenTable arm64_table = {
     .emit_function_prologue = emit_arm64_function_prologue,
     .emit_function_epilogue = emit_arm64_function_epilogue,
@@ -426,7 +426,7 @@ static ArchCodeGenTable arm64_table = {
     .emit_call_user = emit_arm64_call_user
 };
 
-// x86_32代码生成表
+// x86_32代码生成�?
 static ArchCodeGenTable x86_32_table = {
     .emit_function_prologue = emit_x86_32_function_prologue,
     .emit_function_epilogue = emit_x86_32_function_epilogue,
@@ -440,7 +440,7 @@ static ArchCodeGenTable x86_32_table = {
     .emit_call_user = emit_x86_64_call_user      // 复用x86_64版本
 };
 
-// ARM32代码生成表
+// ARM32代码生成�?
 static ArchCodeGenTable arm32_table = {
     .emit_function_prologue = emit_arm32_function_prologue,
     .emit_function_epilogue = emit_arm32_function_epilogue,
@@ -457,16 +457,16 @@ static ArchCodeGenTable arm32_table = {
 // 获取架构特定的代码生成表
 ArchCodeGenTable* get_arch_codegen_table(TargetArch arch) {
     switch (arch) {
-        case ARCH_X86_64:
+        case TARGET_ARCH_X86_64:
             return &x86_64_table;
-        case ARCH_ARM64:
+        case TARGET_ARCH_ARM64:
             return &arm64_table;
-        case ARCH_X86_32:
+        case TARGET_ARCH_X86_32:
             return &x86_32_table;
-        case ARCH_ARM32:
+        case TARGET_ARCH_ARM32:
             return &arm32_table;
         default:
-            // 默认使用x86_64表
+            // 默认使用x86_64�?
             printf("Warning: Unknown architecture, using x86_64 as default\n");
             return &x86_64_table;
     }
@@ -478,10 +478,10 @@ ArchCodeGenTable* get_arch_codegen_table(TargetArch arch) {
 
 // 优化级别枚举
 typedef enum {
-    OPT_NONE = 0,      // 无优化
+    OPT_NONE = 0,      // 无优�?
     OPT_BASIC = 1,     // 基础优化
     OPT_STANDARD = 2,  // 标准优化
-    OPT_AGGRESSIVE = 3 // 激进优化
+    OPT_AGGRESSIVE = 3 // 激进优�?
 } OptimizationLevel;
 
 // 优化统计信息
@@ -556,7 +556,7 @@ bool try_constant_folding(EnhancedCodeGen* enhanced, uint8_t opcode, uint32_t op
 
     if (opcode == 0x10) { // CONST_I32
         if (enhanced->has_pending_constant) {
-            // 连续的常量可能可以合并
+            // 连续的常量可能可以合�?
             enhanced->stats.constants_folded++;
             return true;
         }
@@ -566,7 +566,7 @@ bool try_constant_folding(EnhancedCodeGen* enhanced, uint8_t opcode, uint32_t op
     }
 
     if (enhanced->has_pending_constant && opcode == 0x20) { // ADD with constant
-        // 可以优化为 add reg, immediate
+        // 可以优化�?add reg, immediate
         enhanced->has_pending_constant = false;
         enhanced->stats.constants_folded++;
         return true;
@@ -576,9 +576,9 @@ bool try_constant_folding(EnhancedCodeGen* enhanced, uint8_t opcode, uint32_t op
     return false;
 }
 
-// 死代码消除
+// 死代码消�?
 bool is_dead_code_instruction(uint8_t opcode) {
-    // 简单的死代码检测
+    // 简单的死代码检�?
     switch (opcode) {
         case 0x00: // NOP
             return true;
@@ -591,14 +591,14 @@ bool is_dead_code_instruction(uint8_t opcode) {
 // 代码生成辅助函数
 // ===============================================
 
-// 优化的指令生成函数
+// 优化的指令生成函�?
 void enhanced_emit_const_i32(EnhancedCodeGen* enhanced, uint32_t value) {
     ArchCodeGenTable* table = get_arch_codegen_table(enhanced->base_gen->target_arch);
 
     // 常量优化
     if (enhanced->enable_constant_folding && value == 0) {
         // 使用xor reg, reg代替mov reg, 0（更短更快）
-        if (enhanced->base_gen->target_arch == ARCH_X86_64) {
+        if (enhanced->base_gen->target_arch == TARGET_ARCH_X86_64) {
             emit_byte(enhanced->base_gen, 0x48); // REX.W
             emit_byte(enhanced->base_gen, 0x31); // xor
             emit_byte(enhanced->base_gen, 0xc0); // eax, eax
@@ -608,7 +608,7 @@ void enhanced_emit_const_i32(EnhancedCodeGen* enhanced, uint32_t value) {
         }
     } else if (enhanced->enable_constant_folding && value == 1) {
         // 使用inc指令代替mov reg, 1
-        if (enhanced->base_gen->target_arch == ARCH_X86_64) {
+        if (enhanced->base_gen->target_arch == TARGET_ARCH_X86_64) {
             emit_byte(enhanced->base_gen, 0x48); // REX.W
             emit_byte(enhanced->base_gen, 0x31); // xor eax, eax
             emit_byte(enhanced->base_gen, 0xc0);
@@ -627,7 +627,7 @@ void enhanced_emit_const_i32(EnhancedCodeGen* enhanced, uint32_t value) {
 void enhanced_emit_add(EnhancedCodeGen* enhanced) {
     ArchCodeGenTable* table = get_arch_codegen_table(enhanced->base_gen->target_arch);
 
-    if (enhanced->base_gen->target_arch == ARCH_X86_64) {
+    if (enhanced->base_gen->target_arch == TARGET_ARCH_X86_64) {
         // 优化的x86_64加法：pop rbx; pop rax; add rax, rbx; push rax
         emit_byte(enhanced->base_gen, 0x5b); // pop rbx
         emit_byte(enhanced->base_gen, 0x58); // pop rax
@@ -636,14 +636,14 @@ void enhanced_emit_add(EnhancedCodeGen* enhanced) {
         emit_byte(enhanced->base_gen, 0xd8);
         emit_byte(enhanced->base_gen, 0x50); // push rax
     } else {
-        // 使用架构特定的实现
-        table->emit_nop(enhanced->base_gen); // 简化实现
+        // 使用架构特定的实�?
+        table->emit_nop(enhanced->base_gen); // 简化实�?
     }
 }
 
 void enhanced_emit_libc_call(EnhancedCodeGen* enhanced, uint16_t func_id, uint16_t arg_count) {
-    if (enhanced->base_gen->target_arch == ARCH_X86_64) {
-        // 优化的libc调用：直接调用而不是通过查找表
+    if (enhanced->base_gen->target_arch == TARGET_ARCH_X86_64) {
+        // 优化的libc调用：直接调用而不是通过查找�?
         if (enhanced->enable_instruction_combining && func_id == 0x0030) { // printf
             // 特殊优化printf调用
             emit_byte(enhanced->base_gen, 0x48); // mov rax, printf_addr
@@ -665,7 +665,7 @@ void enhanced_emit_libc_call(EnhancedCodeGen* enhanced, uint16_t func_id, uint16
     }
 }
 
-// 编译常量表达式（借鉴TinyCC的立即数处理）
+// 编译常量表达式（借鉴TinyCC的立即数处理�?
 static void compile_constant(CodeGen* gen, struct ASTNode* node) {
     if (node->type == ASTC_EXPR_CONSTANT && node->data.constant.type == ASTC_TYPE_INT) {
         // mov eax, immediate
@@ -674,7 +674,7 @@ static void compile_constant(CodeGen* gen, struct ASTNode* node) {
     }
 }
 
-// 编译表达式（借鉴TinyCC的表达式编译）
+// 编译表达式（借鉴TinyCC的表达式编译�?
 static void compile_expression(CodeGen* gen, struct ASTNode* node) {
     if (!node) return;
 
@@ -731,12 +731,12 @@ static void compile_function(CodeGen* gen, struct ASTNode* node) {
     emit_byte(gen, 0x89);
     emit_byte(gen, 0xe5);
 
-    // 编译函数体
+    // 编译函数�?
     if (node->data.func_decl.body) {
         compile_statement(gen, node->data.func_decl.body);
     }
 
-    // 如果没有显式return，添加默认返回
+    // 如果没有显式return，添加默认返�?
     emit_byte(gen, 0xb8);        // mov eax, 0
     emit_int32(gen, 0);
     emit_byte(gen, 0x5d);        // pop rbp
@@ -749,7 +749,7 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
     
     printf("Compiling runtime from translation unit...\n");
 
-    // 遍历翻译单元中的所有声明
+    // 遍历翻译单元中的所有声�?
     if (node->type == ASTC_TRANSLATION_UNIT && node->data.translation_unit.declarations) {
         int func_count = 0;
 
@@ -762,7 +762,7 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 
                 // 为每个函数生成标签和代码
                 if (strcmp(decl->data.func_decl.name, "evolver0_runtime_main") == 0) {
-                    // 这是主入口函数，放在开头
+                    // 这是主入口函数，放在开�?
                     compile_function(gen, decl);
                     func_count++;
                 } else {
@@ -783,7 +783,7 @@ static void compile_runtime_from_translation_unit(CodeGen* gen, struct ASTNode* 
 // 公开API实现
 // ===============================================
 
-// 架构特定的指令生成函数指针
+// 架构特定的指令生成函数指�?
 typedef void (*emit_nop_func)(CodeGen* gen);
 typedef void (*emit_halt_func)(CodeGen* gen);
 typedef void (*emit_const_i32_func)(CodeGen* gen, uint32_t value);
@@ -814,9 +814,9 @@ ArchCodegenTable* get_arch_codegen_table(TargetArch arch) {
     static ArchCodegenTable arm32_table = {0};
 
     switch (arch) {
-        case ARCH_X86_64:
+        case TARGET_ARCH_X86_64:
             if (!x64_table.emit_nop) {
-                // 初始化x64函数表
+                // 初始化x64函数�?
                 x64_table.emit_nop = x64_emit_nop;
                 x64_table.emit_halt = x64_emit_halt_with_return_value;
                 x64_table.emit_const_i32 = x64_emit_const_i32;
@@ -830,14 +830,14 @@ ArchCodegenTable* get_arch_codegen_table(TargetArch arch) {
             }
             return &x64_table;
 
-        case ARCH_X86_32:
+        case TARGET_ARCH_X86_32:
             // TODO: 实现x86_32支持
             printf("Warning: x86_32 architecture not fully implemented, using x64 fallback\n");
-            return get_arch_codegen_table(ARCH_X86_64);
+            return get_arch_codegen_table(TARGET_ARCH_X86_64);
 
-        case ARCH_ARM64:
+        case TARGET_ARCH_ARM64:
             if (!arm64_table.emit_nop) {
-                // 初始化ARM64函数表
+                // 初始化ARM64函数�?
                 arm64_table.emit_nop = arm64_emit_nop;
                 arm64_table.emit_halt = arm64_emit_halt_with_return_value;
                 arm64_table.emit_const_i32 = arm64_emit_const_i32;
@@ -851,18 +851,18 @@ ArchCodegenTable* get_arch_codegen_table(TargetArch arch) {
             }
             return &arm64_table;
 
-        case ARCH_ARM32:
+        case TARGET_ARCH_ARM32:
             // TODO: 实现ARM32支持
             printf("Warning: ARM32 architecture not implemented, using x64 fallback\n");
-            return get_arch_codegen_table(ARCH_X86_64);
+            return get_arch_codegen_table(TARGET_ARCH_X86_64);
 
         default:
             printf("Warning: Unknown architecture, using x64 fallback\n");
-            return get_arch_codegen_table(ARCH_X86_64);
+            return get_arch_codegen_table(TARGET_ARCH_X86_64);
     }
 }
 
-// ASTC JIT编译器 - 将ASTC字节码指令翻译成二进制机器码
+// ASTC JIT编译�?- 将ASTC字节码指令翻译成二进制机器码
 // 使用架构特定的codegen函数，支持跨平台
 void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint8_t* operands, size_t operand_len) {
     ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
@@ -880,16 +880,16 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             if (operand_len >= 4) {
                 uint32_t value = *(uint32_t*)operands;
 
-                // 优化：特殊值使用更高效的指令
-                if (gen->target_arch == ARCH_X86_64) {
+                // 优化：特殊值使用更高效的指�?
+                if (gen->target_arch == TARGET_ARCH_X86_64) {
                     if (value == 0) {
-                        // xor eax, eax; push rax (比 mov eax, 0; push rax 更快)
+                        // xor eax, eax; push rax (�?mov eax, 0; push rax 更快)
                         emit_byte(gen, 0x48); // REX.W
                         emit_byte(gen, 0x31); // xor eax, eax
                         emit_byte(gen, 0xc0);
                         emit_byte(gen, 0x50); // push rax
                     } else if (value <= 127) {
-                        // push imm8 (比 mov + push 更短)
+                        // push imm8 (�?mov + push 更短)
                         emit_byte(gen, 0x6a); // push imm8
                         emit_byte(gen, (uint8_t)value);
                     } else {
@@ -902,7 +902,7 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             break;
 
         case 0x20: // ADD (优化版本)
-            if (gen->target_arch == ARCH_X86_64) {
+            if (gen->target_arch == TARGET_ARCH_X86_64) {
                 // 优化的x86_64加法实现
                 emit_byte(gen, 0x5b); // pop rbx
                 emit_byte(gen, 0x58); // pop rax
@@ -928,16 +928,16 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             break;
 
         case 0x12: // CONST_STRING
-            // 字符串常量指令 - 将字符串地址压入栈
+            // 字符串常量指�?- 将字符串地址压入�?
             if (operand_len >= 4) {
                 uint32_t str_len = *(uint32_t*)operands;
-                // 简化实现：将字符串数据地址压入栈
+                // 简化实现：将字符串数据地址压入�?
                 table->emit_const_i32(gen, (uint32_t)(uintptr_t)(operands + 4));
             }
             break;
 
         case 0x30: // STORE_LOCAL
-            // 存储到局部变量
+            // 存储到局部变�?
             if (operand_len >= 4) {
                 uint32_t var_index = *(uint32_t*)operands;
                 // 简化实现：将栈顶值存储到局部变量槽
@@ -949,10 +949,10 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             break;
 
         case 0x31: // LOAD_LOCAL
-            // 加载局部变量
+            // 加载局部变�?
             if (operand_len >= 4) {
                 uint32_t var_index = *(uint32_t*)operands;
-                // 简化实现：从局部变量槽加载值到栈
+                // 简化实现：从局部变量槽加载值到�?
                 // mov rax, [rbp-8*var_index]; push rax
                 table->emit_load_local(gen, var_index);
             } else {
@@ -961,7 +961,7 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
             break;
 
         case 0x40: // JUMP
-            // 无条件跳转
+            // 无条件跳�?
             if (operand_len >= 4) {
                 uint32_t target = *(uint32_t*)operands;
                 table->emit_jump(gen, target);
@@ -995,8 +995,8 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
                 uint16_t func_id = *(uint16_t*)operands;
                 uint16_t arg_count = *(uint16_t*)(operands + 2);
 
-                if (gen->target_arch == ARCH_X86_64) {
-                    // 优化：常用函数直接调用
+                if (gen->target_arch == TARGET_ARCH_X86_64) {
+                    // 优化：常用函数直接调�?
                     if (func_id == 0x0030) { // printf
                         // 优化的printf调用：减少查找开销
                         emit_byte(gen, 0x48); // mov rax, printf_addr
@@ -1028,7 +1028,7 @@ void compile_astc_instruction_to_machine_code(CodeGen* gen, uint8_t opcode, uint
     }
 }
 
-// ASTC JIT编译器 - 将ASTC字节码指令翻译成汇编代码
+// ASTC JIT编译�?- 将ASTC字节码指令翻译成汇编代码
 // 使用符合命名规范的proper codegen架构
 void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t* operands, size_t operand_count) {
     char temp_buffer[256];
@@ -1098,7 +1098,7 @@ void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t*
     }
 }
 
-// ASTC JIT编译主函数 - 类似TinyCC的代码生成
+// ASTC JIT编译主函�?- 类似TinyCC的代码生�?
 int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* gen) {
     printf("JIT compiling ASTC bytecode to %s machine code...\n",
            get_architecture_name(gen->target_arch));
@@ -1140,14 +1140,14 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
         while (pc < code_size) {
             uint8_t opcode = code[pc++];
 
-            // 根据指令类型确定操作数长度
+            // 根据指令类型确定操作数长�?
             size_t operand_len = 0;
             switch (opcode) {
                 case 0x10: operand_len = 4; break; // CONST_I32
-                case 0x12: // CONST_STRING - 需要读取长度字段
+                case 0x12: // CONST_STRING - 需要读取长度字�?
                     if (pc + 4 <= code_size) {
                         uint32_t str_len = *(uint32_t*)&code[pc];
-                        operand_len = 4 + str_len; // 长度字段 + 字符串数据
+                        operand_len = 4 + str_len; // 长度字段 + 字符串数�?
                     }
                     break;
                 case 0x30: operand_len = 4; break; // STORE_LOCAL
@@ -1168,10 +1168,10 @@ int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* 
         }
     }
 
-    // 如果没有显式的HALT，添加默认返回
+    // 如果没有显式的HALT，添加默认返�?
     table->emit_function_epilogue(gen);
 
-    printf("JIT compilation completed: %zu ASTC bytes → %zu machine code bytes\n",
+    printf("JIT compilation completed: %zu ASTC bytes �?%zu machine code bytes\n",
            ast_data_size, gen->code_size);
 
     return 0;
@@ -1192,12 +1192,12 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
         return 1;
     }
 
-    // 复制基础生成器的状态
+    // 复制基础生成器的状�?
     enhanced->base_gen->code = gen->code;
     enhanced->base_gen->code_size = gen->code_size;
     enhanced->base_gen->code_capacity = gen->code_capacity;
 
-    // 解析ASTC头
+    // 解析ASTC�?
     if (strncmp((char*)astc_data, "ASTC", 4) != 0) {
         printf("Error: Invalid ASTC format\n");
         free_enhanced_codegen(enhanced);
@@ -1214,7 +1214,7 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
     ArchCodeGenTable* table = get_arch_codegen_table(gen->target_arch);
     table->emit_function_prologue(enhanced->base_gen);
 
-    // 编译ASTC字节码
+    // 编译ASTC字节�?
     uint8_t* code = astc_data + 16;
     size_t code_size = data_size;
     size_t pc = 0;
@@ -1222,18 +1222,18 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
     while (pc < code_size) {
         uint8_t opcode = code[pc++];
 
-        // 死代码消除
+        // 死代码消�?
         if (enhanced->enable_dead_code_elimination && is_dead_code_instruction(opcode)) {
             enhanced->stats.dead_code_eliminated++;
             continue;
         }
 
-        // 确定操作数长度
+        // 确定操作数长�?
         size_t operand_len = 0;
         switch (opcode) {
             case 0x10: operand_len = 4; break; // CONST_I32
             case 0x20: case 0x21: case 0x22: case 0x23: operand_len = 0; break; // 算术运算
-            case 0x30: case 0x31: operand_len = 4; break; // 局部变量操作
+            case 0x30: case 0x31: operand_len = 4; break; // 局部变量操�?
             case 0x40: case 0x41: operand_len = 4; break; // 跳转指令
             case 0x50: operand_len = 4; break; // 用户函数调用
             case 0xF0: operand_len = 4; break; // LIBC调用
@@ -1248,7 +1248,7 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
             continue;
         }
 
-        // 编译指令（使用原有的优化版本）
+        // 编译指令（使用原有的优化版本�?
         compile_astc_instruction_to_machine_code(enhanced->base_gen, opcode, operands, operand_len);
 
         pc += operand_len;
@@ -1257,10 +1257,10 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
     // 生成函数尾声
     table->emit_function_epilogue(enhanced->base_gen);
 
-    // 更新原始生成器的状态
+    // 更新原始生成器的状�?
     gen->code_size = enhanced->base_gen->code_size;
 
-    printf("Optimized JIT compilation completed: %zu ASTC bytes → %zu machine code bytes\n",
+    printf("Optimized JIT compilation completed: %zu ASTC bytes �?%zu machine code bytes\n",
            astc_size, gen->code_size);
 
     // 清理
@@ -1271,7 +1271,7 @@ int optimized_jit_compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_s
 }
 
 int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_file) {
-    // 检查输出文件扩展名，决定生成格式
+    // 检查输出文件扩展名，决定生成格�?
     const char* ext = strrchr(output_file, '.');
     bool generate_exe = (ext && strcmp(ext, ".exe") == 0);
 
@@ -1279,7 +1279,7 @@ int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_fi
            output_file, ext ? ext : "NULL", generate_exe);
 
     if (generate_exe) {
-        // 生成真正的PE可执行文件
+        // 生成真正的PE可执行文�?
         printf("DEBUG: Generating PE executable\n");
         return generate_pe_executable(code, code_size, output_file);
     } else {
@@ -1304,7 +1304,7 @@ int generate_rtme_file(uint8_t* code, size_t code_size, const char* output_file)
     header.size = (uint32_t)code_size;
     header.entry_point = sizeof(RuntimeHeader); // 入口点在header之后
 
-    // 写入文件头
+    // 写入文件�?
     fwrite(&header, sizeof(header), 1, fp);
 
     // 写入代码
@@ -1315,7 +1315,7 @@ int generate_rtme_file(uint8_t* code, size_t code_size, const char* output_file)
     return 0;
 }
 
-// 生成PE可执行文件
+// 生成PE可执行文�?
 int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_file) {
     printf("Generating PE executable: %s (%zu bytes machine code)\n", output_file, code_size);
 
@@ -1326,7 +1326,7 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
     }
 
     // 正确的PE文件结构
-    // 1. DOS头 (64字节)
+    // 1. DOS�?(64字节)
     uint8_t dos_header[64] = {
         0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, // MZ signature + e_cblp, e_cp
         0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, // e_crlc, e_cparhdr, e_minalloc, e_maxalloc
@@ -1341,7 +1341,7 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
     // 2. PE签名 (4字节)
     uint8_t pe_signature[4] = { 0x50, 0x45, 0x00, 0x00 }; // "PE\0\0"
 
-    // 3. COFF文件头 (20字节)
+    // 3. COFF文件�?(20字节)
     uint8_t coff_header[20] = {
         0x64, 0x86,                                     // Machine (x64)
         0x01, 0x00,                                     // NumberOfSections (1)
@@ -1402,7 +1402,7 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved
     };
 
-    // 可选头（简化版）
+    // 可选头（简化版�?
     uint8_t optional_header[240] = {0};
     optional_header[0] = 0x0B;  // Magic (PE32+)
     optional_header[1] = 0x02;
@@ -1429,14 +1429,14 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
     // Subsystem (Console = 3)
     optional_header[68] = 0x03;
 
-    // 写入DOS头
+    // 写入DOS�?
     fwrite(dos_header, 1, 64, fp);
 
-    // 填充到PE头位置
+    // 填充到PE头位�?
     uint8_t padding[64] = {0};
     fwrite(padding, 1, 64, fp);
 
-    // 写入PE头
+    // 写入PE�?
     fwrite(pe_header, 1, 24, fp);
     fwrite(optional_header, 1, 240, fp);
 
@@ -1455,7 +1455,7 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
 
     fwrite(section_header, 1, 40, fp);
 
-    // 填充到代码段开始位置 (0x400)
+    // 填充到代码段开始位�?(0x400)
     long current_pos = ftell(fp);
     long padding_size = 0x400 - current_pos;
     if (padding_size > 0) {
@@ -1464,10 +1464,10 @@ int generate_pe_executable(uint8_t* code, size_t code_size, const char* output_f
         free(pad);
     }
 
-    // 写入机器码
+    // 写入机器�?
     fwrite(code, 1, code_size, fp);
 
-    // 填充到512字节对齐
+    // 填充�?12字节对齐
     long final_pos = ftell(fp);
     long final_padding = ((final_pos + 511) & ~511) - final_pos;
     if (final_padding > 0) {
@@ -1520,7 +1520,7 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
         return 1;
     }
 
-    // 使用新的JIT编译器：ASTC字节码 → 目标架构机器码
+    // 使用新的JIT编译器：ASTC字节�?�?目标架构机器�?
     if (compile_astc_to_machine_code(astc_data, astc_size, gen) != 0) {
         printf("Error: JIT compilation failed\n");
         free(astc_data);
@@ -1530,7 +1530,7 @@ int compile_astc_to_runtime_bin(const char* astc_file, const char* output_file) 
 
     free(astc_data);
 
-    // 生成运行时文件
+    // 生成运行时文�?
     int result = generate_runtime_file(gen->code, gen->code_size, output_file);
 
     // 释放资源
@@ -1549,7 +1549,7 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
         return 1;
     }
 
-    // 创建代码生成器
+    // 创建代码生成�?
     CodeGen* gen = old_codegen_init();
     if (!gen) {
         printf("Error: Failed to initialize code generator\n");
@@ -1562,7 +1562,7 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
     printf("Warning: C to runtime conversion should use C→ASTC→JIT pipeline\n");
     printf("Generating minimal runtime stub for compatibility\n");
 
-    // 生成最小的Runtime机器码
+    // 生成最小的Runtime机器�?
     emit_byte(gen, 0x55);        // push rbp
     emit_byte(gen, 0x48);        // mov rbp, rsp
     emit_byte(gen, 0x89);
@@ -1572,7 +1572,7 @@ int compile_c_to_runtime_bin(const char* c_file, const char* output_file) {
     emit_byte(gen, 0x5d);        // pop rbp
     emit_byte(gen, 0xc3);        // ret
 
-    // 生成运行时文件
+    // 生成运行时文�?
     int result = generate_runtime_file(gen->code, gen->code_size, output_file);
 
     // 释放资源
@@ -1590,7 +1590,7 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
 
     switch (node->type) {
         case ASTC_TRANSLATION_UNIT:
-            // 编译翻译单元中的所有声明
+            // 编译翻译单元中的所有声�?
             for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
                 compile_ast_node_to_machine_code(node->data.translation_unit.declarations[i], gen);
             }
@@ -1604,19 +1604,19 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
             break;
 
         case ASTC_COMPOUND_STMT:
-            // 编译复合语句中的所有语句
+            // 编译复合语句中的所有语�?
             for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
                 compile_ast_node_to_machine_code(node->data.compound_stmt.statements[i], gen);
             }
             break;
 
         case ASTC_EXPR_STMT:
-            // 编译表达式语句
+            // 编译表达式语�?
             compile_ast_node_to_machine_code(node->data.expr_stmt.expr, gen);
             break;
 
         case ASTC_CALL_EXPR:
-            // 编译函数调用表达式
+            // 编译函数调用表达�?
             printf("Found function call expression\n");
 
             // 检查AST中的libc标记
@@ -1628,12 +1628,12 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
                 ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
                 table->emit_libc_call(gen, node->data.call_expr.libc_func_id, node->data.call_expr.arg_count);
             } else {
-                // 普通函数调用
+                // 普通函数调�?
                 if (node->data.call_expr.callee &&
                     node->data.call_expr.callee->type == ASTC_EXPR_IDENTIFIER) {
                     const char* func_name = node->data.call_expr.callee->data.identifier.name;
                     printf("Regular function call: %s\n", func_name);
-                    // TODO: 处理普通函数调用
+                    // TODO: 处理普通函数调�?
                 }
             }
             break;
@@ -1654,7 +1654,7 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
             break;
 
         case ASTC_EXPR_CONSTANT:
-            // 编译常量表达式
+            // 编译常量表达�?
             if (node->data.constant.type == ASTC_TYPE_INT) {
                 ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
                 table->emit_const_i32(gen, (uint32_t)node->data.constant.int_val);

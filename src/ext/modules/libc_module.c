@@ -162,6 +162,14 @@ int libc_ferror(FILE* stream) {
 }
 
 // String Functions (Extended)
+size_t libc_strlen(const char* str) {
+    if (!str) {
+        return 0;
+    }
+    printf("LibC: strlen()\n");
+    return strlen(str);
+}
+
 char* libc_strcpy(char* dest, const char* src) {
     if (!dest || !src) {
         return dest;
@@ -618,34 +626,8 @@ void* libc_realloc(void* ptr, size_t size) {
     return new_ptr;
 }
 
-// String functions
-size_t libc_strlen(const char* str) {
-    return strlen(str);
-}
-
-char* libc_strcpy(char* dest, const char* src) {
-    return strcpy(dest, src);
-}
-
-char* libc_strncpy(char* dest, const char* src, size_t n) {
-    return strncpy(dest, src, n);
-}
-
-int libc_strcmp(const char* str1, const char* str2) {
-    return strcmp(str1, str2);
-}
-
-int libc_strncmp(const char* str1, const char* str2, size_t n) {
-    return strncmp(str1, str2, n);
-}
-
-char* libc_strcat(char* dest, const char* src) {
-    return strcat(dest, src);
-}
-
-char* libc_strncat(char* dest, const char* src, size_t n) {
-    return strncat(dest, src, n);
-}
+// String functions already defined above (lines 165-210) with debug output
+// Removed duplicate definitions to fix compilation errors
 
 // Memory functions
 void* libc_memcpy(void* dest, const void* src, size_t n) {

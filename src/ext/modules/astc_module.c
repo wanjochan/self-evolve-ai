@@ -441,7 +441,7 @@ static int astc_astc2native(const char* astc_file, const char* native_file, cons
     astc_free_program(program);
 
     if (stats) {
-        stats->output_size = sizeof(NativeModuleHeader);
+        stats->output_size = sizeof(NativeHeader);
     }
 
     if (opts->verbose) {

@@ -21,11 +21,11 @@ extern "C" {
  * 目标架构枚举
  */
 typedef enum {
-    ARCH_X86_32,    // x86 32位
-    ARCH_X86_64,    // x86 64位
-    ARCH_ARM32,     // ARM 32位
-    ARCH_ARM64,     // ARM 64位
-    ARCH_UNKNOWN    // 未知架构
+    TARGET_ARCH_X86_32,    // x86 32位
+    TARGET_ARCH_X86_64,    // x86 64位
+    TARGET_ARCH_ARM32,     // ARM 32位
+    TARGET_ARCH_ARM64,     // ARM 64位
+    TARGET_ARCH_UNKNOWN    // 未知架构
 } TargetArch;
 
 /**
