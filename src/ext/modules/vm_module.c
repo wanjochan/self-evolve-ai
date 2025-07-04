@@ -30,8 +30,7 @@
 #include "../../core/native.h"
 #include "../../core/utils.h"
 
-// Include optional JIT extension (comment out if not available)
-// #include "../jit/jit.h"
+// JIT extension disabled for simplified VM implementation
 
 // Include ASTC module
 extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);

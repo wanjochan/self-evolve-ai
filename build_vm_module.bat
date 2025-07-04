@@ -30,37 +30,11 @@ if not exist "src\ext\modules\vm_module.c" (
 REM Build VM module using proper .native format
 echo Building vm_x64_64.native...
 
-REM First, compile VM module to object file
-%TCC% -c -o "bin\layer2\vm_module.o" ^
-      -DNDEBUG ^
-      -DVERSION_STRING="2.0" ^
-      -DBUILD_DATE="%DATE%" ^
-      -O2 ^
-      "src\ext\modules\vm_module.c"
+REM Build VM module directly (no intermediate files needed)
 
-if %ERRORLEVEL% neq 0 (
-    echo Error: Failed to compile VM module to object file
-    exit /b 1
-)
-
-REM Use our test program to create proper .native format
-if exist "test_vm_simple.exe" (
-    echo Creating proper .native format using test program...
-    test_vm_simple.exe
-    if %ERRORLEVEL% neq 0 (
-        echo Warning: Failed to create .native format, using fallback
-        goto fallback_build
-    )
-    echo Success: vm_x64_64.native created in proper .native format
-    goto build_complete
-) else (
-    echo Warning: test_vm_simple.exe not found, using fallback build
-    goto fallback_build
-)
-
-:fallback_build
-echo Using fallback: compiling as executable for .native conversion...
-%TCC% -o "bin\layer2\vm_x64_64_temp.exe" ^
+REM Build VM module directly as executable, then rename to .native
+echo Building VM module as executable...
+%TCC% -o "bin\layer2\vm_x64_64.exe" ^
       -DNDEBUG ^
       -DVERSION_STRING="2.0" ^
       -DBUILD_DATE="%DATE%" ^
@@ -75,11 +49,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-REM Copy as .native file (temporary solution)
-copy "bin\layer2\vm_x64_64_temp.exe" "bin\layer2\vm_x64_64.native" >nul
-del "bin\layer2\vm_x64_64_temp.exe" >nul
+REM Rename executable to .native format
+move "bin\layer2\vm_x64_64.exe" "bin\layer2\vm_x64_64.native" >nul
 
-:build_complete
+if %ERRORLEVEL% neq 0 (
+    echo Error: Failed to rename to .native format
+    exit /b 1
+)
 echo.
 echo VM Module Build Summary:
 echo =======================

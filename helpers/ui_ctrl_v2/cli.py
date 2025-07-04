@@ -6,7 +6,7 @@ from typing import List, Dict
 
 from .ui_detector import UIDetector
 from .window_monitor import WindowMonitor
-from .types import UIElement
+from .ui_types import UIElement
 
 def element_to_dict(element: UIElement) -> Dict:
     """Convert UIElement to dictionary for JSON serialization"""
