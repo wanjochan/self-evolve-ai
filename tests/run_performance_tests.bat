@@ -256,5 +256,3 @@ if %FAILED_PERF_TESTS% EQU 0 (
     echo.
     exit /b 1
 )
-
-pause

@@ -11,3 +11,4 @@ tools/*.png
 tools/vscode_ui_dump*.json
 *.un~
 *.c~
+*.log

@@ -22,10 +22,19 @@ echo Building loader_x64_64.exe...
 echo ================================
 
 REM Compile loader for x64 64-bit (using ultra safe version)
-%TCC% -o "bin\layer1\loader_x64_64.exe" -g -O8 "src\layer1\loader.c"
+REM Include all required source files and use anti-virus friendly flags
+%TCC% -o "bin\layer1\loader_x64_64.exe" ^
+      -DNDEBUG ^
+      -DVERSION_STRING="2.0" ^
+      -DBUILD_DATE="%DATE%" ^
+      -O2 ^
+      "src\layer1\loader.c" ^
+      "src\core\utils.c" ^
+      "src\core\native.c"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to compile loader_x64_64.exe
+    echo Check that all source files exist and TCC is working properly
     exit /b 1
 )
 
@@ -48,7 +57,14 @@ echo Building loader_x86_32.exe...
 echo ==============================
 
 REM Compile loader for x86 32-bit (if supported)
-%TCC% -m32 -o "bin\layer1\loader_x86_32.exe" "src\layer1\loader.c"
+%TCC% -m32 -o "bin\layer1\loader_x86_32.exe" ^
+      -DNDEBUG ^
+      -DVERSION_STRING="2.0" ^
+      -DBUILD_DATE="%DATE%" ^
+      -O2 ^
+      "src\layer1\loader.c" ^
+      "src\core\utils.c" ^
+      "src\core\native.c"
 
 if %ERRORLEVEL% equ 0 (
     echo Success: loader_x86_32.exe compiled successfully

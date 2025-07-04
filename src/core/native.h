@@ -324,6 +324,17 @@ int native_module_set_metadata(NativeModule* module, const NativeMetadata* metad
  */
 void native_module_free(NativeModule* module);
 
+/**
+ * Get symbol from native module
+ */
+void* native_module_get_symbol(const NativeModule* module, const char* symbol_name);
+
+/**
+ * Get symbol from native module (compatibility function for loader)
+ * Handles both NativeModule* and NativeModuleHandle* types
+ */
+void* module_get_symbol_native(void* module_ptr, const char* symbol_name);
+
 // Utility macros
 #define NATIVE_ALIGN(size, alignment) (((size) + (alignment) - 1) & ~((alignment) - 1))
 #define NATIVE_IS_ALIGNED(ptr, alignment) (((uintptr_t)(ptr) & ((alignment) - 1)) == 0)

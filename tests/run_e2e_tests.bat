@@ -221,5 +221,3 @@ if %E2E_SCORE% GEQ 4 (
     echo.
     exit /b 1
 )
-
-pause

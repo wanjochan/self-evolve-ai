@@ -23,7 +23,7 @@
 #include "../../core/utils.h"
 #include "../../core/native.h"
 #include "../../core/astc.h"
-#include "../../core/jit.h"
+#include "../jit/jit.h"
 
 // Include compiler components
 #include "../compiler/c2astc.h"

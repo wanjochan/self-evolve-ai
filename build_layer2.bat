@@ -31,7 +31,7 @@ echo Building vm_x64_64.native...
 echo ============================
 
 REM Compile VM module as shared library for x64
-%TCC% -shared -o "bin\layer2\vm_x64_64.native" "src\layer2\vm_module.c"
+%TCC% -shared -o "bin\layer2\vm_x64_64.native" "src\ext\modules\vm_module.c" "src\core\utils.c" "src\core\native.c" "src\core\astc.c"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to compile vm_x64_64.native
@@ -45,7 +45,7 @@ echo Building libc_x64_64.native...
 echo ==============================
 
 REM Compile LibC module as shared library for x64
-%TCC% -shared -o "bin\layer2\libc_x64_64.native" "src\layer2\libc_module.c"
+%TCC% -shared -o "bin\layer2\libc_x64_64.native" "src\ext\modules\libc_module.c" "src\core\utils.c"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to compile libc_x64_64.native
@@ -66,7 +66,7 @@ if %ERRORLEVEL% equ 0 (
     echo ARM64 cross-compilation supported, proceeding...
 
     REM Compile VM module for ARM64 using cross-compilation
-    %TCC% -shared -DTCC_TARGET_ARM64 -o "bin\layer2\vm_arm64_64.native" "src\layer2\vm_module.c"
+    %TCC% -shared -DTCC_TARGET_ARM64 -o "bin\layer2\vm_arm64_64.native" "src\ext\modules\vm_module.c" "src\core\utils.c" "src\core\native.c" "src\core\astc.c"
 
     if %ERRORLEVEL% neq 0 (
         echo Warning: Failed to compile vm_arm64_64.native despite ARM64 support detection
@@ -87,7 +87,7 @@ echo ================================
 
 if defined ARM64_VM_SUCCESS if %ARM64_VM_SUCCESS%==1 (
     REM Compile LibC module for ARM64 using cross-compilation
-    %TCC% -shared -DTCC_TARGET_ARM64 -o "bin\layer2\libc_arm64_64.native" "src\layer2\libc_module.c"
+    %TCC% -shared -DTCC_TARGET_ARM64 -o "bin\layer2\libc_arm64_64.native" "src\ext\modules\libc_module.c" "src\core\utils.c"
 
     if %ERRORLEVEL% neq 0 (
         echo Warning: Failed to compile libc_arm64_64.native despite ARM64 support

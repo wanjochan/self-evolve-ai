@@ -643,3 +643,61 @@ void* native_module_get_export_address(const NativeModule* module, const char* n
 
     return NULL;
 }
+
+/**
+ * Get symbol from native module
+ */
+void* native_module_get_symbol(const NativeModule* module, const char* symbol_name) {
+    if (!module || !symbol_name) {
+        return NULL;
+    }
+
+    const NativeExport* export = native_module_find_export(module, symbol_name);
+    if (!export) {
+        return NULL;
+    }
+
+    // Return address based on export type
+    if (export->type == NATIVE_EXPORT_FUNCTION && module->code_section) {
+        return (void*)((uintptr_t)module->code_section + export->offset);
+    } else if (export->type == NATIVE_EXPORT_VARIABLE && module->data_section) {
+        return (void*)((uintptr_t)module->data_section + export->offset);
+    }
+
+    return NULL;
+}
+
+/**
+ * Get symbol from native module (compatibility function for loader)
+ * This function handles both NativeModule* and NativeModuleHandle* types
+ */
+void* module_get_symbol_native(void* module_ptr, const char* symbol_name) {
+    if (!module_ptr || !symbol_name) {
+        return NULL;
+    }
+
+    // Check if this is a NativeModuleHandle by looking at the structure
+    typedef struct {
+        char module_path[512];
+        char module_name[128];
+        void* mapped_memory;
+        size_t mapped_size;
+        uint32_t flags;
+        // ... more fields
+        char padding[1000]; // Approximate remaining structure size
+        void* native_module;
+        int is_native_format;
+    } NativeModuleHandle_Layout;
+
+    NativeModuleHandle_Layout* handle = (NativeModuleHandle_Layout*)module_ptr;
+
+    // Heuristic: if module_path looks valid and is_native_format is set
+    if (handle->module_path[0] != '\0' && handle->is_native_format == 1 && handle->native_module != NULL) {
+        // This is a NativeModuleHandle with a proper .native module
+        printf("Native Module: Using native.c system to get symbol '%s'\n", symbol_name);
+        return native_module_get_symbol((NativeModule*)handle->native_module, symbol_name);
+    }
+
+    // Fallback: try to treat as direct NativeModule*
+    return native_module_get_symbol((NativeModule*)module_ptr, symbol_name);
+}

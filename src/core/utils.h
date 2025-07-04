@@ -182,6 +182,10 @@ typedef struct NativeModuleHandle {
     int last_error_code;
     char last_error_message[512];
 
+    // Native module integration (for proper .native format)
+    void* native_module;  // NativeModule* from native.c
+    int is_native_format; // 1 if loaded as proper .native, 0 if fallback
+
     // Linked list for module registry
     struct NativeModuleHandle* next;
 } NativeModuleHandle;
@@ -195,6 +199,21 @@ typedef struct NativeModuleHandle {
  * @return DetectedArchitecture enum value
  */
 DetectedArchitecture detect_architecture(void);
+
+/**
+ * Get architecture name as string
+ * @param arch Architecture enum value
+ * @return String representation (e.g., "x64", "arm64")
+ */
+const char* get_architecture_name(DetectedArchitecture arch);
+
+/**
+ * Safe string copy function
+ * @param dest Destination buffer
+ * @param src Source string
+ * @param dest_size Size of destination buffer
+ */
+void safe_strncpy(char* dest, const char* src, size_t dest_size);
 
 /**
  * Get string representation of architecture

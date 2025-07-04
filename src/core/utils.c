@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <errno.h>
+#include "native.h"
 
 // Platform-specific includes
 #ifdef _WIN32
@@ -136,6 +137,31 @@ DetectedArchitecture detect_architecture(void) {
     }
 
     return ARCH_UNKNOWN;
+}
+
+/**
+ * Get architecture name as string
+ */
+const char* get_architecture_name(DetectedArchitecture arch) {
+    switch (arch) {
+        case ARCH_X86_64: return "x64";
+        case ARCH_X86_32: return "x86";
+        case ARCH_ARM64: return "arm64";
+        case ARCH_ARM32: return "arm32";
+        default: return "unknown";
+    }
+}
+
+/**
+ * Safe string copy function
+ */
+void safe_strncpy(char* dest, const char* src, size_t dest_size) {
+    if (!dest || !src || dest_size == 0) {
+        return;
+    }
+
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
 }
 
 const char* get_architecture_string(DetectedArchitecture arch) {
@@ -1198,6 +1224,36 @@ NativeModuleHandle* module_open_native(const char* module_path, const char* modu
     handle->flags = flags;
     handle->reference_count = 1;
     handle->is_initialized = 0;
+
+    // Try to load using the correct native.c system first
+    NativeModule* native_module = native_module_load_file(module_path);
+    if (native_module) {
+        printf("Native Module: Successfully loaded as proper .native format\n");
+
+        // Store the native module in our handle
+        handle->native_module = native_module;
+        handle->is_native_format = 1;
+
+        // Extract function information from native module
+        handle->function_count = 0;
+
+        // Add common VM functions to function table
+        if (strstr(module_path, "vm_") != NULL) {
+            safe_snprintf(handle->functions[0].name, sizeof(handle->functions[0].name), "vm_core_execute_astc");
+            handle->functions[0].address = native_module_get_symbol(native_module, "vm_core_execute_astc");
+            if (handle->functions[0].address) {
+                handle->function_count = 1;
+                printf("Native Module: Found vm_core_execute_astc function\n");
+            }
+        }
+
+        handle->is_initialized = 1;
+        handle->next = native_modules_registry;
+        native_modules_registry = handle;
+
+        printf("Native Module: Successfully loaded %s using native.c system\n", handle->module_name);
+        return handle;
+    }
 
     // Load the module file
     if (!file_exists(module_path)) {

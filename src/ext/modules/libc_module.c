@@ -45,6 +45,12 @@ typedef struct {
 } LibCFunction;
 
 // ===============================================
+// Function Forward Declarations
+// ===============================================
+
+char* libc_strerror(int errnum);
+
+// ===============================================
 // Module Information (Architecture-specific)
 // ===============================================
 
