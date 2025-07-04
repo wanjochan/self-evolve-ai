@@ -114,7 +114,10 @@ tcc.exe -g -O0 -DLEGITIMATE_SOFTWARE -o loader.exe source.c -luser32 -lkernel32 
 1. **不要生成.def文件** - 项目架构不使用.def文件
 2. **不要将.exe重命名为.native** - .native是自定义格式，不是重命名的可执行文件
 3. **不要使用传统共享库编译方式** - 我们有自己的native模块系统
-4. **不要创建不必要的新文件** - 使用现有架构和工具
+4. **❌❌❌ 绝对不要创建不必要的新文件 ❌❌❌** - 这是重复犯的严重错误！
+   - 不要创建 *_new.bat, *_clean.bat, *_simple.c 等文件
+   - 直接修改现有文件，不要创建副本
+   - 使用现有架构和工具，不要重复造轮子
 
 ### ✅ 正确的.native模块创建方式：
 1. **使用src/core/native.c中的函数**：

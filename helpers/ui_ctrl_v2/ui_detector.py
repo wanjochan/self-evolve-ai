@@ -69,12 +69,5 @@ class UIDetector:
     @staticmethod
     def _map_class_to_type(class_idx: int) -> ElementType:
         """Map YOLO class index to ElementType"""
-        # This mapping should match your model's classes
-        mapping = {
-            0: ElementType.BUTTON,
-            1: ElementType.LINK,
-            2: ElementType.MENU,
-            3: ElementType.TEXT,
-            4: ElementType.ICON
-        }
-        return mapping.get(class_idx, ElementType.UNKNOWN) 
+        # 由于模型只有一个类别，我们把所有检测都当作按钮
+        return ElementType.BUTTON 

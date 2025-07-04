@@ -14,3 +14,5 @@ tools/vscode_ui_dump*.json
 *.log
 weights/icon_detect/model.pt
 *.*~
+output/captured_window.png
+helpers/ui_ctrl_v2/output/captured_window.png

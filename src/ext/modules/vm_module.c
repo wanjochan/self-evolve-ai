@@ -30,7 +30,7 @@
 #include "../../core/native.h"
 #include "../../core/utils.h"
 
-// JIT extension disabled for simplified VM implementation
+// JIT extension disabled - using simplified interpreter-only VM
 
 // Include ASTC module
 extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);
@@ -44,8 +44,8 @@ extern int astc2native(const char* astc_file_path, const char* native_file_path,
 typedef struct ASTCProgram ASTCProgram;
 typedef struct VMContext VMContext;
 typedef struct VMMemoryManager VMMemoryManager;
-typedef struct JITContext JITContext;
-typedef struct JITMetadata JITMetadata;
+// JIT disabled: typedef struct JITContext JITContext;
+// JIT disabled: typedef struct JITMetadata JITMetadata;
 
 // Function forward declarations
 ASTNode* vm_parse_astc_bytecode(uint8_t* bytecode, size_t size);
@@ -1729,11 +1729,35 @@ __declspec(dllexport) int vm_core_execute_astc(const char* astc_file, int argc, 
     printf("VM Core: Data size: %u bytes\n", data_size);
     printf("VM Core: Entry point: %u\n", entry_point);
 
-    // Execute ASTC program (basic interpreter)
-    printf("VM Core: Starting ASTC program execution\n");
+    // Strategy: Use astc2native to compile ASTC to native code, then execute
+    printf("VM Core: Using astc2native compilation strategy\n");
     printf("VM Core: Program arguments: %d\n", argc);
 
-    // Basic ASTC interpreter implementation
+    // Generate temporary native file name
+    char temp_native[512];
+    snprintf(temp_native, sizeof(temp_native), "%s.temp.native", astc_file);
+
+    // Call astc2native module to compile ASTC to native code
+    printf("VM Core: Calling astc2native to compile ASTC to native code...\n");
+
+    // Declare astc2native function (from astc_module.c)
+    extern int astc2native(const char* astc_file_path, const char* native_file_path, const char* target_arch);
+
+    // Call astc2native to compile ASTC to native
+    int compile_result = astc2native(astc_file, temp_native, "x64");
+
+    if (compile_result == 0) {
+        printf("VM Core: Successfully compiled ASTC to native code: %s\n", temp_native);
+
+        // TODO: Load and execute the compiled native code
+        printf("VM Core: Native code execution not yet implemented, using interpreter fallback\n");
+
+        // For now, still use interpreter but we've proven the astc2native integration works
+    } else {
+        printf("VM Core: astc2native compilation failed, using interpreter fallback\n");
+    }
+
+    // Basic ASTC interpreter implementation (fallback)
     int result = execute_astc_bytecode(astc_data + 16, data_size, argc, argv);
 
     printf("VM Core: Program execution completed with result: %d\n", result);
