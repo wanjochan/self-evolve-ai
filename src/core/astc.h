@@ -630,4 +630,27 @@ int ast_validate_module(struct ASTNode* module);
 int ast_validate_export_declaration(struct ASTNode* export_decl);
 int ast_validate_import_declaration(struct ASTNode* import_decl);
 
+// ===============================================
+// ASTC Program Structure for JIT Compilation
+// ===============================================
+
+/**
+ * ASTC Program structure for runtime execution
+ */
+typedef struct ASTCProgram {
+    char program_name[256];
+    uint32_t version;
+    uint32_t flags;
+    uint32_t entry_point;
+    uint32_t source_size;
+    char* source_code;
+    uint32_t bytecode_size;
+    uint8_t* bytecode;
+} ASTCProgram;
+
+// ASTC Program management functions
+ASTCProgram* astc_load_program(const char* astc_file);
+void astc_free_program(ASTCProgram* program);
+int astc_validate_program(const ASTCProgram* program);
+
 #endif // ASTC_H

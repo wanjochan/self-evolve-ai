@@ -182,6 +182,43 @@ const char* jit_ext_get_version(void);
 void jit_ext_print_info(void);
 
 // ===============================================
+// ASTC JIT Compilation Functions
+// ===============================================
+
+/**
+ * JIT Context for ASTC compilation
+ */
+typedef struct JITContext {
+    uint32_t target_arch;
+    uint32_t target_bits;
+    void* compiler_state;
+    bool initialized;
+} JITContext;
+
+// JIT compilation result codes already defined above
+
+/**
+ * Create JIT context
+ */
+JITContext* jit_create_context(uint32_t target_arch, uint32_t target_bits);
+
+/**
+ * Destroy JIT context
+ */
+void jit_destroy_context(JITContext* ctx);
+
+/**
+ * Compile ASTC bytecode to machine code
+ */
+int jit_compile_astc(JITContext* ctx, const uint8_t* bytecode, size_t bytecode_size,
+                     uint8_t** machine_code, size_t* machine_code_size);
+
+/**
+ * Free compiled machine code
+ */
+void jit_free_code(uint8_t* machine_code);
+
+// ===============================================
 // Fallback Macros (when JIT not available)
 // ===============================================
 

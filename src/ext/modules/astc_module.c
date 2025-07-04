@@ -352,27 +352,93 @@ static int astc_astc2native(const char* astc_file, const char* native_file, cons
         printf("ASTC Module: Converting ASTC to native: %s -> %s\n", astc_file, native_file);
     }
 
-    // TODO: Implement actual ASTC to native compilation
-    // For now, create a simple native module structure
+    // Implement ASTC to native compilation using JIT
+    if (opts->verbose) {
+        printf("ASTC Module: Starting JIT compilation process...\n");
+    }
 
-    // Create simple native module header
-    NativeModuleHeader header = {0};
-    header.magic = NATIVE_MODULE_MAGIC;
-    header.version = 1;
-    header.architecture = (uint32_t)opts->target_arch;
-    header.entry_point = 0;
-    header.code_size = 0;
-    header.data_size = 0;
-
-    // Write native module file
-    FILE* output_file = fopen(native_file, "wb");
-    if (!output_file) {
-        astc_set_error("Cannot create output file: %s", native_file);
+    // Step 1: Parse ASTC file
+    ASTCProgram* program = astc_load_program(astc_file);
+    if (!program) {
+        astc_set_error("Failed to load ASTC program: %s", astc_file);
         return -1;
     }
 
-    fwrite(&header, sizeof(NativeModuleHeader), 1, output_file);
-    fclose(output_file);
+    if (opts->verbose) {
+        printf("ASTC Module: Loaded ASTC program, bytecode size: %u bytes\n", program->bytecode_size);
+    }
+
+    // Step 2: Initialize JIT compiler
+    JITContext* jit_ctx = jit_create_context(opts->target_arch, opts->target_bits);
+    if (!jit_ctx) {
+        astc_set_error("Failed to initialize JIT compiler");
+        astc_free_program(program);
+        return -1;
+    }
+
+    // Step 3: Compile ASTC bytecode to machine code using JIT
+    uint8_t* machine_code = NULL;
+    size_t machine_code_size = 0;
+
+    int jit_result = jit_compile_astc(jit_ctx, program->bytecode, program->bytecode_size,
+                                     &machine_code, &machine_code_size);
+
+    if (jit_result != JIT_SUCCESS) {
+        astc_set_error("JIT compilation failed with error: %d", jit_result);
+        jit_destroy_context(jit_ctx);
+        astc_free_program(program);
+        return -1;
+    }
+
+    if (opts->verbose) {
+        printf("ASTC Module: JIT compilation successful, generated %zu bytes of machine code\n", machine_code_size);
+    }
+
+    // Step 4: Create native module using native.c system
+    NativeModule* native_module = native_module_create(NATIVE_ARCH_X86_64, NATIVE_TYPE_USER);
+    if (!native_module) {
+        astc_set_error("Failed to create native module structure");
+        jit_free_code(machine_code);
+        jit_destroy_context(jit_ctx);
+        astc_free_program(program);
+        return -1;
+    }
+
+    // Set the compiled machine code
+    if (native_module_set_code(native_module, machine_code, machine_code_size, 0) != 0) {
+        astc_set_error("Failed to set machine code in native module");
+        native_module_free(native_module);
+        jit_free_code(machine_code);
+        jit_destroy_context(jit_ctx);
+        astc_free_program(program);
+        return -1;
+    }
+
+    // Add main entry point export
+    if (native_module_add_export(native_module, "main", NATIVE_EXPORT_FUNCTION, 0, 0) != 0) {
+        astc_set_error("Failed to add main export");
+        native_module_free(native_module);
+        jit_free_code(machine_code);
+        jit_destroy_context(jit_ctx);
+        astc_free_program(program);
+        return -1;
+    }
+
+    // Step 5: Write native module to file
+    if (native_module_write_file(native_module, native_file) != 0) {
+        astc_set_error("Failed to write native module file: %s", native_file);
+        native_module_free(native_module);
+        jit_free_code(machine_code);
+        jit_destroy_context(jit_ctx);
+        astc_free_program(program);
+        return -1;
+    }
+
+    // Cleanup
+    native_module_free(native_module);
+    jit_free_code(machine_code);
+    jit_destroy_context(jit_ctx);
+    astc_free_program(program);
 
     if (stats) {
         stats->output_size = sizeof(NativeModuleHeader);

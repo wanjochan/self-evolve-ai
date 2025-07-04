@@ -320,3 +320,130 @@ int ast_validate_node(const ASTNode* node) {
     
     return 0; // Valid
 }
+
+// ===============================================
+// ASTC Program Management Implementation
+// ===============================================
+
+/**
+ * Load ASTC program from file
+ */
+ASTCProgram* astc_load_program(const char* astc_file) {
+    if (!astc_file) {
+        return NULL;
+    }
+
+    FILE* file = fopen(astc_file, "rb");
+    if (!file) {
+        return NULL;
+    }
+
+    // Read and verify ASTC magic
+    char magic[4];
+    if (fread(magic, 1, 4, file) != 4 || memcmp(magic, "ASTC", 4) != 0) {
+        fclose(file);
+        return NULL;
+    }
+
+    // Create program structure
+    ASTCProgram* program = malloc(sizeof(ASTCProgram));
+    if (!program) {
+        fclose(file);
+        return NULL;
+    }
+
+    memset(program, 0, sizeof(ASTCProgram));
+
+    // Read header
+    if (fread(&program->version, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&program->flags, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&program->entry_point, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&program->source_size, sizeof(uint32_t), 1, file) != 1) {
+        free(program);
+        fclose(file);
+        return NULL;
+    }
+
+    // Read source code if present
+    if (program->source_size > 0) {
+        program->source_code = malloc(program->source_size + 1);
+        if (!program->source_code) {
+            free(program);
+            fclose(file);
+            return NULL;
+        }
+
+        if (fread(program->source_code, 1, program->source_size, file) != program->source_size) {
+            free(program->source_code);
+            free(program);
+            fclose(file);
+            return NULL;
+        }
+        program->source_code[program->source_size] = '\0';
+    }
+
+    // Read bytecode size
+    if (fread(&program->bytecode_size, sizeof(uint32_t), 1, file) != 1) {
+        if (program->source_code) free(program->source_code);
+        free(program);
+        fclose(file);
+        return NULL;
+    }
+
+    // Read bytecode
+    if (program->bytecode_size > 0) {
+        program->bytecode = malloc(program->bytecode_size);
+        if (!program->bytecode) {
+            if (program->source_code) free(program->source_code);
+            free(program);
+            fclose(file);
+            return NULL;
+        }
+
+        if (fread(program->bytecode, 1, program->bytecode_size, file) != program->bytecode_size) {
+            free(program->bytecode);
+            if (program->source_code) free(program->source_code);
+            free(program);
+            fclose(file);
+            return NULL;
+        }
+    }
+
+    fclose(file);
+
+    // Set program name from file path
+    const char* filename = strrchr(astc_file, '/');
+    if (!filename) filename = strrchr(astc_file, '\\');
+    if (!filename) filename = astc_file;
+    else filename++;
+
+    strncpy(program->program_name, filename, sizeof(program->program_name) - 1);
+    program->program_name[sizeof(program->program_name) - 1] = '\0';
+
+    return program;
+}
+
+/**
+ * Free ASTC program
+ */
+void astc_free_program(ASTCProgram* program) {
+    if (!program) return;
+
+    if (program->source_code) {
+        free(program->source_code);
+    }
+    if (program->bytecode) {
+        free(program->bytecode);
+    }
+    free(program);
+}
+
+/**
+ * Validate ASTC program
+ */
+int astc_validate_program(const ASTCProgram* program) {
+    if (!program) return -1;
+    if (program->bytecode_size == 0 || !program->bytecode) return -1;
+    if (program->version == 0) return -1;
+    return 0;
+}

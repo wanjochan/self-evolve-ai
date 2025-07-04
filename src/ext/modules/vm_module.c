@@ -44,8 +44,7 @@ extern int astc2native(const char* astc_file_path, const char* native_file_path,
 typedef struct ASTCProgram ASTCProgram;
 typedef struct VMContext VMContext;
 typedef struct VMMemoryManager VMMemoryManager;
-// JIT disabled: typedef struct JITContext JITContext;
-// JIT disabled: typedef struct JITMetadata JITMetadata;
+// JIT functionality moved to astc2native module
 
 // Function forward declarations
 ASTNode* vm_parse_astc_bytecode(uint8_t* bytecode, size_t size);

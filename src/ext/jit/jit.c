@@ -296,4 +296,161 @@ void jit_ext_print_info(void) {
     printf("JIT Extension: Disabled at compile time\n");
 }
 
+// ===============================================
+// ASTC JIT Compilation Implementation
+// ===============================================
+
+/**
+ * Create JIT context
+ */
+JITContext* jit_create_context(uint32_t target_arch, uint32_t target_bits) {
+    JITContext* ctx = malloc(sizeof(JITContext));
+    if (!ctx) return NULL;
+
+    ctx->target_arch = target_arch;
+    ctx->target_bits = target_bits;
+    ctx->compiler_state = NULL;
+    ctx->initialized = true;
+
+    return ctx;
+}
+
+/**
+ * Destroy JIT context
+ */
+void jit_destroy_context(JITContext* ctx) {
+    if (!ctx) return;
+
+    if (ctx->compiler_state) {
+        free(ctx->compiler_state);
+    }
+    free(ctx);
+}
+
+/**
+ * Compile ASTC bytecode to machine code
+ */
+int jit_compile_astc(JITContext* ctx, const uint8_t* bytecode, size_t bytecode_size,
+                     uint8_t** machine_code, size_t* machine_code_size) {
+    if (!ctx || !bytecode || !machine_code || !machine_code_size) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    // Simple JIT implementation: translate ASTC instructions to x64 machine code
+    // This is a basic implementation for demonstration
+
+    // Allocate machine code buffer (estimate 10x bytecode size)
+    size_t estimated_size = bytecode_size * 10;
+    uint8_t* code = malloc(estimated_size);
+    if (!code) {
+        return JIT_ERROR_OUT_OF_MEMORY;
+    }
+
+    size_t code_pos = 0;
+    size_t pc = 0;
+
+    // Function prologue (x64)
+    code[code_pos++] = 0x55;                    // push rbp
+    code[code_pos++] = 0x48; code[code_pos++] = 0x89; code[code_pos++] = 0xE5; // mov rbp, rsp
+    code[code_pos++] = 0x48; code[code_pos++] = 0x83; code[code_pos++] = 0xEC; code[code_pos++] = 0x20; // sub rsp, 32
+
+    // Translate ASTC bytecode to machine code
+    while (pc < bytecode_size) {
+        uint8_t opcode = bytecode[pc];
+
+        switch (opcode) {
+            case 0x01: // HALT
+                // Generate return instruction
+                code[code_pos++] = 0x48; code[code_pos++] = 0x31; code[code_pos++] = 0xC0; // xor rax, rax
+                code[code_pos++] = 0x48; code[code_pos++] = 0x83; code[code_pos++] = 0xC4; code[code_pos++] = 0x20; // add rsp, 32
+                code[code_pos++] = 0x5D; // pop rbp
+                code[code_pos++] = 0xC3; // ret
+                pc++;
+                break;
+
+            case 0x10: // LOAD_IMM32
+                if (pc + 5 < bytecode_size) {
+                    uint8_t reg = bytecode[pc + 1];
+                    uint32_t imm = *(uint32_t*)(bytecode + pc + 2);
+
+                    // mov eax, imm (simplified - always use rax)
+                    code[code_pos++] = 0xB8; // mov eax, imm32
+                    *(uint32_t*)(code + code_pos) = imm;
+                    code_pos += 4;
+
+                    pc += 6;
+                } else {
+                    free(code);
+                    return JIT_ERROR_COMPILATION_FAILED;
+                }
+                break;
+
+            case 0x30: // CALL
+                if (pc + 4 < bytecode_size) {
+                    uint32_t func_id = *(uint32_t*)(bytecode + pc + 1);
+
+                    // Generate function call (simplified - just nop for now)
+                    code[code_pos++] = 0x90; // nop
+
+                    pc += 5;
+                } else {
+                    free(code);
+                    return JIT_ERROR_COMPILATION_FAILED;
+                }
+                break;
+
+            case 0x50: // EXIT
+                // Generate return with exit code
+                if (pc + 1 < bytecode_size) {
+                    uint8_t exit_code = bytecode[pc + 1];
+                    code[code_pos++] = 0xB8; // mov eax, imm32
+                    *(uint32_t*)(code + code_pos) = exit_code;
+                    code_pos += 4;
+                    pc += 2;
+                } else {
+                    code[code_pos++] = 0x48; code[code_pos++] = 0x31; code[code_pos++] = 0xC0; // xor rax, rax
+                    pc++;
+                }
+
+                code[code_pos++] = 0x48; code[code_pos++] = 0x83; code[code_pos++] = 0xC4; code[code_pos++] = 0x20; // add rsp, 32
+                code[code_pos++] = 0x5D; // pop rbp
+                code[code_pos++] = 0xC3; // ret
+                break;
+
+            default:
+                // Unknown instruction - skip
+                pc++;
+                break;
+        }
+
+        // Check buffer overflow
+        if (code_pos >= estimated_size - 20) {
+            free(code);
+            return JIT_ERROR_OUT_OF_MEMORY;
+        }
+    }
+
+    // If no explicit return, add one
+    if (code_pos > 8 && code[code_pos - 1] != 0xC3) {
+        code[code_pos++] = 0x48; code[code_pos++] = 0x31; code[code_pos++] = 0xC0; // xor rax, rax
+        code[code_pos++] = 0x48; code[code_pos++] = 0x83; code[code_pos++] = 0xC4; code[code_pos++] = 0x20; // add rsp, 32
+        code[code_pos++] = 0x5D; // pop rbp
+        code[code_pos++] = 0xC3; // ret
+    }
+
+    *machine_code = code;
+    *machine_code_size = code_pos;
+
+    return JIT_SUCCESS;
+}
+
+/**
+ * Free compiled machine code
+ */
+void jit_free_code(uint8_t* machine_code) {
+    if (machine_code) {
+        free(machine_code);
+    }
+}
+
 #endif // JIT_EXTENSION_AVAILABLE
