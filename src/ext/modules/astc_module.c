@@ -23,11 +23,11 @@
 #include "../../core/utils.h"
 #include "../../core/native.h"
 #include "../../core/astc.h"
-#include "../jit/jit.h"
+#include "../../core/jit/jit.h"
 
 // Include compiler components
-#include "../compiler/c2astc.h"
-#include "../compiler/astc2native.h"
+#include "../../core/compiler/c2astc.h"
+#include "../../core/compiler/astc2native.h"
 
 // ===============================================
 // ASTC Module Interface Definitions

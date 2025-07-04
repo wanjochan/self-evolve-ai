@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../core/native.h"
-#include "../compiler/astc2native.h"
+#include "../core/compiler/astc2native.h"
 #include "../core/include/core_astc.h"
 
 static void print_usage(const char* program_name) {

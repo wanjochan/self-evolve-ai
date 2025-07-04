@@ -17,7 +17,7 @@
 #include <time.h>
 
 // Include the JIT extension module
-#include "../src/ext/jit/jit.h"
+#include "../src/core/jit/jit.h"
 #include "../src/core/utils.h"
 
 // Test framework macros
