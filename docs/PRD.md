@@ -55,18 +55,18 @@ layer-program:
     - astc.h                   # core def about ASTC
     - jit.[c|h]                # byte code emitter, maybe should merge with native?
     - native.[c|h]             # native module handlers
-    - utils.[c|h]              # the very core utils
-        - arch and bits detector (must not using macro)
-        - bytecode tool functios 
-- src/ext/    # the extended modules
     - c2astc.c                 # lib and tool that convert .c to .astc
     - astc2native.c            # lib and tool that convert .astc to .native
     - c2native.c               # tool that compile .c to .native (currently using tcc, will use our c99 once done)
-    - utils_ext.c              # more utility functions
     - std_module.c             # a base std module like the one in QuickJS
     - astc_module.c            # native module that convert C to ASTC vise versa
     - vm_module.c              # native module that vm that load .astc
     - libc_module.c            # native module that of libc forwader 
+    - utils.[c|h]              # the very core utils
+        - arch and bits detector (must not using macro)
+        - bytecode tool functios 
+- src/ext/    # the extended modules
+    - utils_ext.c              # more utility functions
     - c99.c                    # our c99 implementation to replace tcc(using loader + runtime + c99.astc)
 
 - layer 1 loader (windows exe)

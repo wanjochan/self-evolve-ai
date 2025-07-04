@@ -22,8 +22,8 @@ echo Building VM Module...
 echo =====================
 
 REM Check if VM module source exists
-if not exist "src\ext\modules\vm_module.c" (
-    echo Error: VM module source not found at src\ext\modules\vm_module.c
+if not exist "src\core\modules\vm_module.c" (
+    echo Error: VM module source not found at src\core\modules\vm_module.c
     exit /b 1
 )
 
@@ -35,7 +35,7 @@ echo Creating proper .native format using c2native.exe...
 
 REM Use original vm_module.c and handle JIT compilation errors gracefully
 echo Using original vm_module.c
-tools\c2native.exe "src\ext\modules\vm_module.c" "bin\layer2\vm_x64_64.native"
+tools\c2native.exe "src\core\modules\vm_module.c" "bin\layer2\vm_x64_64.native"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to create .native format

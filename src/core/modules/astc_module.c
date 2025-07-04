@@ -20,14 +20,14 @@
 #include <stdarg.h>
 
 // Include core system components
-#include "../../core/utils.h"
-#include "../../core/native.h"
-#include "../../core/astc.h"
-#include "../../core/jit/jit.h"
+#include "../utils.h"
+#include "../native.h"
+#include "../astc.h"
+#include "../jit/jit.h"
 
-// Include compiler components
-#include "../../core/compiler/c2astc.h"
-#include "../../core/compiler/astc2native.h"
+// Include convertor components
+#include "../convertor/c2astc.h"
+#include "../convertor/astc2native.h"
 
 // ===============================================
 // ASTC Module Interface Definitions

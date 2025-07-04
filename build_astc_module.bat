@@ -22,8 +22,8 @@ echo Building ASTC Module...
 echo =======================
 
 REM Check if ASTC module source exists
-if not exist "src\ext\modules\astc_module.c" (
-    echo Error: ASTC module source not found at src\ext\modules\astc_module.c
+if not exist "src\core\modules\astc_module.c" (
+    echo Error: ASTC module source not found at src\core\modules\astc_module.c
     exit /b 1
 )
 
@@ -32,7 +32,7 @@ echo Building astc_x64_64.native...
 
 REM Use c2native.exe tool to create proper .native format
 echo Creating proper .native format using c2native.exe...
-tools\c2native.exe "src\ext\modules\astc_module.c" "bin\layer2\astc_x64_64.native"
+tools\c2native.exe "src\core\modules\astc_module.c" "bin\layer2\astc_x64_64.native"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to create .native format using c2native
@@ -110,7 +110,7 @@ echo   - astc_astc2native: Compile ASTC bytecode to native module
 echo   - astc_get_last_error: Get last compilation error
 echo.
 echo ASTC Compilation Pipeline:
-echo   C Source (.c) -> ASTC Bytecode (.astc) -> Native Module (.native)
+echo   C Source (.c) , ASTC Bytecode (.astc) , Native Module (.native)
 echo.
 echo Supported Features:
 echo   - C99 source code parsing

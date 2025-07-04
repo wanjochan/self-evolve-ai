@@ -7,13 +7,18 @@ from PIL import Image
 from typing import Optional, Tuple
 import time
 import ctypes
+import logging
+
+# 配置日志
+logger = logging.getLogger("ui_ctrl_v2.window")
 
 # 加载user32.dll
 user32 = ctypes.windll.user32
 
 class WindowCapture:
-    def __init__(self):
+    def __init__(self, verbose=True):
         self._hwnd = None
+        self.verbose = verbose
         
     def find_window(self, window_title: str) -> bool:
         """Find window by title and store its handle"""
@@ -29,7 +34,8 @@ class WindowCapture:
         
         if found_windows:
             self._hwnd = found_windows[0]  # 使用第一个匹配的窗口
-            print(f"Found window handle: {self._hwnd}")
+            if self.verbose:
+                logger.info(f"Found window handle: {self._hwnd}")
             return True
         return False
     
@@ -57,7 +63,8 @@ class WindowCapture:
         # 检查窗口是否最小化
         style = win32gui.GetWindowLong(self._hwnd, win32con.GWL_STYLE)
         if style & win32con.WS_MINIMIZE:
-            print("Window is minimized, attempting to restore...")
+            if self.verbose:
+                logger.info("Window is minimized, attempting to restore...")
             # 发送恢复命令
             win32gui.ShowWindow(self._hwnd, win32con.SW_RESTORE)
             # 等待窗口恢复
@@ -84,7 +91,8 @@ class WindowCapture:
         
         # 如果窗口在屏幕外或位置异常，移动到屏幕中心
         if left < 0 or top < 0 or left >= screen_width or top >= screen_height:
-            print("Window is outside visible area, moving to center...")
+            if self.verbose:
+                print("Window is outside visible area, moving to center...")
             new_left = (screen_width - width) // 2
             new_top = (screen_height - height) // 2
             win32gui.MoveWindow(self._hwnd, new_left, new_top, width, height, True)
@@ -109,15 +117,19 @@ class WindowCapture:
         
         for method in methods:
             try:
-                print(f"\nTrying {method['name']}...")
+                if self.verbose:
+                    print(f"\nTrying {method['name']}...")
                 img = method['func']()
                 if img is not None and not np.all(img == 0):
-                    print(f"{method['name']} succeeded!")
+                    if self.verbose:
+                        print(f"{method['name']} succeeded!")
                     return img
                 else:
-                    print(f"{method['name']} produced black image, trying next method...")
+                    if self.verbose:
+                        print(f"{method['name']} produced black image, trying next method...")
             except Exception as e:
-                print(f"{method['name']} failed: {e}")
+                if self.verbose:
+                    print(f"{method['name']} failed: {e}")
                 
         return None
         
@@ -183,8 +195,9 @@ class WindowCapture:
             width = right - left
             height = bottom - top
             
-            print(f"Window dimensions: {width}x{height}")
-            print(f"Window position: ({left}, {top}) -> ({right}, {bottom})")
+            if self.verbose:
+                print(f"Window dimensions: {width}x{height}")
+                print(f"Window position: ({left}, {top}) -> ({right}, {bottom})")
             
             # 创建设备上下文
             hwndDC = win32gui.GetWindowDC(self._hwnd)
@@ -197,14 +210,18 @@ class WindowCapture:
             saveDC.SelectObject(saveBitMap)
             
             # 尝试使用PrintWindow
-            print("Trying PrintWindow...")
+            if self.verbose:
+                print("Trying PrintWindow...")
             result = user32.PrintWindow(self._hwnd, saveDC.GetSafeHdc(), 2)  # PW_RENDERFULLCONTENT = 2
-            print(f"PrintWindow result: {result}")
+            if self.verbose:
+                print(f"PrintWindow result: {result}")
             
             if not result:
-                print("PrintWindow failed, trying BitBlt...")
+                if self.verbose:
+                    print("PrintWindow failed, trying BitBlt...")
                 result = saveDC.BitBlt((0, 0), (width, height), mfcDC, (0, 0), win32con.SRCCOPY)
-                print(f"BitBlt result: {result}")
+                if self.verbose:
+                    print(f"BitBlt result: {result}")
             
             # 获取位图数据
             bmpstr = saveBitMap.GetBitmapBits(True)
@@ -215,13 +232,15 @@ class WindowCapture:
             
             # 检查图像是否全黑
             is_black = np.all(img == 0)
-            print(f"Image is black: {is_black}")
-            print(f"Image shape: {img.shape}")
-            print(f"Image min/max values: {img.min()}, {img.max()}")
+            if self.verbose:
+                print(f"Image is black: {is_black}")
+                print(f"Image shape: {img.shape}")
+                print(f"Image min/max values: {img.min()}, {img.max()}")
             
             # 如果图像全黑，尝试使用GetDC
             if is_black:
-                print("Image is black, trying GetDC...")
+                if self.verbose:
+                    print("Image is black, trying GetDC...")
                 # 释放之前的资源
                 win32gui.DeleteObject(saveBitMap.GetHandle())
                 saveDC.DeleteDC()
@@ -238,18 +257,35 @@ class WindowCapture:
                 
                 # 使用PrintWindow
                 result = user32.PrintWindow(self._hwnd, saveDC.GetSafeHdc(), 2)
-                print(f"GetDC PrintWindow result: {result}")
+                if self.verbose:
+                    print(f"GetDC PrintWindow result: {result}")
                 
                 if not result:
                     # 使用BitBlt复制窗口内容
                     result = saveDC.BitBlt((0, 0), (width, height), mfcDC, (0, 0), win32con.SRCCOPY)
-                    print(f"GetDC BitBlt result: {result}")
+                    if self.verbose:
+                        print(f"GetDC BitBlt result: {result}")
                 
                 # 重新获取图像数据
                 bmpstr = saveBitMap.GetBitmapBits(True)
                 img = np.frombuffer(bmpstr, dtype='uint8')
                 img.shape = (height, width, 4)
-                print(f"GetDC capture min/max values: {img.min()}, {img.max()}")
+                
+                # 再次检查图像是否全黑
+                is_black = np.all(img == 0)
+                if self.verbose:
+                    print(f"Second attempt - Image is black: {is_black}")
+                    print(f"Second attempt - Image min/max values: {img.min()}, {img.max()}")
+            
+            # 转换为PIL图像
+            pil_img = Image.frombuffer('RGBA', (width, height), img, 'raw', 'BGRA', 0, 1)
+            
+            # 转换为RGB模式
+            pil_img = pil_img.convert('RGB')
+            
+            if self.verbose:
+                print(f"PIL Image size: {pil_img.size}")
+                print(f"PIL Image mode: {pil_img.mode}")
             
             # 清理资源
             win32gui.DeleteObject(saveBitMap.GetHandle())
@@ -257,32 +293,32 @@ class WindowCapture:
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(self._hwnd, hwndDC)
             
-            # 转换为PIL图像
-            pil_img = Image.fromarray(img[..., :3])  # 移除alpha通道
-            print(f"PIL Image size: {pil_img.size}")
-            print(f"PIL Image mode: {pil_img.mode}")
-            
             return pil_img
             
         except Exception as e:
-            print(f"Error capturing window: {e}")
+            if self.verbose:
+                print(f"Error capturing window: {e}")
             import traceback
             traceback.print_exc()
             return None
     
     def capture_to_file(self, filepath: str) -> bool:
-        """Capture window content and save to file"""
+        """Capture window screenshot and save to file"""
         img = self.capture()
         if img:
             img.save(filepath)
-            print(f"Image saved to {filepath}")
+            if self.verbose:
+                print(f"Image saved to {filepath}")
             # 验证保存的图像
             try:
                 saved_img = Image.open(filepath)
-                print(f"Saved image verified - Size: {saved_img.size}, Mode: {saved_img.mode}")
+                if self.verbose:
+                    print(f"Saved image verified - Size: {saved_img.size}, Mode: {saved_img.mode}")
                 is_black = np.all(np.array(saved_img) == 0)
-                print(f"Saved image is black: {is_black}")
+                if self.verbose:
+                    print(f"Saved image is black: {is_black}")
             except Exception as e:
-                print(f"Error verifying saved image: {e}")
+                if self.verbose:
+                    print(f"Error verifying saved image: {e}")
             return True
         return False 

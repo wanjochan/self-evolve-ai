@@ -26,9 +26,9 @@
 #endif
 
 // Include core components
-#include "../../core/astc.h"
-#include "../../core/native.h"
-#include "../../core/utils.h"
+#include "../astc.h"
+#include "../native.h"
+#include "../utils.h"
 
 // JIT extension disabled - using simplified interpreter-only VM
 
@@ -41,27 +41,27 @@ extern int astc2native(const char* astc_file_path, const char* native_file_path,
 // ===============================================
 
 // Forward declarations
-typedef struct ASTCProgram ASTCProgram;
-typedef struct VMContext VMContext;
-typedef struct VMMemoryManager VMMemoryManager;
-// JIT functionality moved to astc2native module
+struct ASTCProgram;
+struct VMContext;
+struct VMMemoryManager;
+struct JITContext; // JIT functionality moved to astc2native module
 
 // Function forward declarations
 ASTNode* vm_parse_astc_bytecode(uint8_t* bytecode, size_t size);
 char* safe_strdup(const char* str);
-VMMemoryManager* vm_create_memory_manager(size_t heap_size, size_t stack_size);
-void vm_destroy_memory_manager(VMMemoryManager* memory);
-int vm_call_function(VMContext* context, uint32_t func_id);
-int vm_jit_compile_bytecode(JITContext* ctx);
-size_t vm_jit_emit_prologue(uint8_t* output, JITContext* ctx);
-size_t vm_jit_emit_halt(uint8_t* output, JITContext* ctx);
-size_t vm_jit_emit_load_imm32(uint8_t* output, JITContext* ctx, uint8_t reg, uint32_t imm);
-size_t vm_jit_emit_add(uint8_t* output, JITContext* ctx, uint8_t reg1, uint8_t reg2, uint8_t reg3);
-size_t vm_jit_emit_call(uint8_t* output, JITContext* ctx, uint32_t func_id);
-size_t vm_jit_emit_ret(uint8_t* output, JITContext* ctx);
-size_t vm_jit_emit_exit(uint8_t* output, JITContext* ctx, uint8_t exit_code);
-size_t vm_jit_emit_epilogue(uint8_t* output, JITContext* ctx);
-int vm_interpret_bytecode(VMContext* context);
+struct VMMemoryManager* vm_create_memory_manager(size_t heap_size, size_t stack_size);
+void vm_destroy_memory_manager(struct VMMemoryManager* memory);
+int vm_call_function(struct VMContext* context, uint32_t func_id);
+int vm_jit_compile_bytecode(struct JITContext* ctx);
+size_t vm_jit_emit_prologue(uint8_t* output, struct JITContext* ctx);
+size_t vm_jit_emit_halt(uint8_t* output, struct JITContext* ctx);
+size_t vm_jit_emit_load_imm32(uint8_t* output, struct JITContext* ctx, uint8_t reg, uint32_t imm);
+size_t vm_jit_emit_add(uint8_t* output, struct JITContext* ctx, uint8_t reg1, uint8_t reg2, uint8_t reg3);
+size_t vm_jit_emit_call(uint8_t* output, struct JITContext* ctx, uint32_t func_id);
+size_t vm_jit_emit_ret(uint8_t* output, struct JITContext* ctx);
+size_t vm_jit_emit_exit(uint8_t* output, struct JITContext* ctx, uint8_t exit_code);
+size_t vm_jit_emit_epilogue(uint8_t* output, struct JITContext* ctx);
+int vm_interpret_bytecode(struct VMContext* context);
 
 /**
  * JIT Compiler Context

@@ -1,111 +1,119 @@
-# Maestro
+# Maestro CLI工具
 
-Maestro 是一个高级UI控制和自动化系统，基于YOLO和OmniParser进行UI元素检测，提供命令行和Web API接口。
+简单的窗口管理和UI自动化工具。
 
-## 功能特点
+## 功能
 
-- 快速窗口截图捕获（包括后台窗口）
-- 基于YOLO的UI元素检测
-- 实时窗口监控能力
-- 自动化鼠标和键盘控制
-- 提供命令行和Web API接口
+- 列出所有可见窗口
+- 详细分析指定窗口，包括UI元素检测
+- 控制窗口状态（激活、最小化、最大化、恢复、关闭）
+- 执行鼠标操作（移动、点击）
+- 执行键盘操作（输入文本、按键、组合键）
 
-## 安装
+## 使用方法
 
-1. 创建并激活conda环境：
-```bash
-conda create -n maestro python=3.12 -y
-conda activate maestro
+### 列出所有窗口
+
+```
+python maestro_cli.py list
 ```
 
-2. 安装依赖：
-```bash
-pip install -r requirements.txt
+这将显示所有可见窗口的HWND、PID和标题。
+
+### 详细分析指定窗口
+
+```
+python maestro_cli.py detail "窗口标题" [-o 输出文件.json] [-s] [-f]
 ```
 
-3. 下载所需模型：
-```bash
-mkdir -p weights/icon_detect
-# 下载模型文件到weights目录
+参数说明：
+- `窗口标题`: 要分析的窗口标题（部分匹配）
+- `-o, --output`: 可选，将分析结果保存到指定的JSON文件
+- `-s, --save-screenshot`: 可选，保存窗口截图
+- `-f, --fast`: 可选，快速模式，减少输出并加快分析速度
+
+这将对标题包含指定文本的窗口进行详细分析：
+1. 显示窗口的基本信息
+2. 捕获窗口截图（但默认不保存）
+3. 使用YOLO和OmniParser模型检测UI元素
+4. 默认将结果输出到标准输出，可选择保存到JSON文件
+
+### 控制窗口状态
+
+```
+python maestro_cli.py window "窗口标题" <操作>
 ```
 
-## 命令行使用
+参数说明：
+- `窗口标题`: 要控制的窗口标题（部分匹配）
+- `操作`: 窗口操作，可选值：
+  - `activate`: 激活窗口
+  - `minimize`: 最小化窗口
+  - `maximize`: 最大化窗口
+  - `restore`: 恢复窗口
+  - `close`: 关闭窗口
 
-### 分析窗口UI元素
+### 执行鼠标操作
 
-```bash
-python -m maestro.cli.main analyze "窗口标题"
+```
+python maestro_cli.py mouse "窗口标题" <操作> [-x X坐标] [-y Y坐标] [-b 按钮] [-d]
 ```
 
-### 监控窗口
+参数说明：
+- `窗口标题`: 要操作的窗口标题（部分匹配）
+- `操作`: 鼠标操作，可选值：
+  - `click`: 点击指定位置
+  - `move`: 移动鼠标到指定位置
+  - `current`: 获取当前鼠标位置
+- `-x`: X坐标（click和move操作需要）
+- `-y`: Y坐标（click和move操作需要）
+- `-b, --button`: 鼠标按钮，可选值：left（默认）、right、middle
+- `-d, --double`: 双击
 
-```bash
-python -m maestro.cli.main monitor "窗口标题1" "窗口标题2"
+### 执行键盘操作
+
+```
+python maestro_cli.py keyboard "窗口标题" <操作> <按键>
 ```
 
-### 捕获窗口截图
+参数说明：
+- `窗口标题`: 要操作的窗口标题（部分匹配）
+- `操作`: 键盘操作，可选值：
+  - `type`: 输入文本
+  - `key`: 按下特定按键
+  - `hotkey`: 按下组合键（使用+连接，如ctrl+c）
+- `按键`: 要输入的文本、按键或组合键
 
-```bash
-python -m maestro.cli.main capture "窗口标题" -o screenshot.png
+## 示例
+
+```
+# 列出所有窗口
+python maestro_cli.py list
+
+# 详细分析窗口（快速模式）
+python maestro_cli.py detail "Cursor" -f
+
+# 保存分析结果和截图
+python maestro_cli.py detail "Cursor" -o cursor_analysis.json -s
+
+# 激活窗口
+python maestro_cli.py window "Notepad" activate
+
+# 在窗口中点击
+python maestro_cli.py mouse "Notepad" click -x 100 -y 100
+
+# 在窗口中输入文本
+python maestro_cli.py keyboard "Notepad" type "Hello World"
+
+# 在窗口中按下组合键
+python maestro_cli.py keyboard "Notepad" hotkey "ctrl+s"
 ```
 
-### 点击UI元素
+## 依赖
 
-```bash
-python -m maestro.cli.main click "窗口标题" button
-```
-
-## Web API使用
-
-启动Web服务器：
-
-```bash
-python -m maestro.web_server
-```
-
-### API端点
-
-- `GET /api/windows` - 列出所有可见窗口
-- `GET /api/windows/{window_title}/analyze` - 分析窗口UI元素
-- `GET /api/windows/{window_title}/capture` - 捕获窗口截图
-- `POST /api/windows/{window_title}/click` - 点击窗口中的UI元素
-- `POST /api/windows/{window_title}/monitor` - 开始监控窗口
-- `DELETE /api/windows/{window_title}/monitor` - 停止监控窗口
-- `GET /api/monitor/status` - 获取监控状态
-
-### 示例
-
-点击窗口中的按钮：
-
-```bash
-curl -X POST http://localhost:5000/api/windows/Notepad/click \
-  -H "Content-Type: application/json" \
-  -d '{"element_type": "button", "button": "left", "double": false}'
-```
-
-## 编程使用
-
-```python
-from maestro import UIDetector, WindowCapture, InputController
-
-# 初始化
-detector = UIDetector()
-capture = WindowCapture()
-controller = InputController()
-
-# 分析窗口
-window_title = "记事本"
-elements = detector.analyze_window(window_title)
-
-# 点击按钮
-for elem in elements:
-    if elem.type.value == "button":
-        controller.click_element(elem)
-        break
-```
-
-## 注意事项
-
-- 确保已安装所需的模型文件
-- 某些窗口可能需要管理员权限才能进行操作
-- 在Windows上使用时，可能需要以管理员身份运行程序 
+- Python 3.6+
+- pywin32
+- ui_ctrl_v2 (可选，用于UI元素检测和高级输入控制)
+  - ultralytics (YOLO)
+  - Pillow
+  - numpy 

@@ -22,8 +22,8 @@ echo Building LibC Module...
 echo =======================
 
 REM Check if LibC module source exists
-if not exist "src\ext\modules\libc_module.c" (
-    echo Error: LibC module source not found at src\ext\modules\libc_module.c
+if not exist "src\core\modules\libc_module.c" (
+    echo Error: LibC module source not found at src\core\modules\libc_module.c
     exit /b 1
 )
 
@@ -32,7 +32,7 @@ echo Building libc_x64_64.native...
 
 REM Use c2native.exe tool to create proper .native format
 echo Creating proper .native format using c2native.exe...
-tools\c2native.exe "src\ext\modules\libc_module.c" "bin\layer2\libc_x64_64.native"
+tools\c2native.exe "src\core\modules\libc_module.c" "bin\layer2\libc_x64_64.native"
 
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to create .native format using c2native
