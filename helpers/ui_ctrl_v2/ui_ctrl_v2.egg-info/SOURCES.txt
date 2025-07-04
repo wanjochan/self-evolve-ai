@@ -1,4 +1,5 @@
 README.md
+pyproject.toml
 setup.py
 ui_ctrl_v2.egg-info/PKG-INFO
 ui_ctrl_v2.egg-info/SOURCES.txt

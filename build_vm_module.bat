@@ -39,7 +39,7 @@ echo Building VM module as executable...
       -DVERSION_STRING="2.0" ^
       -DBUILD_DATE="%DATE%" ^
       -O2 ^
-      "src\ext\modules\vm_module_simple.c" ^
+      "src\ext\modules\vm_module.c" ^
       "src\core\utils.c" ^
       "src\core\native.c" ^
       "src\core\astc.c"

@@ -43,17 +43,10 @@ layer-program:
 支持多种程序类型(如c99编译器、evolver等)
 未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
-
-
-
-## stage1 dev flow
-loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat and then 
-.\bin\layer1\loader_x64_64.exe -m bin\layer2\vm_x64_64.native bin\layer3\c99.astc -- test_hello.c -o hello.exe
-
 ### 核心技术
-- **ASTC字节码**: 可扩展的计算表示 (core_astc.h)
-- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native_format.h)
-- **JIT编译**: 动态代码生成引擎 (astc2native.c)
+- **ASTC字节码**: 可扩展的计算表示 (astc.h)
+- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native.h)
+- **JIT编译**: 动态代码生成引擎 (astc2native.c + jit)
 
 ## 5. 实现路线图
 
@@ -66,11 +59,15 @@ loop: update .c and run build_layer1.bat + build_layer2.bat + bild_layer3.bat an
         - arch and bits detector (must not using macro)
         - bytecode tool functios 
 - src/ext/    # the extended modules
+    - c2astc.c                 # lib and tool that convert .c to .astc
+    - astc2native.c            # lib and tool that convert .astc to .native
+    - c2native.c               # tool that compile .c to .native (currently using tcc, will use our c99 once done)
     - utils_ext.c              # more utility functions
+    - std_module.c             # a base std module like the one in QuickJS
     - astc_module.c            # native module that convert C to ASTC vise versa
     - vm_module.c              # native module that vm that load .astc
     - libc_module.c            # native module that of libc forwader 
-    - 
+    - c99.c                    # our c99 implementation to replace tcc(using loader + runtime + c99.astc)
 
 - layer 1 loader (windows exe)
 - layer 2 native module (vm, libc), will be loaded by mmap() alike. (not libdl or ffi)
@@ -107,4 +104,34 @@ tcc.exe -o loader.exe source.c
 **保守方案**（如果简单方案仍有问题）：
 ```bash
 tcc.exe -g -O0 -DLEGITIMATE_SOFTWARE -o loader.exe source.c -luser32 -lkernel32 -ladvapi32
+```
+
+---
+
+## ❌ 重要编译经验和教训 ❌
+
+### 严禁的错误做法：
+1. **不要生成.def文件** - 项目架构不使用.def文件
+2. **不要将.exe重命名为.native** - .native是自定义格式，不是重命名的可执行文件
+3. **不要使用传统共享库编译方式** - 我们有自己的native模块系统
+4. **不要创建不必要的新文件** - 使用现有架构和工具
+
+### ✅ 正确的.native模块创建方式：
+1. **使用src/core/native.c中的函数**：
+   - `native_module_create()` - 创建模块结构
+   - `native_module_set_code()` - 设置机器码
+   - `native_module_add_export()` - 添加导出函数
+   - `native_module_write_file()` - 写入真正的.native格式（NATV魔数）
+
+2. **遵循PRD.md第76行**：使用mmap()加载，不是libdl或ffi
+3. **遵循PRD.md第84行**：src/utils.c实现libdl-alike, libffi-alike功能
+
+### 🎯 正确编译流程：
+```
+源码 → 编译为目标代码 → 使用native.c系统创建.native格式 → 输出真正的.native文件
+```
+
+**错误流程**：
+```
+源码 → 编译为.exe → 重命名为.native ❌
 ```
