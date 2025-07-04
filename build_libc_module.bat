@@ -43,7 +43,7 @@ echo.
 echo LibC Module Build Summary:
 echo =========================
 if exist "bin\layer2\libc_x64_64.native" (
-    for %%f in ("bin\layer2\libc_x64_64.native") do echo   - libc_x64_64.native (%%~zf bytes)
+    for %%f in ("bin\layer2\libc_x64_64.native") do echo   - libc_x64_64.native (%%~zf bytes^)
     echo Success: LibC module built successfully
 ) else (
     echo Error: LibC module was not created

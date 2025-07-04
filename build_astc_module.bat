@@ -43,7 +43,7 @@ echo.
 echo ASTC Module Build Summary:
 echo =========================
 if exist "bin\layer2\astc_x64_64.native" (
-    for %%f in ("bin\layer2\astc_x64_64.native") do echo   - astc_x64_64.native (%%~zf bytes)
+    for %%f in ("bin\layer2\astc_x64_64.native") do echo   - astc_x64_64.native (%%~zf bytes^)
     echo Success: ASTC module built successfully
 ) else (
     echo Error: ASTC module was not created

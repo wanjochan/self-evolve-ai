@@ -544,7 +544,7 @@ ASTCModuleInterface* get_astc_module_interface(void) {
 /**
  * Legacy c2astc function for backward compatibility
  */
-int c2astc(const char* c_file_path, const char* astc_file_path, const void* options) {
+int astc_module_c2astc(const char* c_file_path, const char* astc_file_path, const void* options) {
     return astc_c2astc(c_file_path, astc_file_path, NULL, NULL);
 }
 
