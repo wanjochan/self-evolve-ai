@@ -19,6 +19,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <sys/timeb.h>
+#else
+#include <sys/time.h>
+#include <unistd.h>
 #endif
 
 // Include core components
@@ -26,8 +30,8 @@
 #include "../../core/native.h"
 #include "../../core/utils.h"
 
-// Include optional JIT extension
-#include "../jit/jit.h"
+// Include optional JIT extension (comment out if not available)
+// #include "../jit/jit.h"
 
 // Include ASTC module
 extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);
@@ -177,6 +181,25 @@ typedef struct {
     void (*dump_context)(VMContext* context);
     const char* (*get_last_error)(VMContext* context);
 } VMCoreInterface;
+
+// ===============================================
+// Utility Functions
+// ===============================================
+
+/**
+ * Get current time in microseconds
+ */
+static uint64_t get_current_time_us(void) {
+#ifdef _WIN32
+    struct _timeb tb;
+    _ftime(&tb);
+    return (uint64_t)tb.time * 1000000 + (uint64_t)tb.millitm * 1000;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec;
+#endif
+}
 
 // ===============================================
 // ASTC Program Loading Implementation
@@ -1065,17 +1088,9 @@ static int astc_jit_init(void) {
     g_default_astc_jit_options.verbose = false;
     safe_strncpy(g_default_astc_jit_options.temp_dir, "temp", sizeof(g_default_astc_jit_options.temp_dir));
 
-    // Check if JIT extension is available
-    if (jit_ext_check_availability() == JIT_AVAILABLE) {
-        if (jit_ext_init() == 0) {
-            g_default_astc_jit_options.use_jit = true;
-            printf("VM: JIT extension enabled\n");
-        } else {
-            printf("VM: JIT extension initialization failed, using fallback\n");
-        }
-    } else {
-        printf("VM: JIT extension not available, using ASTC interpretation\n");
-    }
+    // JIT extension disabled for now
+    g_default_astc_jit_options.use_jit = false;
+    printf("VM: JIT extension disabled, using ASTC interpretation\n");
 
     return 0;
 }
@@ -1750,9 +1765,27 @@ const VMModuleInfo* vm_core_get_info(void) {
 static VMCoreInterface vm_interface = {
     .init = vm_core_init,
     .cleanup = vm_core_cleanup,
-    .execute_astc = vm_core_execute_astc,
-    .load_native_module = vm_core_load_native_module,
-    .get_info = vm_core_get_info
+    .get_info = vm_core_get_info,
+    .load_astc_program = vm_load_astc_program,
+    .unload_astc_program = NULL, // TODO: implement
+    .validate_astc_program = NULL, // TODO: implement
+    .create_context = NULL, // TODO: implement
+    .destroy_context = NULL, // TODO: implement
+    .execute_program = NULL, // TODO: implement
+    .execute_function = NULL, // TODO: implement
+    .jit_compile_program = vm_jit_compile_program,
+    .jit_compile_function = vm_jit_compile_function,
+    .get_jit_function_ptr = NULL, // TODO: implement
+    .create_memory_manager = NULL, // TODO: implement
+    .destroy_memory_manager = NULL, // TODO: implement
+    .allocate_memory = NULL, // TODO: implement
+    .free_memory = NULL, // TODO: implement
+    .load_native_module = NULL, // TODO: implement
+    .call_native_function = NULL, // TODO: implement
+    .set_breakpoint = NULL, // TODO: implement
+    .step_execution = NULL, // TODO: implement
+    .dump_context = NULL, // TODO: implement
+    .get_last_error = NULL // TODO: implement
 };
 
 // ===============================================

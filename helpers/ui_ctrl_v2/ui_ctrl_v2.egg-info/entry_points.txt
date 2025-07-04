@@ -1,0 +1,2 @@
+[console_scripts]
+ui-ctrl = ui_ctrl_v2.cli:main

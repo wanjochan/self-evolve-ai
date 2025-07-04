@@ -12,3 +12,4 @@ tools/vscode_ui_dump*.json
 *.un~
 *.c~
 *.log
+weights/icon_detect/model.pt

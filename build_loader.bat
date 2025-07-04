@@ -2,7 +2,7 @@
 chcp 65001 >nul
 
 echo ========================================
-echo Building Layer 1 (Loader) Executables
+echo Building Loader Executables (Layer 1)
 echo ========================================
 
 REM Check if TCC is available
