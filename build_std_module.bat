@@ -43,7 +43,7 @@ echo.
 echo STD Module Build Summary:
 echo ========================
 if exist "bin\layer2\std_x64_64.native" (
-    for %%f in ("bin\layer2\std_x64_64.native") do echo   - std_x64_64.native (%%~zf bytes)
+    for %%f in ("bin\layer2\std_x64_64.native") do echo   - std_x64_64.native (%%~zf bytes^)
     echo Success: STD module built successfully
 ) else (
     echo Error: STD module was not created

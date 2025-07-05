@@ -1,7 +1,7 @@
 #ifndef CODEGEN_ARM64_H
 #define CODEGEN_ARM64_H
 
-#include "core_astc.h"
+#include "../astc.h"
 #include "astc2native.h"
 
 // ARM64架构特定的机器码生成函数

@@ -17,3 +17,5 @@ weights/icon_detect/model.pt
 output/captured_window.png
 helpers/ui_ctrl_v2/output/captured_window.png
 helpers/maestro/cursor_analysis.json
+helpers/*.png
+helpers/*.json

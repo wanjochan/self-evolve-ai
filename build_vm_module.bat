@@ -46,7 +46,7 @@ echo.
 echo VM Module Build Summary:
 echo =======================
 if exist "bin\layer2\vm_x64_64.native" (
-    for %%f in ("bin\layer2\vm_x64_64.native") do echo   - vm_x64_64.native (%%~zf bytes)
+    for %%f in ("bin\layer2\vm_x64_64.native") do echo   - vm_x64_64.native (%%~zf bytes^)
     echo Success: VM module built successfully
 ) else (
     echo Error: VM module was not created

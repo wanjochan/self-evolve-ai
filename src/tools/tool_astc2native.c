@@ -10,8 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../core/native.h"
+#include "../core/astc.h"
+#ifndef SIMPLIFIED_BUILD
 #include "../core/convertor/astc2native.h"
-#include "../core/include/core_astc.h"
+#endif
 
 static void print_usage(const char* program_name) {
     printf("Usage: %s [options] <input_file> <output_file>\n\n", program_name);

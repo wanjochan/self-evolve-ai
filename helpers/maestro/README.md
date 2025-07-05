@@ -1,88 +1,135 @@
 # Maestro CLI工具
 
-简单的窗口管理和UI自动化工具。
+Maestro是一个简化的窗口管理和UI自动化工具，可以帮助您分析和控制Windows窗口。
 
 ## 功能
 
 - 列出所有可见窗口
-- 详细分析指定窗口，包括UI元素检测
-- 控制窗口状态（激活、最小化、最大化、恢复、关闭）
-- 执行鼠标操作（移动、点击）
-- 执行键盘操作（输入文本、按键、组合键）
+- 详细分析窗口内容和UI元素
+- 控制窗口状态（激活、最小化、最大化等）
+- 执行鼠标操作（点击、移动等）
+- 执行键盘操作（输入文本、按键等）
+
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
 
 ## 使用方法
 
 ### 列出所有窗口
 
-```
+```bash
 python maestro_cli.py list
 ```
 
-这将显示所有可见窗口的HWND、PID和标题。
+### 详细分析窗口
 
-### 详细分析指定窗口
+```bash
+# 通过窗口标题分析
+python maestro_cli.py detail "窗口标题"
 
+# 通过窗口HWND分析
+python maestro_cli.py detail 12345 -t hwnd
+
+# 通过进程PID分析
+python maestro_cli.py detail 6789 -t pid
+
+# 保存分析结果到JSON文件
+python maestro_cli.py detail "窗口标题" -o result.json
+
+# 保存窗口截图
+python maestro_cli.py detail "窗口标题" -s
+
+# 快速模式（减少输出并加快分析速度）
+python maestro_cli.py detail "窗口标题" -f
+
+# 安静模式（减少输出）
+python maestro_cli.py detail "窗口标题" -q
 ```
-python maestro_cli.py detail "窗口标题" [-o 输出文件.json] [-s] [-f]
-```
-
-参数说明：
-- `窗口标题`: 要分析的窗口标题（部分匹配）
-- `-o, --output`: 可选，将分析结果保存到指定的JSON文件
-- `-s, --save-screenshot`: 可选，保存窗口截图
-- `-f, --fast`: 可选，快速模式，减少输出并加快分析速度
-
-这将对标题包含指定文本的窗口进行详细分析：
-1. 显示窗口的基本信息
-2. 捕获窗口截图（但默认不保存）
-3. 使用YOLO和OmniParser模型检测UI元素
-4. 默认将结果输出到标准输出，可选择保存到JSON文件
 
 ### 控制窗口状态
 
-```
-python maestro_cli.py window "窗口标题" <操作>
-```
+```bash
+# 激活窗口
+python maestro_cli.py window "窗口标题" activate
 
-参数说明：
-- `窗口标题`: 要控制的窗口标题（部分匹配）
-- `操作`: 窗口操作，可选值：
-  - `activate`: 激活窗口
-  - `minimize`: 最小化窗口
-  - `maximize`: 最大化窗口
-  - `restore`: 恢复窗口
-  - `close`: 关闭窗口
+# 最小化窗口
+python maestro_cli.py window "窗口标题" minimize
+
+# 最大化窗口
+python maestro_cli.py window "窗口标题" maximize
+
+# 恢复窗口
+python maestro_cli.py window "窗口标题" restore
+
+# 关闭窗口
+python maestro_cli.py window "窗口标题" close
+```
 
 ### 执行鼠标操作
 
-```
-python maestro_cli.py mouse "窗口标题" <操作> [-x X坐标] [-y Y坐标] [-b 按钮] [-d]
-```
+```bash
+# 在指定位置点击
+python maestro_cli.py mouse "窗口标题" click -x 100 -y 200
 
-参数说明：
-- `窗口标题`: 要操作的窗口标题（部分匹配）
-- `操作`: 鼠标操作，可选值：
-  - `click`: 点击指定位置
-  - `move`: 移动鼠标到指定位置
-  - `current`: 获取当前鼠标位置
-- `-x`: X坐标（click和move操作需要）
-- `-y`: Y坐标（click和move操作需要）
-- `-b, --button`: 鼠标按钮，可选值：left（默认）、right、middle
-- `-d, --double`: 双击
+# 右键点击
+python maestro_cli.py mouse "窗口标题" click -x 100 -y 200 -b right
+
+# 双击
+python maestro_cli.py mouse "窗口标题" click -x 100 -y 200 -d
+
+# 移动鼠标到指定位置
+python maestro_cli.py mouse "窗口标题" move -x 100 -y 200
+
+# 获取当前鼠标位置
+python maestro_cli.py mouse "窗口标题" current
+```
 
 ### 执行键盘操作
 
-```
-python maestro_cli.py keyboard "窗口标题" <操作> <按键>
+```bash
+# 输入文本
+python maestro_cli.py keyboard "窗口标题" type "要输入的文本"
+
+# 按下按键
+python maestro_cli.py keyboard "窗口标题" key "enter"
+
+# 按下组合键
+python maestro_cli.py keyboard "窗口标题" hotkey "ctrl+c"
 ```
 
-参数说明：
-- `窗口标题`: 要操作的窗口标题（部分匹配）
-- `操作`: 键盘操作，可选值：
-  - `type`: 输入文本
-  - `key`: 按下特定按键
-  - `hotkey`: 按下组合键（使用+连接，如ctrl+c）
-- `按键`: 要输入的文本、按键或组合键
+## 参数说明
+
+### detail命令参数
+
+- `window_identifier`: 窗口标识符（标题、HWND或PID）
+- `-t, --type`: 标识符类型，可选值为`title`、`hwnd`、`pid`，默认为`title`
+- `-o, --output`: 将分析结果保存到JSON文件
+- `-s, --save-screenshot`: 保存窗口截图
+- `-f, --fast`: 快速模式，减少输出并加快分析速度
+- `-q, --quiet`: 安静模式，减少输出
+
+### window命令参数
+
+- `window_title`: 窗口标题
+- `action`: 窗口操作，可选值为`activate`、`minimize`、`maximize`、`restore`、`close`
+
+### mouse命令参数
+
+- `window_title`: 窗口标题
+- `action`: 鼠标操作，可选值为`click`、`move`、`current`
+- `-x`: X坐标
+- `-y`: Y坐标
+- `-b, --button`: 鼠标按钮，可选值为`left`、`right`、`middle`，默认为`left`
+- `-d, --double`: 双击
+
+### keyboard命令参数
+
+- `window_title`: 窗口标题
+- `action`: 键盘操作，可选值为`type`、`key`、`hotkey`
+- `keys`: 要输入的文本、按键或组合键
 
 ## 示例
 

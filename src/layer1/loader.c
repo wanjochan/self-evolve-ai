@@ -261,12 +261,25 @@ static int loader_execute_program(const char* program_path, int argc, char* argv
         printf("Loader: Executing program %s with %d arguments\n", program_path, argc);
     }
 
-    // Look up VM execution function
+    // Look up module execution function - try different function names based on module type
     typedef int (*vm_execute_func_t)(const char*, int, char**);
-    vm_execute_func_t vm_execute = (vm_execute_func_t)module_get_symbol_native(g_vm_module, "vm_core_execute_astc");
+    vm_execute_func_t vm_execute = NULL;
+
+    // Try VM module function first
+    vm_execute = (vm_execute_func_t)module_get_symbol_native(g_vm_module, "vm_core_execute_astc");
 
     if (!vm_execute) {
-        loader_set_error("VM module does not export vm_core_execute_astc function");
+        // Try generic native_main function
+        vm_execute = (vm_execute_func_t)module_get_symbol_native(g_vm_module, "native_main");
+    }
+
+    if (!vm_execute) {
+        // Try module-specific main function
+        vm_execute = (vm_execute_func_t)module_get_symbol_native(g_vm_module, "main");
+    }
+
+    if (!vm_execute) {
+        loader_set_error("Module does not export any known execution function (vm_core_execute_astc, native_main, or main)");
         return -1;
     }
 
