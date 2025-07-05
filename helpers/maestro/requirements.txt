@@ -1,16 +1,14 @@
-pywin32>=306
-pillow>=10.0.0
-numpy>=1.24.0
+pywin32>=228
+Pillow>=9.0.0
+numpy>=1.20.0
+paddleocr>=2.6.0.1; platform_system=="Windows"
 ultralytics>=8.0.0
-keyboard>=0.13.5
-mouse>=0.7.1
+transformers>=4.20.0
+torch>=1.10.0
+opencv-python>=4.5.0
 pyautogui>=0.9.53
-paddlepaddle>=2.5.0
-paddleocr>=2.6.1
-transformers>=4.30.0
-torch>=2.0.0
-huggingface-hub>=0.20.3
-opencv-python>=4.8.0
 pynput>=1.7.6
-tqdm>=4.66.0
-colorama>=0.4.6 
+argparse>=1.4.0
+pathlib>=1.0.1
+logging>=0.5.1.2
+PyYAML>=6.0 

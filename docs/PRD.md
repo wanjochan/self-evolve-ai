@@ -5,7 +5,7 @@
 能自我进化的AI系统，通过代码自我修改、编译和优化实现持续进化，最终目标是实现完全自主的通用智能。
 
 ## 进化阶段划分
-- **Stage 1: 借用人类经验** - 从兼容C99开始，建立基础技术栈 （Layer 1 2 3）
+- **Stage 1: 借用人类经验** - 从兼容C99开始，建立基础技术栈
 - **Stage 2: 模式识别进化** - AI识别和优化现有代码模式 （等Stage 1彻底稳定后等主人通知才开始）
 - **Stage 3: 架构创新进化** - AI发现超越人类设计的新架构（等主人通知才开始）
 - **Stage 4: 通用智能涌现** - 完全自主的计算模式创新（等主人通知才开始）
@@ -13,12 +13,14 @@
 ## 核心设计
 
 ```
-Layer 1 Loader: loader_{arch}_{bits}.exe  //执行入口，未来参考cosmopolitan等制作跨架构统一入口loader.exe
-    return import(f'vm_{arch}_{bits}.native').main(f'{program}.astc',argv[],env[]) //示意伪代码
-Layer 2 Runtime: vm_{arch}_{bits}.native  // .native原生字节码模块，其中最重要是vm模块用于加载astc运行
-    main(astc_module_name,argv[],env[]):
+Layer 1 Loader: loader_{arch}_{bits}.exe  //执行入口，未来参考cosmopolitan等制作跨架构统一入口 loader.exe
+    //导入vm模块 f'vm_{arch}_{bits}.native' 转发参数和环境变量给程序f'{program}.astc'
+    return import(’vm',arch=None,bits=None).main(program,argv[],env[]) //示意伪代码
+Layer 2 Runtime: f'vm_{arch}_{bits}.native'  // .native原生字节码模块，其中最重要是vm模块用于加载astc运行
+    def main(astc_module_name,argv[],env[]):  
+        //vm 模块加载 astc 模块然后转发参数和环境变量
         return vm_import(astc_module_name).main(argv[],env[])  //示意伪代码
-Layer 3 Program: {program}.astc     //用户程序（比如c99、evolver{version}）ASTC字节码，后面兼容ASTC-ASM、ASTC-ES6等高级语言
+Layer 3 Program: {program}.astc //用户程序（比如c99、evolver{version}）ASTC字节码，以后兼容ASTC-ASM、ASTC-ES6等高级语言
     c99:
         return c99_compile(c_file_name, argv[])
     evolver0:
@@ -26,31 +28,31 @@ Layer 3 Program: {program}.astc     //用户程序（比如c99、evolver{version
 ```
 
 layer-loader:
-作为统一入口点,实现了架构无关的加载器
+作为统一入口点,实现架构无关加载器
 自动检测当前硬件架构和操作系统
 动态选择和加载对应架构的VM模块
-转发命令行参数和环境变量
+转发命令行参数和环境变量还有结果
 未来可以参考cosmopolitan项目实现跨架构的统一loader
 
 layer-runtime:
-原生字节码模块,针对特定架构优化
-负责加载和执行ASTC字节码
-if module=='vm'，提供VM运行时环境for astc，处理内存管理、JIT编译等底层功能
+原生字节码模块,针对特定架构 arch+bits
+加载和执行ASTC字节码,转发参数和环境还有结果
+//重点核心模块主要是vm、astc、libc、std
 
 layer-program:
 用户程序的ASTC字节码表示
-完全架构无关的中间表示
-支持多种程序类型(如c99编译器、evolver等)
-未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
+架构无关的中间表示IR
+先实现ASTC字节码支持，未来可扩展支持ASTC-ASM、ASTC-ES6等高级语言
 
 ### 核心技术
-- **ASTC字节码**: 可扩展的计算表示 (astc.h)
-- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native.h)
-- **JIT编译**: 动态代码生成引擎 (astc2native.c + jit)
+- **ASTC字节码**: 可扩展的计算表示 (astc.[h|c])
+- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native.[h|c])
+- **多种转换工具**: c2astc,astc2native,c2native等
 
 ## 5. 实现路线图
-
-## dev roadmap (by human master)
+stage 1
+```
+dev roadmap (by human master)
 - src/core/                    # the real core
     - astc.h                   # core def about ASTC
     - jit.[c|h]                # byte code emitter, maybe should merge with native?
@@ -76,15 +78,56 @@ layer-program:
 - layer 3 program c99 supports cross build
 - cross build layer 1 loader (linux, macos)
 - cross build layer 2 vm (arm, riscv, mips, etc.)
-- build loader2 with c99
+- build loader2 with c99 (then start to be free from tinycc)
 
-- src/utils.c:: libdl-alike, libffi-alike
+- src/utils.c:: libdl-alike, libffi-alike ? to discuss further
+```
 
-### Phase 1: 自举
+临时笔记请忽略
+```
+urgent tasks for src/core/
+- 保留jit/jit.c作为核心JIT引擎，移除vm_module.c中的重复JIT功能，改为调用jit.c中的函数
+- convertor/目录下有多个codegen_.c文件，功能有重叠。保留架构特定文件，但统一接口，确保它们通过同一套API被调用
+- 在vm_module.c和其他文件中都有内存管理代码。统一使用memory.h中定义的内存管理函数，移除重复实现
+- c2astc.c和astc2native.c接口风格不一致。统一这些接口，确保它们遵循相同的调用约定和错误处理模式
 
-### Phase 2: 生态完善
+TODO vm module
+核心安全模型基础 - 在core层实现基本的安全边界和权限检查机制，为ext层的完整安全模型提供基础【human反对，这是vm的事】
+基础错误处理框架 - 在core中定义统一的错误码、错误传播机制和基本恢复策略，确保系统稳定性【human反对，这是vm的事】
+内存安全原语 - 在core层实现基本的内存边界检查和资源获取/释放追踪，作为更高级内存管理的基础【human反对，这是vm的事】
+核心并发原语 - 在core中提供基本的线程安全操作和同步机制，为ext层的完整并发模型提供支持【human反对，这是vm的事】
+版本兼容性基础设施 - 在core层实现版本检查和基本兼容性验证机制，确保系统各组件能正确协作【human反对，这是vm的事】
 
-### Phase 3: AI进化
+
+以下是优化src/core/中代码组织和消除重复的任务列表：
+优化src/core/中的代码组织与消除重复
+整合转换器代码，消除分散实现
+明确c2astc.c和convertor/目录下实现的职责边界
+明确astc2native.c和convertor/目录下实现的职责边界
+创建统一的转换器接口，确保一致性
+整合代码生成器实现，减少重复
+分析各codegen_.c文件的功能重叠
+设计统一的代码生成器架构，支持多目标
+实现基于插件的代码生成器系统，便于扩展
+统一JIT实现，消除分散代码
+分析jit/jit.c与vm_module.c中JIT实现的重叠
+设计统一的JIT接口，明确职责边界
+将JIT功能集中到一个模块，由其他组件调用
+统一内存管理实现，建立一致接口
+识别所有内存管理相关代码
+设计统一的内存管理接口
+实现集中式内存管理模块
+更新所有代码使用新的内存管理接口
+验证与文档
+为重构后的组件创建集成测试
+更新代码文档反映新的组织结构
+```
+
+stage 2
+
+stage 3
+
+stage 4
 
 ## 6. 技术经验总结
 

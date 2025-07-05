@@ -1795,8 +1795,8 @@ __declspec(dllexport) int vm_core_execute_astc(const char* astc_file, int argc, 
         printf("VM Core: astc2native compilation failed, using interpreter fallback\n");
     }
 
-    // Basic ASTC interpreter implementation (fallback)
-    int result = execute_astc_bytecode(astc_data + 16, data_size, argc, argv);
+    // Enhanced ASTC interpreter implementation
+    int result = vm_execute_astc_interpreter(astc_data + 16, data_size, argc, argv);
 
     printf("VM Core: Program execution completed with result: %d\n", result);
     
@@ -2094,3 +2094,86 @@ void vm_module_destructor(void) {
 
 // All JIT emit functions already defined above
 // Removed duplicate simplified implementations
+
+/**
+ * Enhanced ASTC bytecode interpreter with proper instruction decoding
+ */
+int vm_execute_astc_interpreter(const uint8_t* bytecode, uint32_t size, int argc, char* argv[]) {
+    if (!bytecode || size == 0) {
+        printf("VM Core: Empty bytecode\n");
+        return -1;
+    }
+
+    printf("VM Core: Starting ASTC interpreter (%u bytes)\n", size);
+
+    // Create execution stack
+    int32_t stack[1024];
+    int stack_top = 0;
+
+    // Create local variables storage
+    int32_t locals[256];
+    memset(locals, 0, sizeof(locals));
+
+    // Instruction pointer
+    uint32_t pc = 0;
+
+    // Main interpreter loop
+    while (pc < size) {
+        uint8_t opcode = bytecode[pc++];
+
+        switch (opcode) {
+            case AST_NOP:
+                // No operation
+                break;
+
+            case AST_I32_CONST: {
+                // Load 32-bit constant
+                if (pc + 4 > size) return -1;
+                int32_t value = *(int32_t*)(bytecode + pc);
+                pc += 4;
+                stack[stack_top++] = value;
+                printf("VM: i32.const %d\n", value);
+                break;
+            }
+
+            case AST_I32_ADD: {
+                // Add two i32 values
+                if (stack_top < 2) return -1;
+                int32_t b = stack[--stack_top];
+                int32_t a = stack[--stack_top];
+                stack[stack_top++] = a + b;
+                printf("VM: i32.add %d + %d = %d\n", a, b, a + b);
+                break;
+            }
+
+            case AST_RETURN: {
+                // Return from function
+                int32_t return_value = (stack_top > 0) ? stack[stack_top - 1] : 0;
+                printf("VM: return %d\n", return_value);
+                return return_value;
+            }
+
+            case ASTC_C99_COMPILE: {
+                // C99 compiler instruction - delegate to existing implementation
+                printf("VM: Executing C99 compiler instruction\n");
+                return execute_astc_bytecode(bytecode, size, argc, argv);
+            }
+
+            default:
+                printf("VM: Unknown opcode 0x%02X at PC=%u\n", opcode, pc - 1);
+                // For unknown opcodes, fall back to existing implementation
+                return execute_astc_bytecode(bytecode, size, argc, argv);
+        }
+
+        // Stack overflow protection
+        if (stack_top >= 1024) {
+            printf("VM: Stack overflow\n");
+            return -1;
+        }
+    }
+
+    // Program completed normally
+    int32_t result = (stack_top > 0) ? stack[stack_top - 1] : 0;
+    printf("VM: Program completed with result: %d\n", result);
+    return result;
+}

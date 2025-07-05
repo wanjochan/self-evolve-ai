@@ -69,7 +69,9 @@ typedef enum {
     JIT_FLAG_DEBUG_INFO = 1,        // Include debug information
     JIT_FLAG_PROFILE = 2,           // Enable profiling
     JIT_FLAG_CACHE_RESULT = 4,      // Cache compilation result
-    JIT_FLAG_VERIFY_CODE = 8        // Verify generated code
+    JIT_FLAG_VERIFY_CODE = 8,       // Verify generated code
+    JIT_FLAG_C99_MODE = 16,         // C99 compiler mode
+    JIT_FLAG_OPTIMIZE_C99 = 32      // C99-specific optimizations
 } JITFlags;
 
 // ===============================================
@@ -226,6 +228,43 @@ void jit_free_code(uint8_t* machine_code);
 #define JIT_EXTENSION_AVAILABLE 0
 #endif
 
+// ===============================================
+// C99 Compiler JIT Extensions
+// ===============================================
+
+/**
+ * C99-specific JIT compilation context
+ */
+typedef struct C99JITContext {
+    JITCompiler* base_jit;              // Base JIT compiler
+    struct ASTNode* ast_root;           // C99 AST root
+    char* source_file;                  // Source file path
+    char* target_arch;                  // Target architecture
+    int optimization_level;             // Optimization level
+    bool debug_mode;                    // Debug mode flag
+
+    // C99-specific state
+    uint32_t function_count;            // Number of functions
+    uint32_t variable_count;            // Number of variables
+    uint32_t* function_addresses;       // Function entry points
+    char** function_names;              // Function names
+} C99JITContext;
+
+/**
+ * C99 JIT compilation functions
+ */
+JITResult jit_compile_c99_ast(C99JITContext* ctx, struct ASTNode* ast);
+JITResult jit_compile_c99_function(C99JITContext* ctx, struct ASTNode* func_node);
+JITResult jit_compile_c99_expression(C99JITContext* ctx, struct ASTNode* expr_node);
+JITResult jit_optimize_c99_code(C99JITContext* ctx);
+
+/**
+ * C99 JIT context management
+ */
+C99JITContext* c99_jit_create_context(const char* target_arch, int opt_level);
+void c99_jit_destroy_context(C99JITContext* ctx);
+JITResult c99_jit_set_source(C99JITContext* ctx, const char* source_file);
+
 #if !JIT_EXTENSION_AVAILABLE
 // Provide no-op implementations when JIT is not available
 #define jit_ext_check_availability() JIT_UNAVAILABLE
@@ -235,6 +274,13 @@ void jit_free_code(uint8_t* machine_code);
 #define jit_ext_is_arch_supported(arch) false
 #define jit_ext_get_version() "JIT Extension Not Available"
 #define jit_ext_print_info() printf("JIT Extension: Not Available\n")
+
+// C99 JIT no-op implementations
+#define jit_compile_c99_ast(ctx, ast) JIT_ERROR_NOT_AVAILABLE
+#define jit_compile_c99_function(ctx, func) JIT_ERROR_NOT_AVAILABLE
+#define jit_compile_c99_expression(ctx, expr) JIT_ERROR_NOT_AVAILABLE
+#define c99_jit_create_context(arch, opt) NULL
+#define c99_jit_destroy_context(ctx) do {} while(0)
 #endif
 
 #ifdef __cplusplus

@@ -182,6 +182,13 @@ typedef enum {
     AST_TABLE_FILL = 0xFC11,     // 表填充
     
     // ===== 扩展节点 (AST-C) =====
+    // C99编译器专用指令
+    ASTC_C99_COMPILE = 0xF000,      // C99编译指令
+    ASTC_C99_PARSE = 0xF001,        // C99解析指令
+    ASTC_C99_CODEGEN = 0xF002,      // C99代码生成指令
+    ASTC_C99_OPTIMIZE = 0xF003,     // C99优化指令
+    ASTC_C99_LINK = 0xF004,         // C99链接指令
+
     // 声明和定义
     ASTC_TRANSLATION_UNIT,  // 翻译单元
     ASTC_FUNC_DECL,         // 函数声明
@@ -631,6 +638,25 @@ int ast_validate_export_declaration(struct ASTNode* export_decl);
 int ast_validate_import_declaration(struct ASTNode* import_decl);
 
 /**
+ * C99 Compiler Context for ASTC execution
+ */
+typedef struct C99CompilerContext {
+    char input_file[512];
+    char output_file[512];
+    char* source_code;
+    size_t source_size;
+    struct ASTNode* ast_root;
+    uint8_t* bytecode;
+    size_t bytecode_size;
+    int optimization_level;
+    int debug_info;
+    char target_arch[64];
+    char* error_message;
+    int error_count;
+    int warning_count;
+} C99CompilerContext;
+
+/**
  * ASTC Program structure for runtime execution
  */
 typedef struct ASTCProgram {
@@ -642,11 +668,31 @@ typedef struct ASTCProgram {
     char* source_code;
     uint32_t bytecode_size;
     uint8_t* bytecode;
+    C99CompilerContext* compiler_context;  // C99编译器上下文
 } ASTCProgram;
 
 // ASTC Program management functions
 ASTCProgram* astc_load_program(const char* astc_file);
 void astc_free_program(ASTCProgram* program);
 int astc_validate_program(const ASTCProgram* program);
+
+// C99 Compiler functions for ASTC
+C99CompilerContext* c99_create_context(void);
+void c99_free_context(C99CompilerContext* ctx);
+int c99_compile_source(C99CompilerContext* ctx, const char* source_file, const char* output_file);
+int c99_parse_source(C99CompilerContext* ctx);
+int c99_generate_bytecode(C99CompilerContext* ctx);
+int c99_optimize_bytecode(C99CompilerContext* ctx);
+int c99_emit_native_code(C99CompilerContext* ctx, const char* target_arch);
+
+// C99 Standard Library support
+int c99_init_stdlib(C99CompilerContext* ctx);
+int c99_register_builtin_functions(C99CompilerContext* ctx);
+int c99_register_libc_functions(C99CompilerContext* ctx);
+
+// C99 Error handling
+void c99_report_error(C99CompilerContext* ctx, const char* message, int line, int column);
+void c99_report_warning(C99CompilerContext* ctx, const char* message, int line, int column);
+const char* c99_get_error_summary(C99CompilerContext* ctx);
 
 #endif // ASTC_H

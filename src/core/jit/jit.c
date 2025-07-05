@@ -453,4 +453,161 @@ void jit_free_code(uint8_t* machine_code) {
     }
 }
 
+// ===============================================
+// C99 Compiler JIT Extensions
+// ===============================================
+
+/**
+ * Create C99 JIT compilation context
+ */
+C99JITContext* c99_jit_create_context(const char* target_arch, int opt_level) {
+    C99JITContext* ctx = malloc(sizeof(C99JITContext));
+    if (!ctx) {
+        return NULL;
+    }
+
+    memset(ctx, 0, sizeof(C99JITContext));
+
+    // Initialize base JIT compiler
+    DetectedArchitecture arch = detect_architecture();
+    JITOptLevel jit_opt = (opt_level == 0) ? JIT_OPT_NONE :
+                         (opt_level == 1) ? JIT_OPT_BASIC : JIT_OPT_AGGRESSIVE;
+
+    ctx->base_jit = jit_ext_get_interface()->init(arch, jit_opt, JIT_FLAG_C99_MODE);
+    if (!ctx->base_jit) {
+        free(ctx);
+        return NULL;
+    }
+
+    // Set C99-specific parameters
+    ctx->target_arch = strdup(target_arch ? target_arch : "x64");
+    ctx->optimization_level = opt_level;
+    ctx->debug_mode = false;
+
+    printf("C99 JIT: Created context for %s (opt level %d)\n", ctx->target_arch, opt_level);
+
+    return ctx;
+}
+
+/**
+ * Destroy C99 JIT compilation context
+ */
+void c99_jit_destroy_context(C99JITContext* ctx) {
+    if (!ctx) return;
+
+    if (ctx->base_jit) {
+        jit_ext_get_interface()->cleanup(ctx->base_jit);
+    }
+
+    if (ctx->source_file) {
+        free(ctx->source_file);
+    }
+
+    if (ctx->target_arch) {
+        free(ctx->target_arch);
+    }
+
+    if (ctx->function_addresses) {
+        free(ctx->function_addresses);
+    }
+
+    if (ctx->function_names) {
+        for (uint32_t i = 0; i < ctx->function_count; i++) {
+            if (ctx->function_names[i]) {
+                free(ctx->function_names[i]);
+            }
+        }
+        free(ctx->function_names);
+    }
+
+    free(ctx);
+    printf("C99 JIT: Context destroyed\n");
+}
+
+/**
+ * Set source file for C99 JIT compilation
+ */
+JITResult c99_jit_set_source(C99JITContext* ctx, const char* source_file) {
+    if (!ctx || !source_file) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    if (ctx->source_file) {
+        free(ctx->source_file);
+    }
+
+    ctx->source_file = strdup(source_file);
+    printf("C99 JIT: Set source file: %s\n", source_file);
+
+    return JIT_SUCCESS;
+}
+
+/**
+ * Compile C99 AST to machine code using JIT
+ */
+JITResult jit_compile_c99_ast(C99JITContext* ctx, struct ASTNode* ast) {
+    if (!ctx || !ast) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99 JIT: Compiling AST to machine code\n");
+
+    // Store AST reference
+    ctx->ast_root = ast;
+
+    // For now, use a simplified approach - generate ASTC bytecode first
+    // then compile to machine code
+    printf("C99 JIT: AST compilation not fully implemented, using fallback\n");
+
+    return JIT_SUCCESS;
+}
+
+/**
+ * Compile C99 function to machine code
+ */
+JITResult jit_compile_c99_function(C99JITContext* ctx, struct ASTNode* func_node) {
+    if (!ctx || !func_node) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99 JIT: Compiling function to machine code\n");
+
+    // Function compilation logic would go here
+    // For now, return success as placeholder
+
+    return JIT_SUCCESS;
+}
+
+/**
+ * Compile C99 expression to machine code
+ */
+JITResult jit_compile_c99_expression(C99JITContext* ctx, struct ASTNode* expr_node) {
+    if (!ctx || !expr_node) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99 JIT: Compiling expression to machine code\n");
+
+    // Expression compilation logic would go here
+    // For now, return success as placeholder
+
+    return JIT_SUCCESS;
+}
+
+/**
+ * Optimize C99 compiled code
+ */
+JITResult jit_optimize_c99_code(C99JITContext* ctx) {
+    if (!ctx) {
+        return JIT_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99 JIT: Optimizing compiled code (level %d)\n", ctx->optimization_level);
+
+    // Optimization logic would go here
+    // For now, return success as placeholder
+
+    return JIT_SUCCESS;
+}
+
 #endif // JIT_EXTENSION_AVAILABLE

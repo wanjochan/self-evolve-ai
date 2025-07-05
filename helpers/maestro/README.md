@@ -1,166 +1,173 @@
-# Maestro CLI工具
+# Maestro 工具
 
-Maestro是一个简化的窗口管理和UI自动化工具，可以帮助您分析和控制Windows窗口。
+Maestro是一个强大的窗口管理和UI自动化工具，专为与智能助理进行交互而设计，现已优化为更高效的版本。
 
-## 功能
+## 主要特点
 
-- 列出所有可见窗口
-- 详细分析窗口内容和UI元素
-- 控制窗口状态（激活、最小化、最大化等）
-- 执行鼠标操作（点击、移动等）
-- 执行键盘操作（输入文本、按键等）
+- **高效内存管理**：减少文件操作，使用内存缓存分析结果
+- **简化的API**：统一且简洁的接口，易于使用
+- **交互式操作**：支持交互模式，方便调试和探索
+- **批处理功能**：支持从文件批量执行命令
+- **性能优化**：减少不必要的截图和分析，提高响应速度
 
 ## 安装依赖
 
 ```bash
-pip install -r requirements.txt
+pip install pywin32 pillow numpy pyperclip
 ```
 
-## 使用方法
+## 快速开始
 
-### 列出所有窗口
+### 发送消息
 
 ```bash
-python maestro_cli.py list
+python maestro.py send "你好，请帮我分析这段代码"
 ```
 
-### 详细分析窗口
+### 执行任务
 
 ```bash
-# 通过窗口标题分析
-python maestro_cli.py detail "窗口标题"
-
-# 通过窗口HWND分析
-python maestro_cli.py detail 12345 -t hwnd
-
-# 通过进程PID分析
-python maestro_cli.py detail 6789 -t pid
-
-# 保存分析结果到JSON文件
-python maestro_cli.py detail "窗口标题" -o result.json
-
-# 保存窗口截图
-python maestro_cli.py detail "窗口标题" -s
-
-# 快速模式（减少输出并加快分析速度）
-python maestro_cli.py detail "窗口标题" -f
-
-# 安静模式（减少输出）
-python maestro_cli.py detail "窗口标题" -q
+python maestro.py task "优化这段代码的性能"
 ```
 
-### 控制窗口状态
+### 交互模式
 
 ```bash
-# 激活窗口
-python maestro_cli.py window "窗口标题" activate
-
-# 最小化窗口
-python maestro_cli.py window "窗口标题" minimize
-
-# 最大化窗口
-python maestro_cli.py window "窗口标题" maximize
-
-# 恢复窗口
-python maestro_cli.py window "窗口标题" restore
-
-# 关闭窗口
-python maestro_cli.py window "窗口标题" close
+python maestro.py interact --wait
 ```
 
-### 执行鼠标操作
+### 点击操作
 
 ```bash
-# 在指定位置点击
-python maestro_cli.py mouse "窗口标题" click -x 100 -y 200
-
-# 右键点击
-python maestro_cli.py mouse "窗口标题" click -x 100 -y 200 -b right
-
-# 双击
-python maestro_cli.py mouse "窗口标题" click -x 100 -y 200 -d
-
-# 移动鼠标到指定位置
-python maestro_cli.py mouse "窗口标题" move -x 100 -y 200
-
-# 获取当前鼠标位置
-python maestro_cli.py mouse "窗口标题" current
+python maestro.py click 100 200
 ```
 
-### 执行键盘操作
+### 按键操作
 
 ```bash
-# 输入文本
-python maestro_cli.py keyboard "窗口标题" type "要输入的文本"
-
-# 按下按键
-python maestro_cli.py keyboard "窗口标题" key "enter"
-
-# 按下组合键
-python maestro_cli.py keyboard "窗口标题" hotkey "ctrl+c"
+python maestro.py key --key enter
+python maestro.py key --hotkey "ctrl+c"
 ```
 
-## 参数说明
+### 批处理
 
-### detail命令参数
-
-- `window_identifier`: 窗口标识符（标题、HWND或PID）
-- `-t, --type`: 标识符类型，可选值为`title`、`hwnd`、`pid`，默认为`title`
-- `-o, --output`: 将分析结果保存到JSON文件
-- `-s, --save-screenshot`: 保存窗口截图
-- `-f, --fast`: 快速模式，减少输出并加快分析速度
-- `-q, --quiet`: 安静模式，减少输出
-
-### window命令参数
-
-- `window_title`: 窗口标题
-- `action`: 窗口操作，可选值为`activate`、`minimize`、`maximize`、`restore`、`close`
-
-### mouse命令参数
-
-- `window_title`: 窗口标题
-- `action`: 鼠标操作，可选值为`click`、`move`、`current`
-- `-x`: X坐标
-- `-y`: Y坐标
-- `-b, --button`: 鼠标按钮，可选值为`left`、`right`、`middle`，默认为`left`
-- `-d, --double`: 双击
-
-### keyboard命令参数
-
-- `window_title`: 窗口标题
-- `action`: 键盘操作，可选值为`type`、`key`、`hotkey`
-- `keys`: 要输入的文本、按键或组合键
-
-## 示例
-
-```
-# 列出所有窗口
-python maestro_cli.py list
-
-# 详细分析窗口（快速模式）
-python maestro_cli.py detail "Cursor" -f
-
-# 保存分析结果和截图
-python maestro_cli.py detail "Cursor" -o cursor_analysis.json -s
-
-# 激活窗口
-python maestro_cli.py window "Notepad" activate
-
-# 在窗口中点击
-python maestro_cli.py mouse "Notepad" click -x 100 -y 100
-
-# 在窗口中输入文本
-python maestro_cli.py keyboard "Notepad" type "Hello World"
-
-# 在窗口中按下组合键
-python maestro_cli.py keyboard "Notepad" hotkey "ctrl+s"
+```bash
+python maestro.py batch messages.txt --wait
 ```
 
-## 依赖
+## 命令参考
 
-- Python 3.6+
-- pywin32
-- ui_ctrl_v2 (可选，用于UI元素检测和高级输入控制)
-  - ultralytics (YOLO)
-  - Pillow
-  - numpy 
+### 全局参数
+
+- `--window`, `-w`: 指定窗口标题（默认: "Visual Studio Code"）
+- `--debug`, `-d`: 启用调试模式
+
+### 子命令
+
+#### send - 发送消息
+
+```bash
+python maestro.py send "消息内容"
+```
+
+#### task - 执行任务
+
+```bash
+python maestro.py task "任务描述" --timeout 30
+```
+
+参数:
+- `--timeout`, `-t`: 等待响应的超时时间（秒）
+
+#### interact - 交互模式
+
+```bash
+python maestro.py interact --wait
+```
+
+参数:
+- `--wait`, `-t`: 等待响应
+- `--timeout`, `-o`: 等待响应的超时时间（秒）
+
+#### click - 点击位置
+
+```bash
+python maestro.py click 100 200 --button right --double
+```
+
+参数:
+- `x`: X坐标
+- `y`: Y坐标
+- `--button`, `-b`: 鼠标按钮（left/right/middle）
+- `--double`, `-d`: 双击
+
+#### key - 按键
+
+```bash
+python maestro.py key --key enter
+python maestro.py key --hotkey "ctrl+c"
+```
+
+参数:
+- `--key`, `-k`: 按键名称
+- `--hotkey`, `-h`: 组合键
+
+#### batch - 批处理
+
+```bash
+python maestro.py batch messages.txt --wait --interval 2.0
+```
+
+参数:
+- `file`: 批处理文件
+- `--wait`, `-t`: 等待响应
+- `--timeout`, `-o`: 等待响应的超时时间（秒）
+- `--interval`, `-i`: 消息间隔时间（秒）
+
+## 编程接口
+
+### 基本用法
+
+```python
+from maestro_core import MaestroCore, send_message, execute_task
+
+# 快速发送消息
+send_message("你好，请帮我分析这段代码")
+
+# 执行任务
+execute_task("优化这段代码的性能")
+
+# 创建实例并使用更多功能
+maestro = MaestroCore(window_title="Visual Studio Code")
+maestro.click(100, 200)
+maestro.press_key("enter")
+maestro.press_hotkey("ctrl+c")
+```
+
+### 主要方法
+
+- `send_message(message)`: 发送消息
+- `execute_task(task_description)`: 执行任务
+- `click(x, y, button="left", double_click=False)`: 点击指定位置
+- `press_key(key)`: 按下按键
+- `press_hotkey(hotkey)`: 按下组合键
+- `wait_for_response(timeout=30)`: 等待响应
+
+## 批处理文件格式
+
+批处理文件是一个文本文件，每行一条消息。以`#`开头的行会被视为注释。
+
+示例:
+```
+# 这是一个注释
+你好，请帮我分析这段代码
+def hello():
+    print("Hello, World!")
+请优化这段代码
+```
+
+## 注意事项
+
+- 窗口必须可见且可访问
+- 某些功能可能需要管理员权限
+- 不同窗口的UI元素位置可能不同，可能需要调整 

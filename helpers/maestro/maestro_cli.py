@@ -520,6 +520,108 @@ def keyboard_action(window_title, action, keys=None, no_activate=False):
     except Exception as e:
         print(f"执行键盘操作时出错: {e}")
 
+def analyze_augment(window_title: str, output_file=None):
+    """分析VSCode窗口中的augment对话内容"""
+    window_info = find_window(window_title)
+    if not window_info:
+        print(f"没有找到标题包含 '{window_title}' 的窗口")
+        return
+        
+    hwnd, title, pid = window_info
+    print(f"\n对窗口 '{title}' (HWND: {hwnd}) 进行augment对话分析:")
+    
+    # 获取窗口截图
+    window_capture = get_window_capture()
+    window_capture.set_window_handle(hwnd)
+    image = window_capture.capture()
+    
+    if not image:
+        print("无法捕获窗口截图")
+        return
+        
+    # 保存截图
+    screenshot_path = f"{title.replace(' ', '_')}_screenshot.png"
+    image.save(screenshot_path)
+    print(f"窗口截图已保存到: {screenshot_path}")
+    
+    # 分析UI元素
+    detector = get_detector()
+    elements = detector.analyze_image(image)
+    
+    if not elements:
+        print("未检测到UI元素")
+        return
+        
+    # 找出可能的对话框区域（通常是较大的按钮或文本区域）
+    large_elements = detector.find_element_by_size(elements, min_width=300, min_height=100)
+    large_elements = sorted(large_elements, key=lambda e: e.area, reverse=True)
+    
+    # 查找包含文本的元素
+    text_elements = [e for e in elements if hasattr(e, 'text') and e.text]
+    
+    print(f"\n检测到 {len(elements)} 个UI元素，其中 {len(text_elements)} 个包含文本")
+    
+    # 分析augment对话状态
+    print("\n可能的augment对话内容:")
+    
+    # 检查是否有"continue"相关的文本
+    continue_elements = []
+    for elem in elements:
+        if hasattr(elem, 'text') and elem.text:
+            if "continue" in elem.text.lower() or "keep going" in elem.text.lower():
+                continue_elements.append(elem)
+                
+    if continue_elements:
+        print("\n检测到可能的continue提示:")
+        for i, elem in enumerate(continue_elements):
+            print(f"  {i+1}. 类型: {elem.type.value}, 文本: \"{elem.text}\"")
+            print(f"     位置: ({elem.bbox[0]}, {elem.bbox[1]}) -> ({elem.bbox[2]}, {elem.bbox[3]})")
+    
+    # 输出最大的几个元素
+    if large_elements:
+        print("\n最大的UI元素(可能是对话区域):")
+        for i, elem in enumerate(large_elements[:3]):
+            print(f"  {i+1}. 类型: {elem.type.value}, 大小: {elem.width}x{elem.height}")
+            print(f"     位置: ({elem.bbox[0]}, {elem.bbox[1]}) -> ({elem.bbox[2]}, {elem.bbox[3]})")
+            if hasattr(elem, 'text') and elem.text:
+                print(f"     文本: \"{elem.text}\"")
+            if hasattr(elem, 'description') and elem.description:
+                print(f"     描述: \"{elem.description}\"")
+    
+    # 输出所有文本元素
+    if text_elements:
+        print("\n所有包含文本的元素:")
+        for i, elem in enumerate(text_elements):
+            print(f"  {i+1}. 类型: {elem.type.value}, 文本: \"{elem.text}\"")
+    
+    # 保存分析结果
+    if output_file:
+        result = {
+            "window": {
+                "hwnd": hwnd,
+                "title": title,
+                "pid": pid
+            },
+            "screenshot": screenshot_path,
+            "elements_count": len(elements),
+            "text_elements_count": len(text_elements),
+            "large_elements": [e.to_dict() for e in large_elements[:5]],
+            "text_elements": [e.to_dict() for e in text_elements],
+            "continue_elements": [e.to_dict() for e in continue_elements]
+        }
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"\n分析结果已保存到: {output_file}")
+        
+    # 推断当前状态
+    if continue_elements:
+        print("\n推断状态: 需要回复continue")
+        return "continue_needed"
+    else:
+        print("\n推断状态: 无需回复continue")
+        return "no_action_needed"
+
 def main():
     """CLI主入口"""
     parser = argparse.ArgumentParser(description="Maestro CLI工具")
@@ -562,6 +664,11 @@ def main():
     keyboard_parser.add_argument("action", choices=["type", "key", "hotkey"], help="键盘操作")
     keyboard_parser.add_argument("keys", help="要输入的文本、按键或组合键")
     keyboard_parser.add_argument("--no-activate", action="store_true", help="直接发送文本到窗口，无需激活 (仅对type操作有效)")
+    
+    # analyze_augment命令
+    analyze_augment_parser = subparsers.add_parser("analyze_augment", help="分析VSCode窗口中的augment对话内容")
+    analyze_augment_parser.add_argument("window_title", help="窗口标题")
+    analyze_augment_parser.add_argument("-o", "--output", help="将分析结果保存到JSON文件")
     
     args = parser.parse_args()
     
@@ -611,6 +718,9 @@ def main():
     
     elif args.command == "keyboard":
         keyboard_action(args.window_title, args.action, args.keys, getattr(args, 'no_activate', False))
+    
+    elif args.command == "analyze_augment":
+        analyze_augment(args.window_title, args.output)
     
     else:
         parser.print_help()
