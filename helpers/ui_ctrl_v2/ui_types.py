@@ -8,6 +8,13 @@ class ElementType(Enum):
     MENU = "menu"
     TEXT = "text"
     ICON = "icon"
+    CHECKBOX = "checkbox"
+    RADIO = "radio"
+    DROPDOWN = "dropdown"
+    INPUT = "input"
+    SLIDER = "slider"
+    TAB = "tab"
+    SCROLLBAR = "scrollbar"
     UNKNOWN = "unknown"
 
 @dataclass
