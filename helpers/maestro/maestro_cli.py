@@ -250,9 +250,24 @@ def detail_window(window_identifier, output_file=None, save_screenshot=False, fa
                             },
                             "confidence": float(elem.confidence)
                         }
+                        
+                        # 添加文本内容（如果有）
+                        if hasattr(elem, 'text') and elem.text:
+                            elem_dict["text"] = elem.text
+                        
+                        # 添加描述信息（如果有）
+                        if hasattr(elem, 'description') and elem.description:
+                            elem_dict["description"] = elem.description
+                        
                         elements_data.append(elem_dict)
+                        
                         if verbose:
-                            print(f"元素 {i+1}: 类型={elem.type.value}, 位置=({x1}, {y1}, {x2}, {y2}), 置信度={elem.confidence:.2f}")
+                            output = f"元素 {i + 1}: 类型={elem.type.value}, 位置=({x1}, {y1}, {x2}, {y2}), 置信度={elem.confidence:.2f}"
+                            if hasattr(elem, 'text') and elem.text:
+                                output += f", 文本=\"{elem.text}\""
+                            if hasattr(elem, 'description') and elem.description:
+                                output += f", 描述=\"{elem.description}\""
+                            print(output)
                     
                     # 如果指定了输出文件，保存分析结果
                     if output_file:

@@ -23,6 +23,7 @@ class UIElement:
     bbox: Tuple[int, int, int, int]  # x1, y1, x2, y2
     confidence: float
     text: Optional[str] = None
+    description: Optional[str] = None
     image: Optional[bytes] = None
     attributes: Dict[str, Any] = None
     children: List['UIElement'] = None
@@ -84,6 +85,7 @@ class UIElement:
             "width": self.width,
             "height": self.height,
             "text": self.text,
+            "description": self.description,
             "attributes": self.attributes,
             "children": [child.to_dict() for child in self.children] if self.children else []
         } 
