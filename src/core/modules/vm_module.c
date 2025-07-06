@@ -1,5 +1,5 @@
 /**
- * vm_module.c - Standardized VM Module Implementation (Layer 2)
+ * vm_module.c - Virtual Machine Module
  * 
  * Standard implementation for vm_{arch}_{bits}.native modules.
  * Follows PRD.md Layer 2 specification and native module format.
@@ -9,2171 +9,806 @@
  * - vm_arm64_64.native  
  * - vm_x86_32.native
  * - vm_arm32_32.native
+ * Provides VM functionality as a module.
+ * Depends on the memory module.
  */
 
-#include <stdio.h>
+#include "../module.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <sys/timeb.h>
-#else
-#include <sys/time.h>
-#include <unistd.h>
-#endif
+// Module name
+static const char* MODULE_NAME = "vm";
 
-// Include core components
-#include "../astc.h"
-#include "../native.h"
-#include "../utils.h"
+// Dependency on memory module
+MODULE_DEPENDS_ON(memory);
 
-// JIT extension disabled - using simplified interpreter-only VM
+// Function type definitions for memory module functions
+typedef void* (*memory_alloc_t)(size_t size);
+typedef void* (*memory_realloc_t)(void* ptr, size_t size);
+typedef void (*memory_free_t)(void* ptr);
+typedef void* (*memory_copy_t)(void* dest, const void* src, size_t size);
+typedef void* (*memory_set_t)(void* dest, int value, size_t size);
 
-// Include ASTC module
-extern int c2astc(const char* c_file_path, const char* astc_file_path, const void* options);
-extern int astc2native(const char* astc_file_path, const char* native_file_path, const char* target_arch);
+// Cached memory functions
+static memory_alloc_t mem_alloc;
+static memory_realloc_t mem_realloc;
+static memory_free_t mem_free;
+static memory_copy_t mem_copy;
+static memory_set_t mem_set;
 
 // ===============================================
-// VM Module Interface (PRD.md compliant)
+// VM Configuration
 // ===============================================
 
-// Forward declarations
-struct VMContext;
-struct VMMemoryManager;
-struct JITContext; // JIT functionality moved to astc2native module
+#define VM_STACK_SIZE 8192
+#define VM_REGISTER_COUNT 32
+#define VM_MAX_CALL_DEPTH 256
 
-// Function forward declarations
-ASTNode* vm_parse_astc_bytecode(uint8_t* bytecode, size_t size);
-char* safe_strdup(const char* str);
-struct VMMemoryManager* vm_create_memory_manager(size_t heap_size, size_t stack_size);
-void vm_destroy_memory_manager(struct VMMemoryManager* memory);
-int vm_call_function(struct VMContext* context, uint32_t func_id);
-int vm_jit_compile_bytecode(struct JITContext* ctx);
-size_t vm_jit_emit_prologue(uint8_t* output, struct JITContext* ctx);
-size_t vm_jit_emit_halt(uint8_t* output, struct JITContext* ctx);
-size_t vm_jit_emit_load_imm32(uint8_t* output, struct JITContext* ctx, uint8_t reg, uint32_t imm);
-size_t vm_jit_emit_add(uint8_t* output, struct JITContext* ctx, uint8_t reg1, uint8_t reg2, uint8_t reg3);
-size_t vm_jit_emit_call(uint8_t* output, struct JITContext* ctx, uint32_t func_id);
-size_t vm_jit_emit_ret(uint8_t* output, struct JITContext* ctx);
-size_t vm_jit_emit_exit(uint8_t* output, struct JITContext* ctx, uint8_t exit_code);
-size_t vm_jit_emit_epilogue(uint8_t* output, struct JITContext* ctx);
-int vm_interpret_bytecode(struct VMContext* context);
+// ===============================================
+// VM State
+// ===============================================
 
-/**
- * JIT Compiler Context
- */
-typedef struct JITContext {
-    uint8_t* input_bytecode;
-    size_t input_size;
-    uint8_t* output_buffer;
-    size_t output_size;
-    size_t output_offset;
-    DetectedArchitecture arch;
-} JITContext;
-
-/**
- * JIT Optimization Levels
- */
 typedef enum {
-    JIT_OPT_NONE = 0,
-    JIT_OPT_BASIC = 1,
-    JIT_OPT_AGGRESSIVE = 2
-} JITOptLevel;
+    VM_STATE_UNINITIALIZED,
+    VM_STATE_READY,
+    VM_STATE_RUNNING,
+    VM_STATE_PAUSED,
+    VM_STATE_STOPPED,
+    VM_STATE_ERROR
+} VMState;
 
-/**
- * JIT Flags
- */
-#define JIT_FLAG_NONE 0x00
-#define JIT_FLAG_CACHE_RESULT 0x01
+// ===============================================
+// VM Error Codes
+// ===============================================
 
-/**
- * JIT Compiler (opaque type)
- */
-typedef struct JITCompiler JITCompiler;
-
-/**
- * JIT Result codes
- */
 typedef enum {
-    JIT_SUCCESS = 0,
-    JIT_ERROR = -1
-} JITResult;
+    VM_ERROR_NONE = 0,
+    VM_ERROR_INVALID_CONTEXT,
+    VM_ERROR_INVALID_BYTECODE,
+    VM_ERROR_STACK_OVERFLOW,
+    VM_ERROR_STACK_UNDERFLOW,
+    VM_ERROR_INVALID_INSTRUCTION,
+    VM_ERROR_INVALID_OPERAND,
+    VM_ERROR_DIVISION_BY_ZERO,
+    VM_ERROR_OUT_OF_MEMORY,
+    VM_ERROR_CALL_DEPTH_EXCEEDED,
+    VM_ERROR_UNKNOWN
+} VMErrorCode;
 
-/**
- * JIT Metadata
- */
-typedef struct JITMetadata {
-    void* compiled_code;
-    size_t compiled_size;
-    void* entry_point;
-    int is_compiled;
-} JITMetadata;
+// ===============================================
+// VM Context
+// ===============================================
 
-/**
- * VM Module Information Structure
- */
-typedef struct {
-    const char* name;           // Module name (e.g., "vm_core")
-    const char* version;        // Version string (e.g., "1.0.0")
-    const char* arch;           // Architecture (e.g., "x64", "arm64")
-    int bits;                   // Architecture bits (32 or 64)
-    uint32_t api_version;       // API version for compatibility
-    uint32_t features;          // Feature flags
-} VMModuleInfo;
-
-/**
- * VM Core Interface Structure
- */
-typedef struct {
-    int (*init)(void);
-    void (*cleanup)(void);
-    const VMModuleInfo* (*get_info)(void);
-    ASTCProgram* (*load_astc_program)(const char* astc_file);
-    int (*unload_astc_program)(ASTCProgram* program);
-    int (*validate_astc_program)(const ASTCProgram* program);
-    void* (*create_context)(void);
-    void (*destroy_context)(void* context);
-    int (*execute_program)(ASTCProgram* program);
-    int (*execute_function)(ASTCProgram* program, const char* function_name);
-    int (*jit_compile_program)(ASTCProgram* program);
-    int (*jit_compile_function)(ASTCProgram* program, const char* function_name);
-    void* (*get_jit_function_ptr)(ASTCProgram* program, const char* function_name);
-    void* (*create_memory_manager)(size_t heap_size, size_t stack_size);
-    void (*destroy_memory_manager)(void* memory_manager);
-    void* (*allocate_memory)(void* memory_manager, size_t size);
-    void (*free_memory)(void* memory_manager, void* ptr);
-    int (*load_native_module)(const char* module_path);
-    int (*call_native_function)(const char* module_name, const char* function_name);
-    int (*set_breakpoint)(const char* file, int line);
-    int (*step_execution)(void* context);
-    void (*dump_context)(void* context);
-} VMCoreInterface;
-
-// ASTCProgram is already defined in ../astc.h
-
-/**
- * VM Memory Manager
- */
-typedef struct VMMemoryManager {
-    void* heap_start;           // Heap start address
-    size_t heap_size;           // Total heap size
-    size_t heap_used;           // Used heap size
-    void* stack_start;          // Stack start address
-    size_t stack_size;          // Stack size
-    size_t stack_used;          // Used stack size
-    uint32_t gc_enabled;        // Garbage collection enabled
-} VMMemoryManager;
-
-/**
- * VM Execution Context
- */
 typedef struct VMContext {
-    ASTCProgram* program;       // Currently loaded program
-    VMMemoryManager* memory;    // Memory manager
-    void* registers;            // Virtual registers
-    void* call_stack;           // Call stack
-    uint32_t pc;                // Program counter
-    uint32_t flags;             // Execution flags
-    int exit_code;              // Program exit code
-    char error_message[512];    // Last error message
+    // VM state
+    VMState state;
+    
+    // Program data
+    uint8_t* bytecode;
+    size_t bytecode_size;
+    size_t program_counter;
+    
+    // Execution stack
+    uint64_t* stack;
+    size_t stack_size;
+    size_t stack_pointer;
+    
+    // Registers
+    uint64_t* registers;
+    size_t register_count;
+    
+    // Call stack
+    size_t* call_stack;
+    size_t call_stack_size;
+    size_t call_depth;
+    
+    // Flags
+    bool zero_flag;
+    bool carry_flag;
+    bool overflow_flag;
+    bool negative_flag;
+    
+    // Statistics
+    uint64_t instruction_count;
+    uint64_t cycle_count;
+    
+    // Error handling
+    VMErrorCode last_error;
+    char error_message[256];
+    
 } VMContext;
 
-/**
- * VM Core Interface - Main VM functionality
- */
-typedef struct {
-    // Lifecycle management
-    int (*init)(void);
-    void (*cleanup)(void);
-    const VMModuleInfo* (*get_info)(void);
-
-    // Program management
-    ASTCProgram* (*load_astc_program)(const char* astc_file);
-    int (*unload_astc_program)(ASTCProgram* program);
-    int (*validate_astc_program)(ASTCProgram* program);
-
-    // Execution control
-    VMContext* (*create_context)(ASTCProgram* program);
-    void (*destroy_context)(VMContext* context);
-    int (*execute_program)(VMContext* context, int argc, char* argv[]);
-    int (*execute_function)(VMContext* context, const char* function_name, void* args, void* result);
-
-    // JIT compilation
-    int (*jit_compile_program)(ASTCProgram* program);
-    int (*jit_compile_function)(ASTCProgram* program, const char* function_name);
-    void* (*get_jit_function_ptr)(ASTCProgram* program, const char* function_name);
-
-    // Memory management
-    VMMemoryManager* (*create_memory_manager)(size_t heap_size, size_t stack_size);
-    void (*destroy_memory_manager)(VMMemoryManager* memory);
-    void* (*vm_malloc)(VMContext* context, size_t size);
-    void (*vm_free)(VMContext* context, void* ptr);
-    int (*vm_gc_collect)(VMContext* context);
-
-    // Module integration
-    int (*load_native_module)(VMContext* context, const char* module_path);
-    int (*call_native_function)(VMContext* context, const char* module_name, const char* function_name, void* args, void* result);
-
-    // Debugging and introspection
-    int (*set_breakpoint)(VMContext* context, uint32_t address);
-    int (*step_execution)(VMContext* context);
-    void (*dump_context)(VMContext* context);
-    const char* (*get_last_error)(VMContext* context);
-} VMCoreInterface_Extended; // Renamed to avoid conflict
-
 // ===============================================
-// Utility Functions
+// VM Instructions
 // ===============================================
 
-/**
- * Get current time in microseconds
- */
-static uint64_t get_current_time_us(void) {
-#ifdef _WIN32
-    struct _timeb tb;
-    _ftime(&tb);
-    return (uint64_t)tb.time * 1000000 + (uint64_t)tb.millitm * 1000;
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec;
-#endif
-}
+typedef enum {
+    // Control flow
+    VM_OP_NOP = 0x00,
+    VM_OP_HALT = 0x01,
+    VM_OP_JUMP = 0x02,
+    VM_OP_JUMP_IF = 0x03,
+    VM_OP_CALL = 0x04,
+    VM_OP_RETURN = 0x05,
+    
+    // Data movement
+    VM_OP_LOAD_IMM = 0x10,
+    VM_OP_LOAD_REG = 0x11,
+    VM_OP_STORE_REG = 0x12,
+    VM_OP_MOVE = 0x13,
+    
+    // Arithmetic
+    VM_OP_ADD = 0x20,
+    VM_OP_SUB = 0x21,
+    VM_OP_MUL = 0x22,
+    VM_OP_DIV = 0x23,
+    VM_OP_MOD = 0x24,
+    
+    // Logical
+    VM_OP_AND = 0x30,
+    VM_OP_OR = 0x31,
+    VM_OP_XOR = 0x32,
+    VM_OP_NOT = 0x33,
+    VM_OP_SHL = 0x34,
+    VM_OP_SHR = 0x35,
+    
+    // Comparison
+    VM_OP_CMP = 0x40,
+    VM_OP_TEST = 0x41,
+    
+    // Stack operations
+    VM_OP_PUSH = 0x50,
+    VM_OP_POP = 0x51,
+    
+    // System calls
+    VM_OP_SYSCALL = 0x60,
+    VM_OP_PRINT = 0x61,
+    VM_OP_MALLOC = 0x62,
+    VM_OP_FREE = 0x63,
+    
+    // Exit
+    VM_OP_EXIT = 0xFF
+} VMOpcode;
 
 // ===============================================
-// ASTC Program Loading Implementation
+// Forward declarations
 // ===============================================
 
-/**
- * Load ASTC program from file
- */
-ASTCProgram* vm_load_astc_program(const char* astc_file) {
-    if (!astc_file) {
-        printf("VM Error: NULL ASTC file path\n");
-        return NULL;
-    }
-
-    printf("VM: Loading ASTC program from %s\n", astc_file);
-
-    // Check if file exists
-    if (!file_exists(astc_file)) {
-        printf("VM Error: ASTC file not found: %s\n", astc_file);
-        return NULL;
-    }
-
-    // Allocate program structure
-    ASTCProgram* program = malloc(sizeof(ASTCProgram));
-    if (!program) {
-        printf("VM Error: Failed to allocate memory for ASTC program\n");
-        return NULL;
-    }
-
-    memset(program, 0, sizeof(ASTCProgram));
-
-    // Read file into memory
-    void* file_data;
-    size_t file_size;
-    if (read_file_to_buffer(astc_file, &file_data, &file_size) != 0) {
-        printf("VM Error: Failed to read ASTC file\n");
-        free(program);
-        return NULL;
-    }
-
-    // Parse ASTC header (simplified format)
-    if (file_size < 16) {
-        printf("VM Error: ASTC file too small\n");
-        free(file_data);
-        free(program);
-        return NULL;
-    }
-
-    uint8_t* data = (uint8_t*)file_data;
-
-    // Check magic number "ASTC"
-    if (memcmp(data, "ASTC", 4) != 0) {
-        printf("VM Error: Invalid ASTC magic number\n");
-        free(file_data);
-        free(program);
-        return NULL;
-    }
-
-    // Parse header
-    program->version = *(uint32_t*)(data + 4);
-    program->bytecode_size = *(uint32_t*)(data + 8);
-    program->entry_point = *(uint32_t*)(data + 12);
-
-    printf("VM: ASTC version %u, size %zu, entry point %u\n",
-           program->version, program->bytecode_size, program->entry_point);
-
-    // Validate header
-    if (program->bytecode_size > file_size - 16) {
-        printf("VM Error: Invalid ASTC bytecode size\n");
-        free(file_data);
-        free(program);
-        return NULL;
-    }
-
-    // Copy bytecode
-    program->bytecode = malloc(program->bytecode_size);
-    if (!program->bytecode) {
-        printf("VM Error: Failed to allocate bytecode memory\n");
-        free(file_data);
-        free(program);
-        return NULL;
-    }
-
-    memcpy(program->bytecode, data + 16, program->bytecode_size);
-
-    // Set program name
-    const char* filename = strrchr(astc_file, '/');
-    if (!filename) filename = strrchr(astc_file, '\\');
-    if (!filename) filename = astc_file;
-    else filename++;
-
-    strncpy(program->program_name, filename, sizeof(program->program_name) - 1);
-    program->program_name[sizeof(program->program_name) - 1] = '\0';
-
-    // Parse AST from bytecode (simplified) - AST parsing moved to astc.h functions
-    // program->ast_root = vm_parse_astc_bytecode(program->bytecode, program->bytecode_size);
-
-    free(file_data);
-
-    printf("VM: Successfully loaded ASTC program %s\n", program->program_name);
-    return program;
-}
-
-/**
- * Unload ASTC program and free resources
- */
-int vm_unload_astc_program(ASTCProgram* program) {
-    if (!program) {
-        return 0;
-    }
-
-    printf("VM: Unloading ASTC program %s\n", program->program_name);
-
-    if (program->bytecode) {
-        free(program->bytecode);
-    }
-
-    // program_name is an array, not a pointer, so no need to free it
-    // AST cleanup moved to astc.h functions
-
-    // metadata member not available in astc.h ASTCProgram
-
-    free(program);
-    return 0;
-}
-
-/**
- * Validate ASTC program structure
- */
-int vm_validate_astc_program(ASTCProgram* program) {
-    if (!program) {
-        printf("VM Error: NULL program for validation\n");
-        return -1;
-    }
-
-    if (!program->bytecode || program->bytecode_size == 0) {
-        printf("VM Error: No bytecode in program\n");
-        return -1;
-    }
-
-    if (program->entry_point >= program->bytecode_size) {
-        printf("VM Error: Invalid entry point %u (size %u)\n",
-               program->entry_point, program->bytecode_size);
-        return -1;
-    }
-
-    // TODO: Add more validation checks
-    // - Verify bytecode integrity
-    // - Check function table
-    // - Validate dependencies
-
-    printf("VM: Program validation passed\n");
-    return 0;
-}
-
-/**
- * Safe string duplication
- */
-char* safe_strdup(const char* str) {
-    if (!str) {
-        return NULL;
-    }
-
-    size_t len = strlen(str);
-    char* dup = malloc(len + 1);
-    if (!dup) {
-        return NULL;
-    }
-
-    strcpy(dup, str);
-    return dup;
-}
-
-/**
- * Create VM memory manager
- */
-VMMemoryManager* vm_create_memory_manager(size_t heap_size, size_t stack_size) {
-    VMMemoryManager* memory = malloc(sizeof(VMMemoryManager));
-    if (!memory) {
-        return NULL;
-    }
-
-    memset(memory, 0, sizeof(VMMemoryManager));
-    memory->heap_size = heap_size;
-    memory->stack_size = stack_size;
-    memory->heap_used = 0;
-    memory->stack_used = 0;
-
-    // Allocate heap
-    memory->heap_start = malloc(heap_size);
-    if (!memory->heap_start) {
-        free(memory);
-        return NULL;
-    }
-
-    // Allocate stack
-    memory->stack_start = malloc(stack_size);
-    if (!memory->stack_start) {
-        free(memory->heap_start);
-        free(memory);
-        return NULL;
-    }
-
-    return memory;
-}
-
-/**
- * Destroy VM memory manager
- */
-void vm_destroy_memory_manager(VMMemoryManager* memory) {
-    if (!memory) {
-        return;
-    }
-
-    if (memory->heap_start) {
-        free(memory->heap_start);
-    }
-
-    if (memory->stack_start) {
-        free(memory->stack_start);
-    }
-
-    free(memory);
-}
-
-/**
- * Parse ASTC bytecode into AST (simplified implementation)
- */
-ASTNode* vm_parse_astc_bytecode(uint8_t* bytecode, size_t size) {
-    if (!bytecode || size == 0) {
-        return NULL;
-    }
-
-    // Create a simple AST root node
-    ASTNode* root = malloc(sizeof(ASTNode));
-    if (!root) {
-        return NULL;
-    }
-
-    memset(root, 0, sizeof(ASTNode));
-    root->type = ASTC_TRANSLATION_UNIT;
-    root->line = 1;
-    root->column = 1;
-
-    // TODO: Implement proper ASTC bytecode parsing
-    // This is a placeholder implementation
-
-    printf("VM: Parsed ASTC bytecode into AST (simplified)\n");
-    return root;
-}
+static VMContext* vm_create_context(void);
+static void vm_destroy_context(VMContext* ctx);
+static int vm_load_program(VMContext* ctx, const uint8_t* bytecode, size_t size);
+static int vm_execute(VMContext* ctx);
+static int vm_step(VMContext* ctx);
+static void vm_reset(VMContext* ctx);
+static VMState vm_get_state(const VMContext* ctx);
+static void vm_set_state(VMContext* ctx, VMState state);
+static void vm_get_stats(const VMContext* ctx, uint64_t* instructions, uint64_t* cycles);
+static void vm_print_context(const VMContext* ctx);
+static bool vm_validate_bytecode(const uint8_t* bytecode, size_t size);
+static const char* vm_get_opcode_name(VMOpcode opcode);
+static int vm_disassemble_instruction(const uint8_t* bytecode, size_t offset, char* buffer, size_t buffer_size);
+static int vm_disassemble_program(const uint8_t* bytecode, size_t size);
+static void vm_set_error(VMContext* ctx, VMErrorCode error, const char* format, ...);
 
 // ===============================================
-// ASTC Interpreter Implementation
+// VM Implementation
 // ===============================================
 
 /**
- * Create VM execution context
+ * Create VM context
  */
-VMContext* vm_create_context(ASTCProgram* program) {
-    if (!program) {
-        printf("VM Error: NULL program for context creation\n");
+static VMContext* vm_create_context(void) {
+    VMContext* ctx = mem_alloc(sizeof(VMContext));
+    if (!ctx) {
         return NULL;
     }
-
-    VMContext* context = malloc(sizeof(VMContext));
-    if (!context) {
-        printf("VM Error: Failed to allocate VM context\n");
-        return NULL;
-    }
-
-    memset(context, 0, sizeof(VMContext));
 
     // Initialize context
-    context->program = program;
-    context->pc = program->entry_point;
-    context->flags = 0;
-    context->exit_code = 0;
-
-    // Create memory manager
-    context->memory = vm_create_memory_manager(1024 * 1024, 64 * 1024); // 1MB heap, 64KB stack
-    if (!context->memory) {
-        printf("VM Error: Failed to create memory manager\n");
-        free(context);
+    mem_set(ctx, 0, sizeof(VMContext));
+    
+    // Allocate stack
+    ctx->stack = mem_alloc(VM_STACK_SIZE * sizeof(uint64_t));
+    if (!ctx->stack) {
+        mem_free(ctx);
         return NULL;
     }
-
-    // Allocate virtual registers (simplified)
-    context->registers = malloc(32 * sizeof(uint64_t)); // 32 64-bit registers
-    if (!context->registers) {
-        printf("VM Error: Failed to allocate registers\n");
-        vm_destroy_memory_manager(context->memory);
-        free(context);
+    ctx->stack_size = VM_STACK_SIZE;
+    
+    // Allocate registers
+    ctx->registers = mem_alloc(VM_REGISTER_COUNT * sizeof(uint64_t));
+    if (!ctx->registers) {
+        mem_free(ctx->stack);
+        mem_free(ctx);
         return NULL;
     }
-
-    memset(context->registers, 0, 32 * sizeof(uint64_t));
+    ctx->register_count = VM_REGISTER_COUNT;
 
     // Allocate call stack
-    context->call_stack = malloc(1024 * sizeof(uint32_t)); // 1024 call frames
-    if (!context->call_stack) {
-        printf("VM Error: Failed to allocate call stack\n");
-        free(context->registers);
-        vm_destroy_memory_manager(context->memory);
-        free(context);
+    ctx->call_stack = mem_alloc(VM_MAX_CALL_DEPTH * sizeof(size_t));
+    if (!ctx->call_stack) {
+        mem_free(ctx->registers);
+        mem_free(ctx->stack);
+        mem_free(ctx);
         return NULL;
     }
-
-    printf("VM: Created execution context for program %s\n", program->program_name);
-    return context;
+    ctx->call_stack_size = VM_MAX_CALL_DEPTH;
+    
+    // Set initial state
+    ctx->state = VM_STATE_UNINITIALIZED;
+    
+    return ctx;
 }
 
 /**
- * Destroy VM execution context
+ * Destroy VM context
  */
-void vm_destroy_context(VMContext* context) {
-    if (!context) {
+static void vm_destroy_context(VMContext* ctx) {
+    if (!ctx) {
         return;
     }
 
-    printf("VM: Destroying execution context\n");
-
-    if (context->memory) {
-        vm_destroy_memory_manager(context->memory);
+    // Free bytecode if owned by context
+    if (ctx->bytecode) {
+        mem_free(ctx->bytecode);
     }
-
-    if (context->registers) {
-        free(context->registers);
+    
+    // Free call stack
+    if (ctx->call_stack) {
+        mem_free(ctx->call_stack);
     }
-
-    if (context->call_stack) {
-        free(context->call_stack);
+    
+    // Free registers
+    if (ctx->registers) {
+        mem_free(ctx->registers);
     }
-
-    free(context);
+    
+    // Free stack
+    if (ctx->stack) {
+        mem_free(ctx->stack);
+    }
+    
+    // Free context
+    mem_free(ctx);
 }
 
 /**
- * Execute ASTC program
+ * Load program into VM context
  */
-int vm_execute_program(VMContext* context, int argc, char* argv[]) {
-    if (!context || !context->program) {
-        printf("VM Error: Invalid context for program execution\n");
+static int vm_load_program(VMContext* ctx, const uint8_t* bytecode, size_t size) {
+    if (!ctx || !bytecode || size == 0) {
         return -1;
     }
 
-    printf("VM: Executing program %s with %d arguments\n",
-           context->program->program_name, argc);
-
-    // Validate program
-    if (vm_validate_astc_program(context->program) != 0) {
-        printf("VM Error: Program validation failed\n");
-        return -1;
-    }
-
-    // Initialize program counter
-    context->pc = context->program->entry_point;
-    context->exit_code = 0;
-
-    // Main execution loop
-    int result = vm_interpret_bytecode(context);
-
-    printf("VM: Program execution completed with exit code %d\n", context->exit_code);
-    return result;
-}
-
-/**
- * ASTC Bytecode Interpreter
- */
-int vm_interpret_bytecode(VMContext* context) {
-    if (!context || !context->program || !context->program->bytecode) {
-        return -1;
-    }
-
-    uint8_t* bytecode = context->program->bytecode;
-    size_t bytecode_size = context->program->bytecode_size;
-    uint64_t* registers = (uint64_t*)context->registers;
-
-    printf("VM: Starting bytecode interpretation\n");
-
-    while (context->pc < bytecode_size) {
-        // Fetch instruction
-        uint8_t opcode = bytecode[context->pc];
-
-        // Decode and execute instruction
-        switch (opcode) {
-            case 0x00: // NOP
-                printf("VM: NOP\n");
-                context->pc++;
-                break;
-
-            case 0x01: // HALT
-                printf("VM: HALT\n");
-                return context->exit_code;
-
-            case 0x10: // LOAD_IMM32 reg, imm32
-                if (context->pc + 5 < bytecode_size) {
-                    uint8_t reg = bytecode[context->pc + 1];
-                    uint32_t imm = *(uint32_t*)(bytecode + context->pc + 2);
-                    if (reg < 32) {
-                        registers[reg] = imm;
-                        printf("VM: LOAD_IMM32 r%d, %u\n", reg, imm);
-                    }
-                    context->pc += 6;
-                } else {
-                    printf("VM Error: Incomplete LOAD_IMM32 instruction\n");
+    // Reset context
+    vm_reset(ctx);
+    
+    // Validate bytecode
+    if (!vm_validate_bytecode(bytecode, size)) {
+        vm_set_error(ctx, VM_ERROR_INVALID_BYTECODE, "Invalid bytecode format");
                     return -1;
                 }
-                break;
-
-            case 0x20: // ADD reg1, reg2, reg3
-                if (context->pc + 3 < bytecode_size) {
-                    uint8_t reg1 = bytecode[context->pc + 1];
-                    uint8_t reg2 = bytecode[context->pc + 2];
-                    uint8_t reg3 = bytecode[context->pc + 3];
-                    if (reg1 < 32 && reg2 < 32 && reg3 < 32) {
-                        registers[reg1] = registers[reg2] + registers[reg3];
-                        printf("VM: ADD r%d, r%d, r%d\n", reg1, reg2, reg3);
-                    }
-                    context->pc += 4;
-                } else {
-                    printf("VM Error: Incomplete ADD instruction\n");
+    
+    // Allocate memory for bytecode copy
+    ctx->bytecode = mem_alloc(size);
+    if (!ctx->bytecode) {
+        vm_set_error(ctx, VM_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for bytecode");
                     return -1;
                 }
-                break;
-
-            case 0x30: // CALL function_id
-                if (context->pc + 4 < bytecode_size) {
-                    uint32_t func_id = *(uint32_t*)(bytecode + context->pc + 1);
-                    printf("VM: CALL function %u\n", func_id);
-
-                    // Simple function call handling
-                    int call_result = vm_call_function(context, func_id);
-                    if (call_result != 0) {
-                        printf("VM Error: Function call failed\n");
-                        return call_result;
-                    }
-
-                    context->pc += 5;
-                } else {
-                    printf("VM Error: Incomplete CALL instruction\n");
-                    return -1;
-                }
-                break;
-
-            case 0x40: // RET
-                printf("VM: RET\n");
-                // TODO: Implement proper return handling with call stack
-                context->pc++;
-                break;
-
-            case 0xFF: // EXIT code
-                if (context->pc + 1 < bytecode_size) {
-                    context->exit_code = bytecode[context->pc + 1];
-                    printf("VM: EXIT %d\n", context->exit_code);
-                    return context->exit_code;
-                } else {
-                    printf("VM: EXIT 0 (default)\n");
+    
+    // Copy bytecode
+    mem_copy(ctx->bytecode, bytecode, size);
+    ctx->bytecode_size = size;
+    
+    // Set state to ready
+    ctx->state = VM_STATE_READY;
+    
                     return 0;
+}
+
+/**
+ * Execute VM program
+ */
+static int vm_execute(VMContext* ctx) {
+    if (!ctx || !ctx->bytecode) {
+        return -1;
+    }
+
+    // Check if VM is ready
+    if (ctx->state != VM_STATE_READY && ctx->state != VM_STATE_PAUSED) {
+        vm_set_error(ctx, VM_ERROR_INVALID_CONTEXT, "VM not ready for execution");
+        return -1;
+    }
+
+    // Set state to running
+    ctx->state = VM_STATE_RUNNING;
+    
+    // Main execution loop
+    while (ctx->state == VM_STATE_RUNNING) {
+        // Execute one instruction
+        int result = vm_step(ctx);
+        
+        // Check for errors or halt
+        if (result != 0 || ctx->program_counter >= ctx->bytecode_size) {
+            break;
+        }
+    }
+    
+    // Set state to stopped if still running
+    if (ctx->state == VM_STATE_RUNNING) {
+        ctx->state = VM_STATE_STOPPED;
+    }
+    
+    // Return error code if in error state
+    if (ctx->state == VM_STATE_ERROR) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * Execute single instruction
+ */
+static int vm_step(VMContext* ctx) {
+    if (!ctx || !ctx->bytecode) {
+        return -1;
+    }
+
+    // Check if VM is running
+    if (ctx->state != VM_STATE_RUNNING) {
+        return -1;
+    }
+    
+    // Check program counter bounds
+    if (ctx->program_counter >= ctx->bytecode_size) {
+        vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Program counter out of bounds");
+        ctx->state = VM_STATE_ERROR;
+        return -1;
+    }
+
+    // Fetch opcode
+    VMOpcode opcode = (VMOpcode)ctx->bytecode[ctx->program_counter++];
+    
+    // Execute instruction
+        switch (opcode) {
+        case VM_OP_NOP:
+            // No operation
+                break;
+
+        case VM_OP_HALT:
+            // Halt execution
+            ctx->state = VM_STATE_STOPPED;
+                break;
+
+        case VM_OP_JUMP:
+            // Jump to address
+            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
+                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Jump target out of bounds");
+                ctx->state = VM_STATE_ERROR;
+                    return -1;
+                }
+            
+            // Read target address
+            uint32_t target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
+            ctx->program_counter = target;
+                break;
+
+        case VM_OP_JUMP_IF:
+            // Jump if condition is true
+            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
+                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Jump target out of bounds");
+                ctx->state = VM_STATE_ERROR;
+                    return -1;
+                }
+            
+            // Read target address
+            uint32_t cond_target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
+            ctx->program_counter += sizeof(uint32_t);
+            
+            // Jump if zero flag is set
+            if (ctx->zero_flag) {
+                ctx->program_counter = cond_target;
                 }
                 break;
 
-            default:
-                printf("VM Error: Unknown opcode 0x%02X at PC %u\n", opcode, context->pc);
+        case VM_OP_CALL:
+            // Call subroutine
+            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
+                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Call target out of bounds");
+                ctx->state = VM_STATE_ERROR;
                 return -1;
         }
 
-        // Safety check to prevent infinite loops
-        if (context->pc >= bytecode_size) {
-            printf("VM Error: PC exceeded bytecode size\n");
+            // Check call depth
+            if (ctx->call_depth >= ctx->call_stack_size) {
+                vm_set_error(ctx, VM_ERROR_CALL_DEPTH_EXCEEDED, "Call stack overflow");
+                ctx->state = VM_STATE_ERROR;
             return -1;
+            }
+            
+            // Read target address
+            uint32_t call_target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
+            ctx->program_counter += sizeof(uint32_t);
+            
+            // Push return address to call stack
+            ctx->call_stack[ctx->call_depth++] = ctx->program_counter;
+            
+            // Jump to target
+            ctx->program_counter = call_target;
+            break;
+            
+        case VM_OP_RETURN:
+            // Return from subroutine
+            if (ctx->call_depth == 0) {
+                vm_set_error(ctx, VM_ERROR_STACK_UNDERFLOW, "Call stack underflow");
+                ctx->state = VM_STATE_ERROR;
+        return -1;
+    }
+
+            // Pop return address from call stack
+            ctx->program_counter = ctx->call_stack[--ctx->call_depth];
+            break;
+            
+        case VM_OP_LOAD_IMM:
+            // Load immediate value into register
+            if (ctx->program_counter + 1 + sizeof(uint64_t) > ctx->bytecode_size) {
+                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Load immediate operands out of bounds");
+                ctx->state = VM_STATE_ERROR;
+        return -1;
+    }
+
+            // Read register index
+            uint8_t reg_idx = ctx->bytecode[ctx->program_counter++];
+            
+            // Check register index
+            if (reg_idx >= ctx->register_count) {
+                vm_set_error(ctx, VM_ERROR_INVALID_OPERAND, "Invalid register index");
+                ctx->state = VM_STATE_ERROR;
+        return -1;
+    }
+
+            // Read immediate value
+            uint64_t imm_value = *(uint64_t*)(ctx->bytecode + ctx->program_counter);
+            ctx->program_counter += sizeof(uint64_t);
+            
+            // Load value into register
+            ctx->registers[reg_idx] = imm_value;
+            break;
+            
+        // Add more instructions here...
+            
+        case VM_OP_EXIT:
+            // Exit with status code
+            if (ctx->program_counter < ctx->bytecode_size) {
+                // Read exit code
+                uint8_t exit_code = ctx->bytecode[ctx->program_counter++];
+                
+                // Store exit code in register 0
+                ctx->registers[0] = exit_code;
+            }
+            
+            // Halt execution
+            ctx->state = VM_STATE_STOPPED;
+            break;
+            
+        default:
+            // Unknown opcode
+            vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Unknown opcode: 0x%02X", opcode);
+            ctx->state = VM_STATE_ERROR;
+        return -1;
+    }
+
+    // Update statistics
+    ctx->instruction_count++;
+    ctx->cycle_count++; // Simplified cycle counting
+    
+    return 0;
+}
+
+/**
+ * Reset VM context
+ */
+static void vm_reset(VMContext* ctx) {
+    if (!ctx) {
+        return;
+    }
+    
+    // Reset program counter
+    ctx->program_counter = 0;
+    
+    // Reset stack pointer
+    ctx->stack_pointer = 0;
+    
+    // Reset call depth
+    ctx->call_depth = 0;
+    
+    // Reset registers
+    if (ctx->registers) {
+        mem_set(ctx->registers, 0, ctx->register_count * sizeof(uint64_t));
+    }
+    
+    // Reset flags
+    ctx->zero_flag = false;
+    ctx->carry_flag = false;
+    ctx->overflow_flag = false;
+    ctx->negative_flag = false;
+    
+    // Reset statistics
+    ctx->instruction_count = 0;
+    ctx->cycle_count = 0;
+    
+    // Reset error
+    ctx->last_error = VM_ERROR_NONE;
+    ctx->error_message[0] = '\0';
+    
+    // Set state to ready if bytecode is loaded
+    if (ctx->bytecode) {
+        ctx->state = VM_STATE_READY;
+    } else {
+        ctx->state = VM_STATE_UNINITIALIZED;
+    }
+}
+
+/**
+ * Get VM state
+ */
+static VMState vm_get_state(const VMContext* ctx) {
+    return ctx ? ctx->state : VM_STATE_ERROR;
+}
+
+/**
+ * Set VM state
+ */
+static void vm_set_state(VMContext* ctx, VMState state) {
+    if (ctx) {
+        ctx->state = state;
+    }
+}
+
+/**
+ * Get execution statistics
+ */
+static void vm_get_stats(const VMContext* ctx, uint64_t* instructions, uint64_t* cycles) {
+    if (!ctx) {
+        if (instructions) *instructions = 0;
+        if (cycles) *cycles = 0;
+        return;
+    }
+
+    if (instructions) *instructions = ctx->instruction_count;
+    if (cycles) *cycles = ctx->cycle_count;
+}
+
+/**
+ * Print VM context for debugging
+ */
+static void vm_print_context(const VMContext* ctx) {
+    if (!ctx) {
+        printf("VM Context: NULL\n");
+        return;
+    }
+    
+    printf("VM Context:\n");
+    printf("  State: %d\n", ctx->state);
+    printf("  Program Counter: %zu\n", ctx->program_counter);
+    printf("  Stack Pointer: %zu\n", ctx->stack_pointer);
+    printf("  Call Depth: %zu\n", ctx->call_depth);
+    printf("  Flags: Z=%d C=%d O=%d N=%d\n",
+           ctx->zero_flag, ctx->carry_flag, ctx->overflow_flag, ctx->negative_flag);
+    printf("  Instructions: %llu\n", (unsigned long long)ctx->instruction_count);
+    printf("  Cycles: %llu\n", (unsigned long long)ctx->cycle_count);
+    
+    // Print registers
+    printf("  Registers:\n");
+    for (size_t i = 0; i < ctx->register_count; i += 4) {
+        printf("    ");
+        for (size_t j = 0; j < 4 && i + j < ctx->register_count; j++) {
+            printf("R%02zu=0x%016llx ", i + j, (unsigned long long)ctx->registers[i + j]);
         }
+        printf("\n");
     }
-
-    printf("VM: Bytecode interpretation completed\n");
-    return context->exit_code;
+    
+    // Print top of stack
+    printf("  Stack (top %d entries):\n", 8);
+    for (size_t i = 0; i < 8 && i < ctx->stack_pointer; i++) {
+        size_t idx = ctx->stack_pointer - i - 1;
+        printf("    [%zu] = 0x%016llx\n", idx, (unsigned long long)ctx->stack[idx]);
+    }
 }
 
 /**
- * Execute specific function in ASTC program
+ * Validate bytecode
  */
-int vm_execute_function(VMContext* context, const char* function_name, void* args, void* result) {
-    if (!context || !function_name) {
-        printf("VM Error: Invalid parameters for function execution\n");
+static bool vm_validate_bytecode(const uint8_t* bytecode, size_t size) {
+    if (!bytecode || size == 0) {
+        return false;
+    }
+    
+    // Simplified validation - just check if size is reasonable
+    // In a real implementation, we would check for valid instructions and structure
+    return size >= 4 && size <= 1024 * 1024; // Between 4 bytes and 1MB
+}
+
+/**
+ * Get opcode name for debugging
+ */
+static const char* vm_get_opcode_name(VMOpcode opcode) {
+    switch (opcode) {
+        case VM_OP_NOP: return "NOP";
+        case VM_OP_HALT: return "HALT";
+        case VM_OP_JUMP: return "JUMP";
+        case VM_OP_JUMP_IF: return "JUMP_IF";
+        case VM_OP_CALL: return "CALL";
+        case VM_OP_RETURN: return "RETURN";
+        case VM_OP_LOAD_IMM: return "LOAD_IMM";
+        case VM_OP_LOAD_REG: return "LOAD_REG";
+        case VM_OP_STORE_REG: return "STORE_REG";
+        case VM_OP_MOVE: return "MOVE";
+        case VM_OP_ADD: return "ADD";
+        case VM_OP_SUB: return "SUB";
+        case VM_OP_MUL: return "MUL";
+        case VM_OP_DIV: return "DIV";
+        case VM_OP_MOD: return "MOD";
+        case VM_OP_AND: return "AND";
+        case VM_OP_OR: return "OR";
+        case VM_OP_XOR: return "XOR";
+        case VM_OP_NOT: return "NOT";
+        case VM_OP_SHL: return "SHL";
+        case VM_OP_SHR: return "SHR";
+        case VM_OP_CMP: return "CMP";
+        case VM_OP_TEST: return "TEST";
+        case VM_OP_PUSH: return "PUSH";
+        case VM_OP_POP: return "POP";
+        case VM_OP_SYSCALL: return "SYSCALL";
+        case VM_OP_PRINT: return "PRINT";
+        case VM_OP_MALLOC: return "MALLOC";
+        case VM_OP_FREE: return "FREE";
+        case VM_OP_EXIT: return "EXIT";
+        default: return "UNKNOWN";
+    }
+}
+
+/**
+ * Disassemble instruction
+ */
+static int vm_disassemble_instruction(const uint8_t* bytecode, size_t offset, 
+                                     char* buffer, size_t buffer_size) {
+    if (!bytecode || !buffer || buffer_size == 0) {
         return -1;
     }
 
-    printf("VM: Executing function %s\n", function_name);
+    // Get opcode
+    VMOpcode opcode = (VMOpcode)bytecode[offset];
+    
+    // Format instruction
+    const char* opcode_name = vm_get_opcode_name(opcode);
+    snprintf(buffer, buffer_size, "%04zx: %02x %s", offset, opcode, opcode_name);
+    
+        return 0;
+}
 
-    // TODO: Implement function lookup and execution
-    // For now, return success
+/**
+ * Disassemble program
+ */
+static int vm_disassemble_program(const uint8_t* bytecode, size_t size) {
+    if (!bytecode || size == 0) {
+        return -1;
+    }
+
+    printf("VM Disassembly:\n");
+    
+    // Simple disassembly - just print opcodes
+    for (size_t offset = 0; offset < size; offset++) {
+        char buffer[128];
+        vm_disassemble_instruction(bytecode, offset, buffer, sizeof(buffer));
+        printf("%s\n", buffer);
+    }
+    
     return 0;
 }
 
 /**
- * Handle function calls
+ * Set error message
  */
-int vm_call_function(VMContext* context, uint32_t func_id) {
-    if (!context) {
-        return -1;
+static void vm_set_error(VMContext* ctx, VMErrorCode error, const char* format, ...) {
+    if (!ctx) {
+        return;
     }
 
-    printf("VM: Calling function ID %u\n", func_id);
-
-    // TODO: Implement proper function call handling
-    // - Look up function in function table
-    // - Push call frame to call stack
-    // - Set up parameters
-    // - Jump to function code
-
-    return 0;
+    ctx->last_error = error;
+    
+    va_list args;
+    va_start(args, format);
+    vsnprintf(ctx->error_message, sizeof(ctx->error_message), format, args);
+    va_end(args);
+    
+    ctx->state = VM_STATE_ERROR;
 }
 
 // ===============================================
-// JIT Compiler Implementation
+// Module Interface
 // ===============================================
 
-/**
- * JIT compile entire ASTC program
- */
-int vm_jit_compile_program(ASTCProgram* program) {
-    if (!program || !program->bytecode) {
-        printf("VM Error: Invalid program for JIT compilation\n");
+// Symbol table
+static struct {
+    const char* name;
+    void* symbol;
+} vm_symbols[] = {
+    {"create_context", vm_create_context},
+    {"destroy_context", vm_destroy_context},
+    {"load_program", vm_load_program},
+    {"execute", vm_execute},
+    {"step", vm_step},
+    {"reset", vm_reset},
+    {"get_state", vm_get_state},
+    {"set_state", vm_set_state},
+    {"get_stats", vm_get_stats},
+    {"print_context", vm_print_context},
+    {"validate_bytecode", vm_validate_bytecode},
+    {"get_opcode_name", vm_get_opcode_name},
+    {"disassemble_instruction", vm_disassemble_instruction},
+    {"disassemble_program", vm_disassemble_program},
+    {NULL, NULL}  // Sentinel
+};
+
+// Module load function
+static int vm_load(void) {
+    // Resolve required memory functions
+    Module* memory = module_get("memory");
+    if (!memory) {
         return -1;
     }
-
-    printf("VM: JIT compiling program %s\n", program->program_name);
-
-    // Allocate executable memory for compiled code
-    size_t compiled_size = program->bytecode_size * 4; // Estimate 4x expansion
-    void* compiled_code = allocate_executable_memory(compiled_size);
-    if (!compiled_code) {
-        printf("VM Error: Failed to allocate executable memory for JIT\n");
+    
+    mem_alloc = module_resolve(memory, "alloc");
+    mem_realloc = module_resolve(memory, "realloc");
+    mem_free = module_resolve(memory, "free");
+    mem_copy = module_resolve(memory, "copy");
+    mem_set = module_resolve(memory, "set");
+    
+    if (!mem_alloc || !mem_realloc || !mem_free || !mem_copy || !mem_set) {
         return -1;
     }
-
-    // Initialize JIT compiler context
-    JITContext jit_ctx;
-    jit_ctx.input_bytecode = program->bytecode;
-    jit_ctx.input_size = program->bytecode_size;
-    jit_ctx.output_buffer = (uint8_t*)compiled_code;
-    jit_ctx.output_size = compiled_size;
-    jit_ctx.output_offset = 0;
-    jit_ctx.arch = detect_architecture();
-
-    // Compile bytecode to native code
-    int result = vm_jit_compile_bytecode(&jit_ctx);
-    if (result != 0) {
-        printf("VM Error: JIT compilation failed\n");
-        free_executable_memory(compiled_code, compiled_size);
-        return -1;
-    }
-
-    // Store compiled code in program metadata - disabled due to ASTCProgram structure
-    // JIT metadata storage moved to separate system
-    // if (!program->metadata) {
-    //     program->metadata = malloc(sizeof(JITMetadata));
-    //     if (!program->metadata) {
-    //         free_executable_memory(compiled_code, compiled_size);
-    //         return -1;
-    //     }
-    // }
-
-    // JITMetadata* jit_meta = (JITMetadata*)program->metadata;
-    // jit_meta->compiled_code = compiled_code;
-    // jit_meta->compiled_size = jit_ctx.output_offset;
-    // jit_meta->entry_point = compiled_code;
-    // jit_meta->is_compiled = 1;
-
-    printf("VM: JIT compilation completed, %zu bytes generated\n", jit_ctx.output_offset);
+    
     return 0;
 }
 
-/**
- * JIT compile specific function
- */
-int vm_jit_compile_function(ASTCProgram* program, const char* function_name) {
-    if (!program || !function_name) {
-        printf("VM Error: Invalid parameters for function JIT compilation\n");
-        return -1;
-    }
-
-    printf("VM: JIT compiling function %s\n", function_name);
-
-    // TODO: Implement function-specific JIT compilation
-    // - Find function in bytecode
-    // - Compile only that function
-    // - Store in function table
-
-    return 0;
+// Module unload function
+static void vm_unload(void) {
+    // Nothing to clean up
 }
 
-/**
- * Get JIT compiled function pointer
- */
-void* vm_get_jit_function_ptr(ASTCProgram* program, const char* function_name) {
-    if (!program || !function_name) {
+// Symbol resolution function
+static void* vm_resolve(const char* symbol) {
+    if (!symbol) {
         return NULL;
     }
-
-    // JIT metadata system disabled due to ASTCProgram structure changes
-    // JITMetadata* jit_meta = (JITMetadata*)program->metadata;
-    // if (!jit_meta->is_compiled) {
-    //     printf("VM: Program not JIT compiled\n");
-    //     return NULL;
-    // }
-
-    // TODO: Implement function lookup in compiled code
-    // For now, return NULL (JIT system disabled)
+    
+    for (int i = 0; vm_symbols[i].name; i++) {
+        if (strcmp(vm_symbols[i].name, symbol) == 0) {
+            return vm_symbols[i].symbol;
+        }
+    }
+    
     return NULL;
 }
 
-/**
- * JIT compile bytecode to native machine code
- */
-int vm_jit_compile_bytecode(JITContext* ctx) {
-    if (!ctx || !ctx->input_bytecode || !ctx->output_buffer) {
-        return -1;
-    }
-
-    printf("VM: Compiling %zu bytes of bytecode for %s architecture\n",
-           ctx->input_size, get_architecture_name(ctx->arch));
-
-    uint8_t* bytecode = ctx->input_bytecode;
-    uint8_t* output = ctx->output_buffer;
-    size_t pc = 0;
-
-    // Emit function prologue
-    ctx->output_offset += vm_jit_emit_prologue(output + ctx->output_offset, ctx);
-
-    // Compile bytecode instructions
-    while (pc < ctx->input_size) {
-        uint8_t opcode = bytecode[pc];
-
-        switch (opcode) {
-            case 0x00: // NOP
-                // No native code needed for NOP
-                pc++;
-                break;
-
-            case 0x01: // HALT
-                ctx->output_offset += vm_jit_emit_halt(output + ctx->output_offset, ctx);
-                pc++;
-                break;
-
-            case 0x10: // LOAD_IMM32 reg, imm32
-                if (pc + 5 < ctx->input_size) {
-                    uint8_t reg = bytecode[pc + 1];
-                    uint32_t imm = *(uint32_t*)(bytecode + pc + 2);
-                    ctx->output_offset += vm_jit_emit_load_imm32(output + ctx->output_offset, ctx, reg, imm);
-                    pc += 6;
-                } else {
-                    printf("VM Error: Incomplete LOAD_IMM32 in JIT\n");
-                    return -1;
-                }
-                break;
-
-            case 0x20: // ADD reg1, reg2, reg3
-                if (pc + 3 < ctx->input_size) {
-                    uint8_t reg1 = bytecode[pc + 1];
-                    uint8_t reg2 = bytecode[pc + 2];
-                    uint8_t reg3 = bytecode[pc + 3];
-                    ctx->output_offset += vm_jit_emit_add(output + ctx->output_offset, ctx, reg1, reg2, reg3);
-                    pc += 4;
-                } else {
-                    printf("VM Error: Incomplete ADD in JIT\n");
-                    return -1;
-                }
-                break;
-
-            case 0x30: // CALL function_id
-                if (pc + 4 < ctx->input_size) {
-                    uint32_t func_id = *(uint32_t*)(bytecode + pc + 1);
-                    ctx->output_offset += vm_jit_emit_call(output + ctx->output_offset, ctx, func_id);
-                    pc += 5;
-                } else {
-                    printf("VM Error: Incomplete CALL in JIT\n");
-                    return -1;
-                }
-                break;
-
-            case 0x40: // RET
-                ctx->output_offset += vm_jit_emit_ret(output + ctx->output_offset, ctx);
-                pc++;
-                break;
-
-            case 0xFF: // EXIT code
-                if (pc + 1 < ctx->input_size) {
-                    uint8_t exit_code = bytecode[pc + 1];
-                    ctx->output_offset += vm_jit_emit_exit(output + ctx->output_offset, ctx, exit_code);
-                    pc += 2;
-                } else {
-                    ctx->output_offset += vm_jit_emit_exit(output + ctx->output_offset, ctx, 0);
-                    pc++;
-                }
-                break;
-
-            default:
-                printf("VM Error: Unknown opcode 0x%02X in JIT compilation\n", opcode);
-                return -1;
-        }
-
-        // Check output buffer bounds
-        if (ctx->output_offset >= ctx->output_size - 64) {
-            printf("VM Error: JIT output buffer overflow\n");
-            return -1;
-        }
-    }
-
-    // Emit function epilogue
-    ctx->output_offset += vm_jit_emit_epilogue(output + ctx->output_offset, ctx);
-
-    printf("VM: JIT compilation completed, %zu bytes generated\n", ctx->output_offset);
-    return 0;
-}
-
-// ===============================================
-// JIT Code Generation (Architecture-specific)
-// ===============================================
-
-/**
- * Emit function prologue
- */
-size_t vm_jit_emit_prologue(uint8_t* output, JITContext* ctx) {
-    if (ctx->arch == ARCH_X86_64) {
-        // x64 function prologue: push rbp; mov rbp, rsp
-        output[0] = 0x55;                    // push rbp
-        output[1] = 0x48; output[2] = 0x89; output[3] = 0xE5; // mov rbp, rsp
-        return 4;
-    }
-    return 0;
-}
-
-/**
- * Emit function epilogue
- */
-size_t vm_jit_emit_epilogue(uint8_t* output, JITContext* ctx) {
-    if (ctx->arch == ARCH_X86_64) {
-        // x64 function epilogue: mov rsp, rbp; pop rbp; ret
-        output[0] = 0x48; output[1] = 0x89; output[2] = 0xEC; // mov rsp, rbp
-        output[3] = 0x5D;                    // pop rbp
-        output[4] = 0xC3;                    // ret
-        return 5;
-    }
-    return 0;
-}
-
-/**
- * Emit HALT instruction
- */
-size_t vm_jit_emit_halt(uint8_t* output, JITContext* ctx) {
-    if (ctx->arch == ARCH_X86_64) {
-        // x64: mov eax, 0; ret
-        output[0] = 0xB8; output[1] = 0x00; output[2] = 0x00; output[3] = 0x00; output[4] = 0x00; // mov eax, 0
-        output[5] = 0xC3; // ret
-        return 6;
-    }
-    return 0;
-}
-
-/**
- * Emit LOAD_IMM32 instruction
- */
-size_t vm_jit_emit_load_imm32(uint8_t* output, JITContext* ctx, uint8_t reg, uint32_t imm) {
-    if (ctx->arch == ARCH_X86_64 && reg < 16) {
-        // x64: mov r32, imm32 (simplified to eax for now)
-        output[0] = 0xB8 + (reg & 0x7); // mov eax+reg, imm32
-        *(uint32_t*)(output + 1) = imm;
-        return 5;
-    }
-    return 0;
-}
-
-/**
- * Emit ADD instruction
- */
-size_t vm_jit_emit_add(uint8_t* output, JITContext* ctx, uint8_t reg1, uint8_t reg2, uint8_t reg3) {
-    if (ctx->arch == ARCH_X86_64) {
-        // Simplified: add eax, ebx (assuming reg2=eax, reg3=ebx, reg1=eax)
-        output[0] = 0x01; output[1] = 0xD8; // add eax, ebx
-        return 2;
-    }
-    return 0;
-}
-
-/**
- * Emit CALL instruction
- */
-size_t vm_jit_emit_call(uint8_t* output, JITContext* ctx, uint32_t func_id) {
-    if (ctx->arch == ARCH_X86_64) {
-        // TODO: Implement proper function call
-        // For now, just NOP
-        output[0] = 0x90; // nop
-        return 1;
-    }
-    return 0;
-}
-
-/**
- * Emit RET instruction
- */
-size_t vm_jit_emit_ret(uint8_t* output, JITContext* ctx) {
-    if (ctx->arch == ARCH_X86_64) {
-        output[0] = 0xC3; // ret
-        return 1;
-    }
-    return 0;
-}
-
-/**
- * Emit EXIT instruction
- */
-size_t vm_jit_emit_exit(uint8_t* output, JITContext* ctx, uint8_t exit_code) {
-    if (ctx->arch == ARCH_X86_64) {
-        // mov eax, exit_code; ret
-        output[0] = 0xB8; // mov eax, imm32
-        output[1] = exit_code;
-        output[2] = 0x00; output[3] = 0x00; output[4] = 0x00;
-        output[5] = 0xC3; // ret
-        return 6;
-    }
-    return 0;
-}
-
-// JIT Support Structures already defined above
-
-// ===============================================
-// ASTC+JIT Integration Interface
-// ===============================================
-
-/**
- * ASTC+JIT compilation options
- */
-typedef struct {
-    bool use_jit;                 // Enable JIT compilation
-    bool cache_results;           // Cache compilation results
-    int optimization_level;       // 0=none, 1=basic, 2=aggressive
-    bool verbose;                 // Verbose output
-    char temp_dir[256];          // Temporary directory for intermediate files
-} ASTCJITOptions;
-
-/**
- * ASTC+JIT compilation result
- */
-typedef struct {
-    void* entry_point;           // JIT compiled entry point
-    size_t code_size;            // Generated code size
-    uint64_t compile_time_us;    // Compilation time in microseconds
-    bool from_cache;             // Whether result was from cache
-    char error_message[512];     // Error message if compilation failed
-} ASTCJITResult;
-
-// Global ASTC+JIT state
-static ASTCJITOptions g_default_astc_jit_options = {0};
-static char g_astc_jit_error[512] = {0};
-
-/**
- * Set ASTC+JIT error message
- */
-static void astc_jit_set_error(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    vsnprintf(g_astc_jit_error, sizeof(g_astc_jit_error), format, args);
-    va_end(args);
-}
-
-/**
- * Get ASTC+JIT last error
- */
-static const char* astc_jit_get_last_error(void) {
-    return g_astc_jit_error[0] ? g_astc_jit_error : NULL;
-}
-
-/**
- * Initialize ASTC+JIT system (with optional JIT extension)
- */
-static int astc_jit_init(void) {
-    // Set default options
-    g_default_astc_jit_options.use_jit = false; // Default to false, enable if JIT available
-    g_default_astc_jit_options.cache_results = true;
-    g_default_astc_jit_options.optimization_level = 1;
-    g_default_astc_jit_options.verbose = false;
-    safe_strncpy(g_default_astc_jit_options.temp_dir, "temp", sizeof(g_default_astc_jit_options.temp_dir));
-
-    // JIT extension disabled for now
-    g_default_astc_jit_options.use_jit = false;
-    printf("VM: JIT extension disabled, using ASTC interpretation\n");
-
-    return 0;
-}
-
-/**
- * Cleanup ASTC+JIT system
- */
-static void astc_jit_cleanup(void) {
-    if (g_default_astc_jit_options.use_jit) {
-        jit_ext_cleanup();
-    }
-}
-
-/**
- * Compile C source to executable using ASTC+JIT (replaces TCC)
- */
-static int astc_jit_compile_c_to_executable(const char* c_file, const char* exe_file, const ASTCJITOptions* options, ASTCJITResult* result) {
-    if (!c_file || !exe_file) {
-        astc_jit_set_error("Invalid file paths");
-        return -1;
-    }
-
-    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
-
-    if (opts->verbose) {
-        printf("VM: ASTC+JIT compiling %s -> %s\n", c_file, exe_file);
-    }
-
-    uint64_t start_time = get_current_time_us();
-
-    // Initialize result
-    if (result) {
-        memset(result, 0, sizeof(ASTCJITResult));
-    }
-
-    // Step 1: Create temporary ASTC file
-    char temp_astc_file[512];
-    safe_snprintf(temp_astc_file, sizeof(temp_astc_file), "%s/%s.astc", opts->temp_dir, "temp_compile");
-
-    // Step 2: C to ASTC compilation
-    if (c2astc(c_file, temp_astc_file, NULL) != 0) {
-        astc_jit_set_error("C to ASTC compilation failed");
-        return -1;
-    }
-
-    if (opts->verbose) {
-        printf("VM: C to ASTC compilation completed\n");
-    }
-
-    // Step 3: ASTC to native compilation
-    if (astc2native(temp_astc_file, exe_file, NULL) != 0) {
-        astc_jit_set_error("ASTC to native compilation failed");
-        remove(temp_astc_file); // Cleanup
-        return -1;
-    }
-
-    if (opts->verbose) {
-        printf("VM: ASTC to native compilation completed\n");
-    }
-
-    // Cleanup temporary file
-    remove(temp_astc_file);
-
-    // Update result
-    if (result) {
-        result->compile_time_us = get_current_time_us() - start_time;
-        result->from_cache = false;
-
-        // Get file size
-        FILE* exe_test = fopen(exe_file, "rb");
-        if (exe_test) {
-            fseek(exe_test, 0, SEEK_END);
-            result->code_size = ftell(exe_test);
-            fclose(exe_test);
-        }
-    }
-
-    if (opts->verbose) {
-        printf("VM: ASTC+JIT compilation completed successfully\n");
-    }
-
-    return 0;
-}
-
-/**
- * Compile C source to JIT code for immediate execution
- */
-static int astc_jit_compile_c_to_jit(const char* c_file, void** entry_point, size_t* code_size, const ASTCJITOptions* options) {
-    if (!c_file || !entry_point || !code_size) {
-        astc_jit_set_error("Invalid parameters for JIT compilation");
-        return -1;
-    }
-
-    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
-
-    if (opts->verbose) {
-        printf("VM: JIT compiling C source: %s\n", c_file);
-    }
-
-    // Step 1: Create temporary ASTC file
-    char temp_astc_file[512];
-    safe_snprintf(temp_astc_file, sizeof(temp_astc_file), "%s/jit_temp.astc", opts->temp_dir);
-
-    // Step 2: C to ASTC compilation
-    if (c2astc(c_file, temp_astc_file, NULL) != 0) {
-        astc_jit_set_error("C to ASTC compilation failed for JIT");
-        return -1;
-    }
-
-    // Step 3: Load ASTC bytecode
-    void* astc_data;
-    size_t astc_size;
-    if (read_file_to_buffer(temp_astc_file, &astc_data, &astc_size) != 0) {
-        astc_jit_set_error("Failed to read ASTC file for JIT");
-        remove(temp_astc_file);
-        return -1;
-    }
-
-    // Step 4: JIT compile ASTC bytecode
-    int result = astc_jit_compile_astc_to_jit((uint8_t*)astc_data, astc_size, entry_point, code_size, opts);
-
-    // Cleanup
-    free(astc_data);
-    remove(temp_astc_file);
-
-    return result;
-}
-
-/**
- * Compile ASTC bytecode to JIT code
- */
-static int astc_jit_compile_astc_to_jit(const uint8_t* astc_data, size_t astc_size, void** entry_point, size_t* code_size, const ASTCJITOptions* options) {
-    if (!astc_data || astc_size == 0 || !entry_point || !code_size) {
-        astc_jit_set_error("Invalid parameters for ASTC JIT compilation");
-        return -1;
-    }
-
-    const ASTCJITOptions* opts = options ? options : &g_default_astc_jit_options;
-
-    if (opts->verbose) {
-        printf("VM: JIT compiling ASTC bytecode (%zu bytes)\n", astc_size);
-    }
-
-    // Initialize JIT compiler
-    DetectedArchitecture target_arch = detect_architecture();
-    JITOptLevel opt_level = (opts->optimization_level == 0) ? JIT_OPT_NONE :
-                           (opts->optimization_level == 1) ? JIT_OPT_BASIC : JIT_OPT_AGGRESSIVE;
-
-    uint32_t jit_flags = JIT_FLAG_NONE;
-    if (opts->cache_results) {
-        jit_flags |= JIT_FLAG_CACHE_RESULT;
-    }
-
-    JITCompiler* jit = jit_init(target_arch, opt_level, jit_flags);
-    if (!jit) {
-        astc_jit_set_error("Failed to initialize JIT compiler");
-        return -1;
-    }
-
-    // Skip ASTC header (16 bytes) and get to bytecode
-    const uint8_t* bytecode = astc_data + 16;
-    size_t bytecode_size = astc_size - 16;
-    uint32_t entry_point_offset = 0; // Assume entry point at start of bytecode
-
-    // Compile bytecode
-    JITResult jit_result = jit_compile_bytecode(jit, bytecode, bytecode_size, entry_point_offset);
-
-    if (jit_result != JIT_SUCCESS) {
-        const char* jit_error = jit_get_error_message(jit);
-        astc_jit_set_error("JIT compilation failed: %s", jit_error ? jit_error : "Unknown error");
-        jit_cleanup(jit);
-        return -1;
-    }
-
-    // Get compiled code
-    *entry_point = jit_get_entry_point(jit);
-    *code_size = jit_get_code_size(jit);
-
-    if (!*entry_point || *code_size == 0) {
-        astc_jit_set_error("JIT compilation produced no code");
-        jit_cleanup(jit);
-        return -1;
-    }
-
-    if (opts->verbose) {
-        printf("VM: JIT compilation successful (%zu bytes generated)\n", *code_size);
-    }
-
-    // Note: We don't cleanup the JIT compiler here because the compiled code is still needed
-    // In a real implementation, we'd need a way to manage the lifetime of JIT compiled code
-
-    return 0;
-}
-
-/**
- * Execute JIT compiled code
- */
-static int astc_jit_execute_jit_code(void* entry_point, int argc, char* argv[]) {
-    if (!entry_point) {
-        astc_jit_set_error("Invalid entry point for JIT execution");
-        return -1;
-    }
-
-    printf("VM: Executing JIT compiled code at %p\n", entry_point);
-
-    // Cast to function pointer and execute
-    typedef int (*jit_main_func_t)(int, char**);
-    jit_main_func_t jit_main = (jit_main_func_t)entry_point;
-
-    int result = jit_main(argc, argv);
-
-    printf("VM: JIT execution completed with result %d\n", result);
-    return result;
-}
-
-// ===============================================
-// VM Memory Management Implementation
-// ===============================================
-
-
-
-/**
- * VM malloc implementation
- */
-void* vm_malloc(VMContext* context, size_t size) {
-    if (!context || !context->memory || size == 0) {
-        return NULL;
-    }
-
-    VMMemoryManager* memory = context->memory;
-
-    // Simple bump allocator for now
-    if (memory->heap_used + size > memory->heap_size) {
-        printf("VM Error: Heap overflow (requested: %zu, available: %zu)\n",
-               size, memory->heap_size - memory->heap_used);
-        return NULL;
-    }
-
-    void* ptr = (uint8_t*)memory->heap_start + memory->heap_used;
-    memory->heap_used += size;
-
-    printf("VM: Allocated %zu bytes at %p (heap used: %zu/%zu)\n",
-           size, ptr, memory->heap_used, memory->heap_size);
-
-    return ptr;
-}
-
-/**
- * VM free implementation (simplified)
- */
-void vm_free(VMContext* context, void* ptr) {
-    if (!context || !ptr) {
-        return;
-    }
-
-    // TODO: Implement proper free list management
-    // For now, just mark as freed (no-op in bump allocator)
-    printf("VM: Freed pointer %p (simplified)\n", ptr);
-}
-
-/**
- * VM garbage collection
- */
-int vm_gc_collect(VMContext* context) {
-    if (!context || !context->memory) {
-        return -1;
-    }
-
-    if (!context->memory->gc_enabled) {
-        printf("VM: Garbage collection disabled\n");
-        return 0;
-    }
-
-    printf("VM: Running garbage collection\n");
-
-    size_t before_used = context->memory->heap_used;
-
-    // TODO: Implement proper mark-and-sweep GC
-    // For now, just report current usage
-
-    printf("VM: GC completed (heap usage: %zu bytes)\n", before_used);
-    return 0;
-}
-
-/**
- * Get memory statistics
- */
-void vm_get_memory_stats(VMContext* context, size_t* heap_used, size_t* heap_total,
-                        size_t* stack_used, size_t* stack_total) {
-    if (!context || !context->memory) {
-        if (heap_used) *heap_used = 0;
-        if (heap_total) *heap_total = 0;
-        if (stack_used) *stack_used = 0;
-        if (stack_total) *stack_total = 0;
-        return;
-    }
-
-    VMMemoryManager* memory = context->memory;
-
-    if (heap_used) *heap_used = memory->heap_used;
-    if (heap_total) *heap_total = memory->heap_size;
-    if (stack_used) *stack_used = memory->stack_used;
-    if (stack_total) *stack_total = memory->stack_size;
-}
-
-// ===============================================
-// VM Module System Integration
-// ===============================================
-
-/**
- * Load native module into VM context
- */
-int vm_load_native_module(VMContext* context, const char* module_path) {
-    if (!context || !module_path) {
-        printf("VM Error: Invalid parameters for module loading\n");
-        return -1;
-    }
-
-    printf("VM: Loading native module %s\n", module_path);
-
-    // Use core native module system
-    NativeModuleHandle* handle = module_open_native(module_path, NULL, MODULE_FLAG_NONE);
-    if (!handle) {
-        printf("VM Error: Failed to load native module %s\n", module_path);
-        return -1;
-    }
-
-    // TODO: Store module handle in VM context
-    // For now, just verify it loaded successfully
-
-    printf("VM: Successfully loaded native module %s\n", module_path);
-    return 0;
-}
-
-/**
- * Call native function from VM
- */
-int vm_call_native_function(VMContext* context, const char* module_name,
-                           const char* function_name, void* args, void* result) {
-    if (!context || !module_name || !function_name) {
-        printf("VM Error: Invalid parameters for native function call\n");
-        return -1;
-    }
-
-    printf("VM: Calling native function %s::%s\n", module_name, function_name);
-
-    // TODO: Implement proper module lookup and function calling
-    // For now, handle special case for libc module
-
-    if (strcmp(module_name, "libc") == 0) {
-        return vm_call_libc_function(context, function_name, args, result);
-    }
-
-    printf("VM Error: Module %s not found or not supported\n", module_name);
-    return -1;
-}
-
-/**
- * Call LibC function from VM
- */
-int vm_call_libc_function(VMContext* context, const char* function_name, void* args, void* result) {
-    if (!context || !function_name) {
-        return -1;
-    }
-
-    printf("VM: Calling LibC function %s\n", function_name);
-
-    // Handle common LibC functions
-    if (strcmp(function_name, "malloc") == 0) {
-        size_t size = args ? *(size_t*)args : 0;
-        void* ptr = vm_malloc(context, size);
-        if (result) *(void**)result = ptr;
-        return ptr ? 0 : -1;
-    }
-
-    if (strcmp(function_name, "free") == 0) {
-        void* ptr = args ? *(void**)args : NULL;
-        vm_free(context, ptr);
-        return 0;
-    }
-
-    if (strcmp(function_name, "printf") == 0) {
-        // Simplified printf handling
-        const char* format = args ? (const char*)args : "";
-        printf("VM printf: %s", format);
-        if (result) *(int*)result = strlen(format);
-        return 0;
-    }
-
-    if (strcmp(function_name, "strlen") == 0) {
-        const char* str = args ? (const char*)args : "";
-        size_t len = strlen(str);
-        if (result) *(size_t*)result = len;
-        return 0;
-    }
-
-    printf("VM Error: LibC function %s not implemented\n", function_name);
-    return -1;
-}
-
-/**
- * Initialize VM module system
- */
-int vm_module_system_init(VMContext* context) {
-    if (!context) {
-        return -1;
-    }
-
-    printf("VM: Initializing module system\n");
-
-    // Initialize native module system if not already done
-    native_module_system_init();
-
-    // Load default modules
-    int result = 0;
-
-    // Try to load LibC module
-    if (vm_load_native_module(context, "libc_module.native") != 0) {
-        printf("VM Warning: Failed to load LibC module\n");
-        // Not a fatal error, continue with built-in LibC functions
-    }
-
-    printf("VM: Module system initialized\n");
-    return result;
-}
-
-/**
- * Cleanup VM module system
- */
-void vm_module_system_cleanup(VMContext* context) {
-    if (!context) {
-        return;
-    }
-
-    printf("VM: Cleaning up module system\n");
-
-    // TODO: Unload all loaded modules
-    // For now, just cleanup native module system
-    native_module_system_cleanup();
-}
-
-/**
- * List loaded modules
- */
-int vm_list_loaded_modules(VMContext* context, char module_names[][64], int max_modules) {
-    if (!context || !module_names) {
-        return -1;
-    }
-
-    printf("VM: Listing loaded modules\n");
-
-    // TODO: Implement proper module listing
-    // For now, return built-in modules
-
-    int count = 0;
-
-    if (count < max_modules) {
-        safe_snprintf(module_names[count], 64, "libc");
-        count++;
-    }
-
-    if (count < max_modules) {
-        safe_snprintf(module_names[count], 64, "vm_core");
-        count++;
-    }
-
-    printf("VM: Found %d loaded modules\n", count);
-    return count;
-}
-
-// ===============================================
-// VM Module Implementation
-// ===============================================
-
-// Module information (architecture-specific)
-#ifdef _WIN32
-    #ifdef _M_X64
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0", 
-            .arch = "x64",
-            .bits = 64,
-            .api_version = 1
-        };
-    #elif defined(_M_ARM64)
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "arm64", 
-            .bits = 64,
-            .api_version = 1
-        };
-    #elif defined(_M_IX86)
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "x86",
-            .bits = 32,
-            .api_version = 1
-        };
-    #endif
-#else
-    #ifdef __x86_64__
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "x64", 
-            .bits = 64,
-            .api_version = 1
-        };
-    #elif defined(__aarch64__)
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "arm64",
-            .bits = 64,
-            .api_version = 1
-        };
-    #elif defined(__i386__)
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "x86",
-            .bits = 32,
-            .api_version = 1
-        };
-    #elif defined(__arm__)
-        static VMModuleInfo vm_info = {
-            .name = "vm_core",
-            .version = "1.0.0",
-            .arch = "arm32",
-            .bits = 32,
-            .api_version = 1
-        };
-    #endif
-#endif
-
-// VM state
-static bool vm_initialized = false;
-
-// ===============================================
-// VM Core Functions
-// ===============================================
-
-int vm_core_init(void) {
-    if (vm_initialized) {
-        return 0; // Already initialized
-    }
-    
-    printf("VM Core Module: Initializing %s_%s_%d.native\n", 
-           vm_info.name, vm_info.arch, vm_info.bits);
-    printf("Architecture: %s %d-bit\n", vm_info.arch, vm_info.bits);
-    printf("API Version: %u\n", vm_info.api_version);
-    
-    // Initialize ASTC virtual machine
-    // Initialize memory management
-    // Initialize JIT compiler (if available)
-    
-    vm_initialized = true;
-    return 0;
-}
-
-void vm_core_cleanup(void) {
-    if (!vm_initialized) {
-        return;
-    }
-    
-    printf("VM Core Module: Cleaning up %s_%s_%d.native\n",
-           vm_info.name, vm_info.arch, vm_info.bits);
-    
-    // Cleanup ASTC virtual machine
-    // Cleanup memory management
-    // Cleanup JIT compiler
-    
-    vm_initialized = false;
-}
-
-__declspec(dllexport) int vm_core_execute_astc(const char* astc_file, int argc, char* argv[]) {
-    if (!vm_initialized) {
-        fprintf(stderr, "VM Core Error: VM not initialized\n");
-        return -1;
-    }
-    
-    if (!astc_file) {
-        fprintf(stderr, "VM Core Error: No ASTC file specified\n");
-        return -1;
-    }
-    
-    printf("VM Core: Loading ASTC program: %s\n", astc_file);
-    
-    // Load ASTC file
-    FILE* file = fopen(astc_file, "rb");
-    if (!file) {
-        fprintf(stderr, "VM Core Error: Cannot open ASTC file: %s\n", astc_file);
-        return -1;
-    }
-    
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-    
-    // Allocate buffer
-    uint8_t* astc_data = malloc(file_size);
-    if (!astc_data) {
-        fprintf(stderr, "VM Core Error: Memory allocation failed\n");
-        fclose(file);
-        return -1;
-    }
-    
-    // Read ASTC data
-    fread(astc_data, 1, file_size, file);
-    fclose(file);
-    
-    printf("VM Core: ASTC program loaded: %ld bytes\n", file_size);
-    
-    // Parse ASTC header
-    if (file_size < 16) {
-        fprintf(stderr, "VM Core Error: Invalid ASTC file (too small)\n");
-        free(astc_data);
-        return -1;
-    }
-
-    // Check ASTC magic number
-    if (memcmp(astc_data, "ASTC", 4) != 0) {
-        fprintf(stderr, "VM Core Error: Invalid ASTC file (bad magic)\n");
-        free(astc_data);
-        return -1;
-    }
-
-    // Extract header information
-    uint32_t version = *(uint32_t*)(astc_data + 4);
-    uint32_t data_size = *(uint32_t*)(astc_data + 8);
-    uint32_t entry_point = *(uint32_t*)(astc_data + 12);
-
-    printf("VM Core: ASTC version: %u\n", version);
-    printf("VM Core: Data size: %u bytes\n", data_size);
-    printf("VM Core: Entry point: %u\n", entry_point);
-
-    // Strategy: Use astc2native to compile ASTC to native code, then execute
-    printf("VM Core: Using astc2native compilation strategy\n");
-    printf("VM Core: Program arguments: %d\n", argc);
-
-    // Generate temporary native file name
-    char temp_native[512];
-    snprintf(temp_native, sizeof(temp_native), "%s.temp.native", astc_file);
-
-    // Call astc2native module to compile ASTC to native code
-    printf("VM Core: Calling astc2native to compile ASTC to native code...\n");
-
-    // Declare astc2native function (from astc_module.c)
-    extern int astc2native(const char* astc_file_path, const char* native_file_path, const char* target_arch);
-
-    // Call astc2native to compile ASTC to native
-    int compile_result = astc2native(astc_file, temp_native, "x64");
-
-    if (compile_result == 0) {
-        printf("VM Core: Successfully compiled ASTC to native code: %s\n", temp_native);
-
-        // TODO: Load and execute the compiled native code
-        printf("VM Core: Native code execution not yet implemented, using interpreter fallback\n");
-
-        // For now, still use interpreter but we've proven the astc2native integration works
-    } else {
-        printf("VM Core: astc2native compilation failed, using interpreter fallback\n");
-    }
-
-    // Enhanced ASTC interpreter implementation
-    int result = vm_execute_astc_interpreter(astc_data + 16, data_size, argc, argv);
-
-    printf("VM Core: Program execution completed with result: %d\n", result);
-    
-    // Cleanup
-    free(astc_data);
-    
-    return result;
-}
-
-void* vm_core_load_native_module(const char* module_path) {
-    printf("VM Core: Loading native module: %s\n", module_path);
-    
-    // TODO: Implement dynamic loading of .native modules
-    // This will be used to load libc_{arch}_{bits}.native and other modules
-    
-    return NULL; // Placeholder
-}
-
-const VMModuleInfo* vm_core_get_info(void) {
-    return &vm_info;
-}
-
-// ===============================================
-// Standard VM Interface
-// ===============================================
-
-static VMCoreInterface vm_interface = {
-    .init = vm_core_init,
-    .cleanup = vm_core_cleanup,
-    .get_info = vm_core_get_info,
-    .load_astc_program = vm_load_astc_program,
-    .unload_astc_program = NULL, // TODO: implement
-    .validate_astc_program = NULL, // TODO: implement
-    .create_context = NULL, // TODO: implement
-    .destroy_context = NULL, // TODO: implement
-    .execute_program = NULL, // TODO: implement
-    .execute_function = NULL, // TODO: implement
-    .jit_compile_program = vm_jit_compile_program,
-    .jit_compile_function = vm_jit_compile_function,
-    .get_jit_function_ptr = NULL, // TODO: implement
-    .create_memory_manager = NULL, // TODO: implement
-    .destroy_memory_manager = NULL, // TODO: implement
-    .allocate_memory = NULL, // TODO: implement
-    .free_memory = NULL, // TODO: implement
-    .load_native_module = NULL, // TODO: implement
-    .call_native_function = NULL, // TODO: implement
-    .set_breakpoint = NULL, // TODO: implement
-    .step_execution = NULL, // TODO: implement
-    .dump_context = NULL // TODO: implement
+// Module definition
+static Module module_vm = {
+    .name = MODULE_NAME,
+    .handle = NULL,
+    .state = MODULE_UNLOADED,
+    .error = NULL,
+    .load = vm_load,
+    .unload = vm_unload,
+    .resolve = vm_resolve,
+    .on_init = NULL,
+    .on_exit = NULL,
+    .on_error = NULL
 };
 
-// ===============================================
-// Module Entry Points (Required Exports)
-// ===============================================
-
-/**
- * vm_native_main - Main entry point for VM module
- * 
- * This is the standard entry point called by the loader.
- * 
- * @param argc Number of arguments
- * @param argv Argument array (argv[1] should be ASTC file)
- * @return 0 on success, non-zero on error
- */
-int vm_native_main(int argc, char* argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: vm_%s_%d.native <astc_file> [args...]\n", 
-                vm_info.arch, vm_info.bits);
-        return -1;
-    }
-    
-    // Initialize VM core
-    int init_result = vm_core_init();
-    if (init_result != 0) {
-        fprintf(stderr, "VM Core Error: Initialization failed\n");
-        return -1;
-    }
-    
-    // Execute ASTC program
-    const char* astc_file = argv[1];
-    int exec_result = vm_core_execute_astc(astc_file, argc - 1, argv + 1);
-    
-    // Cleanup
-    vm_core_cleanup();
-    
-    return exec_result;
-}
-
-/**
- * vm_get_interface - Get VM interface structure
- * 
- * This function returns the VM interface that allows
- * the loader to interact with the VM module.
- * 
- * @return Pointer to VMCoreInterface structure
- */
-const VMCoreInterface* vm_get_interface(void) {
-    return &vm_interface;
-}
-
-// ===============================================
-// Module Metadata (for .native format)
-// ===============================================
-
-// This metadata will be embedded in the .native file
-const char* vm_module_name = "vm_core";
-const char* vm_module_version = "1.0.0";
-const char* vm_module_author = "Self-Evolve AI Team";
-const char* vm_module_description = "ASTC Virtual Machine Core Module";
-const char* vm_module_license = "MIT";
-
-// Export table for .native format
-const char* vm_exports[] = {
-    "vm_native_main",
-    "vm_get_interface",
-    "vm_core_execute_astc",
-    NULL
-};
-
-// Dependencies for .native format
-const char* vm_dependencies[] = {
-    "libc",  // Standard C library
-    NULL
-};
-
-// ===============================================
-// ASTC字节码解释器实现
-// ===============================================
-
-// 基本的ASTC字节码解释器
-int execute_astc_bytecode(const uint8_t* bytecode, uint32_t size, int argc, char* argv[]) {
-    if (!bytecode || size == 0) {
-        printf("VM Core: Empty bytecode\n");
-        return -1;
-    }
-
-    printf("VM Core: Executing ASTC bytecode (%u bytes)\n", size);
-
-    // Simplified bytecode interpreter implementation
-    // Here we assume ASTC bytecode contains a simple program
-
-    // Check if this is a C99 compiler program
-    if (size > 100) {  // c99.astc should be relatively large
-        printf("VM Core: Detected C99 compiler program\n");
-
-        // Real C99 compiler execution - call TCC
-        if (argc >= 2) {
-            const char* source_file = argv[1];
-            const char* output_file = "a.exe";  // 默认输出文件
-
-            // 解析输出文件参数
-            for (int i = 2; i < argc - 1; i++) {
-                if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
-                    output_file = argv[i + 1];
-                    break;
-                }
-            }
-
-            printf("VM Core: C99 compiler processing: %s\n", source_file);
-            printf("VM Core: Output file: %s\n", output_file);
-
-            // 检查源文件是否存在
-            FILE* test_file = fopen(source_file, "r");
-            if (!test_file) {
-                printf("VM Core: Source file not found: %s\n", source_file);
-                return 1;
-            }
-            fclose(test_file);
-
-            // 使用ASTC+JIT编译替换TCC
-            printf("VM Core: Using ASTC+JIT compilation instead of TCC\n");
-
-            // Initialize ASTC+JIT if not already done
-            static bool astc_jit_initialized = false;
-            if (!astc_jit_initialized) {
-                if (astc_jit_init() != 0) {
-                    printf("VM Core: Failed to initialize ASTC+JIT system\n");
-                    return 1;
-                }
-                astc_jit_initialized = true;
-            }
-
-            // Set compilation options
-            ASTCJITOptions compile_opts = g_default_astc_jit_options;
-            compile_opts.verbose = true;
-            compile_opts.optimization_level = 1;
-
-            // Compile using ASTC+JIT
-            ASTCJITResult compile_result;
-            int result = astc_jit_compile_c_to_executable(source_file, output_file, &compile_opts, &compile_result);
-
-            if (result == 0) {
-                printf("VM Core: ASTC+JIT compilation successful!\n");
-                printf("VM Core: Generated executable: %s\n", output_file);
-                printf("VM Core: Compilation time: %llu microseconds\n", (unsigned long long)compile_result.compile_time_us);
-                printf("VM Core: Output size: %zu bytes\n", compile_result.code_size);
-
-                // Verify if output file is generated
-                FILE* output_test = fopen(output_file, "rb");
-                if (output_test) {
-                    fclose(output_test);
-                    printf("VM Core: Output file verified\n");
-                } else {
-                    printf("VM Core: Warning: Output file not found\n");
-                }
-
-                return 0;
-            } else {
-                printf("VM Core: ASTC+JIT compilation failed\n");
-                const char* error = astc_jit_get_last_error();
-                if (error) {
-                    printf("VM Core: Error: %s\n", error);
-                }
-                return result;
-            }
-        } else {
-            printf("VM Core: C99 compiler usage: <source.c> [-o output.exe]\n");
-            return 1;
-        }
-    } else {
-        // Other types of ASTC programs
-        printf("VM Core: Executing generic ASTC program\n");
-        printf("VM Core: Program completed successfully\n");
-        return 0;
-    }
-}
-
-// ===============================================
-// Architecture-Specific Optimizations
-// ===============================================
-
-#ifdef __x86_64__
-// x86_64 specific optimizations
-void vm_x64_optimize(void) {
-    // SSE/AVX optimizations
-    // x64 specific JIT code generation
-}
-#endif
-
-#ifdef __aarch64__
-// ARM64 specific optimizations  
-void vm_arm64_optimize(void) {
-    // NEON optimizations
-    // ARM64 specific JIT code generation
-}
-#endif
-
-// ===============================================
-// Module Initialization (Constructor)
-// ===============================================
-
-#ifdef _WIN32
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
-    switch (fdwReason) {
-        case DLL_PROCESS_ATTACH:
-            // Module loaded
-            break;
-        case DLL_PROCESS_DETACH:
-            // Module unloaded
-            vm_core_cleanup();
-            break;
-    }
-    return TRUE;
-}
-#else
-__attribute__((constructor))
-void vm_module_constructor(void) {
-    // Module loaded
-}
-
-__attribute__((destructor))
-void vm_module_destructor(void) {
-    // Module unloaded
-    vm_core_cleanup();
-}
-#endif
-
-// ===============================================
-// Missing Function Implementations (Simplified)
-// ===============================================
-
-// vm_call_function already defined above
-
-// vm_jit_compile_bytecode already defined above
-
-// vm_jit_emit_prologue already defined above
-
-// vm_jit_emit_halt already defined above
-
-// vm_jit_emit_load_imm32 already defined above
-
-// vm_jit_emit_add already defined above
-
-// vm_jit_emit_call already defined above
-
-// All JIT emit functions already defined above
-// Removed duplicate simplified implementations
-
-/**
- * Enhanced ASTC bytecode interpreter with proper instruction decoding
- */
-int vm_execute_astc_interpreter(const uint8_t* bytecode, uint32_t size, int argc, char* argv[]) {
-    if (!bytecode || size == 0) {
-        printf("VM Core: Empty bytecode\n");
-        return -1;
-    }
-
-    printf("VM Core: Starting ASTC interpreter (%u bytes)\n", size);
-
-    // Create execution stack
-    int32_t stack[1024];
-    int stack_top = 0;
-
-    // Create local variables storage
-    int32_t locals[256];
-    memset(locals, 0, sizeof(locals));
-
-    // Instruction pointer
-    uint32_t pc = 0;
-
-    // Main interpreter loop
-    while (pc < size) {
-        uint8_t opcode = bytecode[pc++];
-
-        switch (opcode) {
-            case AST_NOP:
-                // No operation
-                break;
-
-            case AST_I32_CONST: {
-                // Load 32-bit constant
-                if (pc + 4 > size) return -1;
-                int32_t value = *(int32_t*)(bytecode + pc);
-                pc += 4;
-                stack[stack_top++] = value;
-                printf("VM: i32.const %d\n", value);
-                break;
-            }
-
-            case AST_I32_ADD: {
-                // Add two i32 values
-                if (stack_top < 2) return -1;
-                int32_t b = stack[--stack_top];
-                int32_t a = stack[--stack_top];
-                stack[stack_top++] = a + b;
-                printf("VM: i32.add %d + %d = %d\n", a, b, a + b);
-                break;
-            }
-
-            case AST_RETURN: {
-                // Return from function
-                int32_t return_value = (stack_top > 0) ? stack[stack_top - 1] : 0;
-                printf("VM: return %d\n", return_value);
-                return return_value;
-            }
-
-            case ASTC_C99_COMPILE: {
-                // C99 compiler instruction - delegate to existing implementation
-                printf("VM: Executing C99 compiler instruction\n");
-                return execute_astc_bytecode(bytecode, size, argc, argv);
-            }
-
-            default:
-                printf("VM: Unknown opcode 0x%02X at PC=%u\n", opcode, pc - 1);
-                // For unknown opcodes, fall back to existing implementation
-                return execute_astc_bytecode(bytecode, size, argc, argv);
-        }
-
-        // Stack overflow protection
-        if (stack_top >= 1024) {
-            printf("VM: Stack overflow\n");
-            return -1;
-        }
-    }
-
-    // Program completed normally
-    int32_t result = (stack_top > 0) ? stack[stack_top - 1] : 0;
-    printf("VM: Program completed with result: %d\n", result);
-    return result;
-}
+// Register module
+REGISTER_MODULE(vm);

@@ -54,25 +54,8 @@ stage 1
 ```
 dev roadmap (by human master)
 - src/core/                    # the real core
-    - astc.h                   # core def about ASTC
-    - jit.[c|h]                # byte code emitter, maybe should merge with native?
-    - native.[c|h]             # native module handlers
-    - c2astc.c                 # lib and tool that convert .c to .astc
-    - astc2native.c            # lib and tool that convert .astc to .native
-    - c2native.c               # tool that compile .c to .native (currently using tcc, will use our c99 once done)
-    - std_module.c             # a base std module like the one in QuickJS
-    - astc_module.c            # native module that convert C to ASTC vise versa
-    - vm_module.c              # native module that vm that load .astc
-    - libc_module.c            # native module that of libc forwader 
-    - utils.[c|h]              # the very core utils
-        - arch and bits detector (must not using macro)
-        - bytecode tool functios 
-- src/ext/    # the extended modules
-    - utils_ext.c              # more utility functions
-    - c99.c                    # our c99 implementation to replace tcc(using loader + runtime + c99.astc)
-
 - layer 1 loader (windows exe)
-- layer 2 native module (vm, libc), will be loaded by mmap() alike. (not libdl or ffi)
+- layer 2 native module (vm, libc, std, astc, jit, utils, etc), will be loaded by mmap() alike. (not libdl or ffi)
 - layer 3 program (c99 windows 64 x86)
 - build tcc with c99 // test c99 working good
 - layer 3 program c99 supports cross build
@@ -83,44 +66,14 @@ dev roadmap (by human master)
 - src/utils.c:: libdl-alike, libffi-alike ? to discuss further
 ```
 
-临时笔记请忽略
+下面是临时笔记请忽略：
 ```
-urgent tasks for src/core/
-- 保留jit/jit.c作为核心JIT引擎，移除vm_module.c中的重复JIT功能，改为调用jit.c中的函数
-- convertor/目录下有多个codegen_.c文件，功能有重叠。保留架构特定文件，但统一接口，确保它们通过同一套API被调用
-- 在vm_module.c和其他文件中都有内存管理代码。统一使用memory.h中定义的内存管理函数，移除重复实现
-- c2astc.c和astc2native.c接口风格不一致。统一这些接口，确保它们遵循相同的调用约定和错误处理模式
+这几个模块似乎应该合并成同一个模块
 
-TODO vm module
-核心安全模型基础 - 在core层实现基本的安全边界和权限检查机制，为ext层的完整安全模型提供基础【human反对，这是vm的事】
-基础错误处理框架 - 在core中定义统一的错误码、错误传播机制和基本恢复策略，确保系统稳定性【human反对，这是vm的事】
-内存安全原语 - 在core层实现基本的内存边界检查和资源获取/释放追踪，作为更高级内存管理的基础【human反对，这是vm的事】
-核心并发原语 - 在core中提供基本的线程安全操作和同步机制，为ext层的完整并发模型提供支持【human反对，这是vm的事】
-版本兼容性基础设施 - 在core层实现版本检查和基本兼容性验证机制，确保系统各组件能正确协作【human反对，这是vm的事】
+src/core/modules/astc2native_module.c
+src/core/modules/c2astc_module.c
+src/core/modules/codegen_module.c
 
-
-以下是优化src/core/中代码组织和消除重复的任务列表：
-优化src/core/中的代码组织与消除重复
-整合转换器代码，消除分散实现
-明确c2astc.c和convertor/目录下实现的职责边界
-明确astc2native.c和convertor/目录下实现的职责边界
-创建统一的转换器接口，确保一致性
-整合代码生成器实现，减少重复
-分析各codegen_.c文件的功能重叠
-设计统一的代码生成器架构，支持多目标
-实现基于插件的代码生成器系统，便于扩展
-统一JIT实现，消除分散代码
-分析jit/jit.c与vm_module.c中JIT实现的重叠
-设计统一的JIT接口，明确职责边界
-将JIT功能集中到一个模块，由其他组件调用
-统一内存管理实现，建立一致接口
-识别所有内存管理相关代码
-设计统一的内存管理接口
-实现集中式内存管理模块
-更新所有代码使用新的内存管理接口
-验证与文档
-为重构后的组件创建集成测试
-更新代码文档反映新的组织结构
 ```
 
 stage 2
