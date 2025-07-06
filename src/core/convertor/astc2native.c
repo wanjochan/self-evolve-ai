@@ -1088,79 +1088,39 @@ void compile_astc_instruction_to_asm(CodeGenerator* cg, uint8_t opcode, uint8_t*
 
 // ASTC JIT编译主函�?- 类似TinyCC的代码生�?
 int compile_astc_to_machine_code(uint8_t* astc_data, size_t astc_size, CodeGen* gen) {
-    printf("JIT compiling ASTC bytecode to %s machine code...\n",
-           get_architecture_name(gen->target_arch));
+    if (!astc_data || !gen) return -1;
 
-    // 跳过ASTC头部
-    if (astc_size < 16 || memcmp(astc_data, "ASTC", 4) != 0) {
-        printf("Error: Invalid ASTC format\n");
-        return 1;
+    // 初始化代码生成器
+    if (gen->target_arch == ARCH_UNKNOWN) {
+        gen->target_arch = detect_runtime_architecture();
     }
 
-    uint32_t* header = (uint32_t*)astc_data;
-    uint32_t version = header[1];
-    uint32_t data_size = header[2];
-    uint32_t entry_point = header[3];
-
-    printf("ASTC version: %u, data_size: %u, entry_point: %u\n", version, data_size, entry_point);
+    // 获取架构特定的代码生成表
+    ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+    if (!table) return -1;
 
     // 生成函数序言
-    ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
     table->emit_function_prologue(gen);
 
-    // 尝试反序列化AST
-    uint8_t* ast_data = astc_data + 16;
-    size_t ast_data_size = astc_size - 16;
+    // 解析ASTC指令
+    size_t offset = 0;
+    while (offset < astc_size) {
+        ASTCInstruction instr;
+        size_t read_size = parse_astc_instruction(astc_data + offset, astc_size - offset, &instr);
+        if (read_size == 0) break;
 
-    struct ASTNode* ast = c2astc_deserialize(ast_data, ast_data_size);
-    if (ast) {
-        printf("JIT compiling AST to x64 machine code...\n");
-        // 编译AST节点到机器码
-        compile_ast_node_to_machine_code(ast, gen);
-        ast_free(ast);
-    } else {
-        printf("Warning: Failed to deserialize AST, trying bytecode mode...\n");
-        // 回退到字节码模式
-        uint8_t* code = astc_data + 16;
-        size_t code_size = astc_size - 16;
-        size_t pc = 0;
-
-        while (pc < code_size) {
-            uint8_t opcode = code[pc++];
-
-            // 根据指令类型确定操作数长�?
-            size_t operand_len = 0;
-            switch (opcode) {
-                case 0x10: operand_len = 4; break; // CONST_I32
-                case 0x12: // CONST_STRING - 需要读取长度字�?
-                    if (pc + 4 <= code_size) {
-                        uint32_t str_len = *(uint32_t*)&code[pc];
-                        operand_len = 4 + str_len; // 长度字段 + 字符串数�?
-                    }
-                    break;
-                case 0x30: operand_len = 4; break; // STORE_LOCAL
-                case 0x31: operand_len = 4; break; // LOAD_LOCAL
-                case 0x40: operand_len = 4; break; // JUMP
-                case 0x41: operand_len = 4; break; // JUMP_IF_FALSE
-                case 0x50: operand_len = 4; break; // CALL_USER
-                case 0xF0: operand_len = 4; break; // LIBC_CALL
-                default: operand_len = 0; break;
-            }
-
-            uint8_t* operands = (pc + operand_len <= code_size) ? &code[pc] : NULL;
-
-            // JIT编译这条指令到机器码
-            compile_astc_instruction_to_machine_code(gen, opcode, operands, operand_len);
-
-            pc += operand_len;
+        // 转换ASTC指令到机器码
+        int result = convert_astc_to_machine_code(&instr, gen);
+        if (result != 0) {
+            printf("Error: Failed to convert ASTC instruction at offset %zu\n", offset);
+            return -1;
         }
+
+        offset += read_size;
     }
 
-    // 如果没有显式的HALT，添加默认返�?
+    // 生成函数尾声
     table->emit_function_epilogue(gen);
-
-    printf("JIT compilation completed: %zu ASTC bytes �?%zu machine code bytes\n",
-           ast_data_size, gen->code_size);
 
     return 0;
 }
@@ -1653,6 +1613,227 @@ int compile_ast_node_to_machine_code(struct ASTNode* node, CodeGen* gen) {
             // 其他节点类型暂时忽略
             printf("Ignoring AST node type: %d\n", node->type);
             break;
+    }
+
+    return 0;
+}
+
+/**
+ * 将ASTC指令转换为目标架构的机器码
+ */
+int convert_astc_to_machine_code(ASTCInstruction* instr, CodeGen* gen) {
+    if (!instr || !gen) {
+        printf("Error: Invalid instruction or code generator\n");
+        return -1;
+    }
+
+    ArchCodegenTable* table = get_arch_codegen_table(gen->target_arch);
+    if (!table) {
+        printf("Error: Unsupported target architecture\n");
+        return -1;
+    }
+
+    switch (instr->opcode) {
+        case ASTC_OP_NOP:
+            table->emit_nop(gen);
+            break;
+
+        case ASTC_OP_CONST_I32:
+            table->emit_load_immediate(gen, instr->operands.i32_val);
+            break;
+
+        case ASTC_OP_ADD:
+            // 从栈中弹出两个操作数，执行加法，结果压回栈
+            if (gen->target_arch == TARGET_ARCH_X86_64) {
+                // pop rax
+                emit_byte(gen, 0x58);
+                // pop rbx
+                emit_byte(gen, 0x5B);
+                // add rax, rbx
+                emit_byte(gen, 0x48);
+                emit_byte(gen, 0x01);
+                emit_byte(gen, 0xD8);
+                // push rax
+                emit_byte(gen, 0x50);
+            } else if (gen->target_arch == TARGET_ARCH_ARM64) {
+                // ldp x0, x1, [sp], #16
+                emit_byte(gen, 0xF4);
+                emit_byte(gen, 0x07);
+                emit_byte(gen, 0x40);
+                emit_byte(gen, 0xA9);
+                // add x0, x0, x1
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0x01);
+                emit_byte(gen, 0x8B);
+                // str x0, [sp, #-16]!
+                emit_byte(gen, 0xE0);
+                emit_byte(gen, 0x03);
+                emit_byte(gen, 0xBF);
+                emit_byte(gen, 0xF9);
+            }
+            break;
+
+        case ASTC_OP_SUB:
+            if (gen->target_arch == TARGET_ARCH_X86_64) {
+                // pop rbx
+                emit_byte(gen, 0x5B);
+                // pop rax
+                emit_byte(gen, 0x58);
+                // sub rax, rbx
+                emit_byte(gen, 0x48);
+                emit_byte(gen, 0x29);
+                emit_byte(gen, 0xD8);
+                // push rax
+                emit_byte(gen, 0x50);
+            } else if (gen->target_arch == TARGET_ARCH_ARM64) {
+                // ldp x0, x1, [sp], #16
+                emit_byte(gen, 0xF4);
+                emit_byte(gen, 0x07);
+                emit_byte(gen, 0x40);
+                emit_byte(gen, 0xA9);
+                // sub x0, x0, x1
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0x01);
+                emit_byte(gen, 0xCB);
+                // str x0, [sp, #-16]!
+                emit_byte(gen, 0xE0);
+                emit_byte(gen, 0x03);
+                emit_byte(gen, 0xBF);
+                emit_byte(gen, 0xF9);
+            }
+            break;
+
+        case ASTC_OP_MUL:
+            if (gen->target_arch == TARGET_ARCH_X86_64) {
+                // pop rbx
+                emit_byte(gen, 0x5B);
+                // pop rax
+                emit_byte(gen, 0x58);
+                // imul rax, rbx
+                emit_byte(gen, 0x48);
+                emit_byte(gen, 0x0F);
+                emit_byte(gen, 0xAF);
+                emit_byte(gen, 0xC3);
+                // push rax
+                emit_byte(gen, 0x50);
+            } else if (gen->target_arch == TARGET_ARCH_ARM64) {
+                // ldp x0, x1, [sp], #16
+                emit_byte(gen, 0xF4);
+                emit_byte(gen, 0x07);
+                emit_byte(gen, 0x40);
+                emit_byte(gen, 0xA9);
+                // mul x0, x0, x1
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0x7C);
+                emit_byte(gen, 0x01);
+                emit_byte(gen, 0x9B);
+                // str x0, [sp, #-16]!
+                emit_byte(gen, 0xE0);
+                emit_byte(gen, 0x03);
+                emit_byte(gen, 0xBF);
+                emit_byte(gen, 0xF9);
+            }
+            break;
+
+        case ASTC_OP_DIV:
+            if (gen->target_arch == TARGET_ARCH_X86_64) {
+                // pop rbx (除数)
+                emit_byte(gen, 0x5B);
+                // pop rax (被除数)
+                emit_byte(gen, 0x58);
+                // cqo (扩展rax到rdx:rax)
+                emit_byte(gen, 0x48);
+                emit_byte(gen, 0x99);
+                // idiv rbx
+                emit_byte(gen, 0x48);
+                emit_byte(gen, 0xF7);
+                emit_byte(gen, 0xFB);
+                // push rax (商)
+                emit_byte(gen, 0x50);
+            } else if (gen->target_arch == TARGET_ARCH_ARM64) {
+                // ldp x0, x1, [sp], #16
+                emit_byte(gen, 0xF4);
+                emit_byte(gen, 0x07);
+                emit_byte(gen, 0x40);
+                emit_byte(gen, 0xA9);
+                // sdiv x0, x0, x1
+                emit_byte(gen, 0x00);
+                emit_byte(gen, 0xFC);
+                emit_byte(gen, 0xC1);
+                emit_byte(gen, 0x9A);
+                // str x0, [sp, #-16]!
+                emit_byte(gen, 0xE0);
+                emit_byte(gen, 0x03);
+                emit_byte(gen, 0xBF);
+                emit_byte(gen, 0xF9);
+            }
+            break;
+
+        case ASTC_OP_LOAD_LOCAL:
+            table->emit_load_local(gen, instr->operands.var_index);
+            break;
+
+        case ASTC_OP_STORE_LOCAL:
+            table->emit_store_local(gen, instr->operands.var_index);
+            break;
+
+        case ASTC_OP_JUMP:
+            table->emit_jump(gen, instr->operands.target);
+            break;
+
+        case ASTC_OP_JUMP_IF_FALSE:
+            table->emit_jump_if_false(gen, instr->operands.target);
+            break;
+
+        case ASTC_OP_CALL_USER:
+            table->emit_call_user(gen, instr->operands.func_addr);
+            break;
+
+        case ASTC_OP_LIBC_CALL:
+            if (instr->operands.libc_call.func_id == LIBC_PRINTF) {
+                // 特殊处理printf调用
+                if (gen->target_arch == TARGET_ARCH_X86_64) {
+                    // mov rax, printf_addr
+                    emit_byte(gen, 0x48);
+                    emit_byte(gen, 0xB8);
+                    emit_int64(gen, (int64_t)&printf);
+                    // call rax
+                    emit_byte(gen, 0xFF);
+                    emit_byte(gen, 0xD0);
+                } else if (gen->target_arch == TARGET_ARCH_ARM64) {
+                    // adrp x0, printf
+                    emit_byte(gen, 0x10);
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x90);
+                    // add x0, x0, :lo12:printf
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x91);
+                    // blr x0
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x00);
+                    emit_byte(gen, 0x3F);
+                    emit_byte(gen, 0xD6);
+                }
+            } else {
+                // 其他libc函数调用
+                table->emit_libc_call(gen, instr->operands.libc_call.func_id,
+                                    instr->operands.libc_call.arg_count);
+            }
+            break;
+
+        case ASTC_OP_RETURN:
+            table->emit_function_epilogue(gen);
+            break;
+
+        default:
+            printf("Warning: Unknown ASTC opcode 0x%02X, generating NOP\n", instr->opcode);
+            table->emit_nop(gen);
+            return -1;
     }
 
     return 0;

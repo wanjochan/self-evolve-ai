@@ -1,245 +1,297 @@
 #include "codegen_x64.h"
-#include "astc2native.h"
+#include "memory.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-// 简单的汇编代码生成器
-char* generate_function_asm(ASTNode* func_node) {
-    if (!func_node || func_node->type != ASTC_FUNC_DECL) {
-        return NULL;
-    }
-
-    // 为汇编代码分配缓冲区
-    char* asm_code = (char*)malloc(4096);
-    if (!asm_code) return NULL;
-    asm_code[0] = '\0';
-
-    // 函数序言
-    strcat(asm_code, "push rbp\n");
-    strcat(asm_code, "mov rbp, rsp\n");
-
-    // 假设函数体是一个简单的 return 语句
-    if (func_node->data.func_decl.has_body && 
-        func_node->data.func_decl.body->type == ASTC_COMPOUND_STMT &&
-        func_node->data.func_decl.body->data.compound_stmt.statement_count > 0) {
-
-        ASTNode* stmt = func_node->data.func_decl.body->data.compound_stmt.statements[0];
-        if (stmt->type == ASTC_RETURN_STMT && stmt->data.return_stmt.value->type == ASTC_EXPR_CONSTANT) {
-            int ret_val = stmt->data.return_stmt.value->data.constant.int_val;
-            char buffer[64];
-            sprintf(buffer, "mov eax, %d\n", ret_val);
-            strcat(asm_code, buffer);
-        }
-    }
-
-    // 函数尾声
-    strcat(asm_code, "pop rbp\n");
-    strcat(asm_code, "ret\n");
-
-    return asm_code;
+// x64 instruction encoding helpers
+static void emit_rex(CodeGen* gen, bool w, bool r, bool x, bool b) {
+    uint8_t rex = 0x40;
+    if (w) rex |= 0x08;
+    if (r) rex |= 0x04;
+    if (x) rex |= 0x02;
+    if (b) rex |= 0x01;
+    emit_byte(gen, rex);
 }
 
-// ===============================================
-// x64架构特定的机器码生成函数
-// ===============================================
-
 void x64_emit_nop(CodeGen* gen) {
-    emit_byte(gen, 0x90);  // nop
+    emit_byte(gen, 0x90); // NOP
 }
 
 void x64_emit_halt_with_return_value(CodeGen* gen) {
-    // 从栈顶取返回值到eax
-    emit_byte(gen, 0x58);        // pop rax (取栈顶值作为返回值)
-
-    // 恢复栈指针
-    emit_byte(gen, 0x48);        // add rsp, 48
-    emit_byte(gen, 0x83);
-    emit_byte(gen, 0xc4);
-    emit_byte(gen, 0x30);
-
-    // 标准函数尾声
-    emit_byte(gen, 0x5d);        // pop rbp
-    emit_byte(gen, 0xc3);        // ret
+    // mov eax, 0
+    emit_byte(gen, 0xb8);
+    emit_int32(gen, 0);
+    
+    // ret
+    emit_byte(gen, 0xc3);
 }
 
 void x64_emit_const_i32(CodeGen* gen, uint32_t value) {
-    // mov eax, immediate (32-bit)
+    // mov eax, imm32
     emit_byte(gen, 0xb8);
     emit_int32(gen, value);
+}
+
+void x64_emit_binary_op_add(CodeGen* gen) {
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // add rax, rdx
+    emit_rex(gen, true, false, false, false);
+    emit_byte(gen, 0x01);
+    emit_byte(gen, 0xd0);
+    
     // push rax
     emit_byte(gen, 0x50);
 }
 
-void x64_emit_binary_op_add(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // REX.W prefix for 64-bit
-    emit_byte(gen, 0x01);        // add rax, rbx
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x50);        // push rax
-}
-
 void x64_emit_binary_op_sub(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // REX.W prefix for 64-bit
-    emit_byte(gen, 0x29);        // sub rax, rbx
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x50);        // push rax
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // sub rax, rdx
+    emit_rex(gen, true, false, false, false);
+    emit_byte(gen, 0x29);
+    emit_byte(gen, 0xd0);
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_binary_op_mul(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // REX.W prefix for 64-bit
-    emit_byte(gen, 0x0f);        // imul rax, rbx (2-byte opcode)
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // mul rdx
+    emit_rex(gen, true, false, false, false);
+    emit_byte(gen, 0x0f);
     emit_byte(gen, 0xaf);
-    emit_byte(gen, 0xc3);
-    emit_byte(gen, 0x50);        // push rax
+    emit_byte(gen, 0xc2);
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_libc_call(CodeGen* gen, uint16_t func_id, uint16_t arg_count) {
-    // 简化实现：模拟libc调用，返回合理的值
-    switch (func_id) {
-        case 0x30: // printf
-            emit_byte(gen, 0xb8);        // mov eax, 25 (假设打印了25个字符)
-            emit_int32(gen, 25);
-            break;
-        case 0x50: // malloc
-            emit_byte(gen, 0xb8);        // mov eax, 0x1000 (假设分配了4KB)
-            emit_int32(gen, 0x1000);
-            break;
-        default:
-            emit_byte(gen, 0xb8);        // mov eax, 0 (其他函数返回0)
-            emit_int32(gen, 0);
-            break;
-    }
-    emit_byte(gen, 0x50);        // push rax
+    // Save argument count
+    emit_byte(gen, 0x6a); // push imm8
+    emit_byte(gen, arg_count);
+    
+    // Save function ID
+    emit_byte(gen, 0x68); // push imm32
+    emit_int32(gen, func_id);
+    
+    // Call libc dispatcher
+    emit_byte(gen, 0xe8); // call rel32
+    emit_int32(gen, 0); // Placeholder for relative address
 }
 
 void x64_emit_user_call(CodeGen* gen) {
-    // 简化实现：用户函数调用
-    // TODO: 实现真正的函数调用机制
-
-    // 暂时返回固定值42
-    emit_byte(gen, 0xb8);        // mov eax, 42
-    emit_int32(gen, 42);
-    emit_byte(gen, 0x50);        // push rax
+    // pop rax (function address)
+    emit_byte(gen, 0x58);
+    
+    // call rax
+    emit_byte(gen, 0xff);
+    emit_byte(gen, 0xd0);
 }
 
-// Arithmetic operations
 void x64_emit_add(CodeGen* gen) {
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x48);        // add rax, rbx
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // add rax, rdx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x01);
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x50);        // push rax
+    emit_byte(gen, 0xd0);
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_sub(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // sub rax, rbx
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // sub rax, rdx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x29);
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x50);        // push rax
+    emit_byte(gen, 0xd0);
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_mul(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // imul rax, rbx
+    // pop rdx
+    emit_byte(gen, 0x5a);
+    
+    // pop rax
+    emit_byte(gen, 0x58);
+    
+    // imul rax, rdx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x0f);
     emit_byte(gen, 0xaf);
-    emit_byte(gen, 0xc3);
-    emit_byte(gen, 0x50);        // push rax
+    emit_byte(gen, 0xc2);
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_div(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // xor rdx, rdx
+    // pop rcx (divisor)
+    emit_byte(gen, 0x59);
+    
+    // pop rax (dividend)
+    emit_byte(gen, 0x58);
+    
+    // xor rdx, rdx (clear rdx for division)
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x31);
     emit_byte(gen, 0xd2);
-    emit_byte(gen, 0x48);        // idiv rbx
+    
+    // div rcx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0xf7);
-    emit_byte(gen, 0xfb);
-    emit_byte(gen, 0x50);        // push rax
+    emit_byte(gen, 0xf1);
+    
+    // push rax (quotient)
+    emit_byte(gen, 0x50);
 }
 
-// Comparison operations
 void x64_emit_less_than(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // cmp rax, rbx
+    // pop rdx (second operand)
+    emit_byte(gen, 0x5a);
+    
+    // pop rax (first operand)
+    emit_byte(gen, 0x58);
+    
+    // cmp rax, rdx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x39);
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x0f);        // setl al
+    emit_byte(gen, 0xd0);
+    
+    // setl al
+    emit_byte(gen, 0x0f);
     emit_byte(gen, 0x9c);
     emit_byte(gen, 0xc0);
-    emit_byte(gen, 0x48);        // movzx rax, al
+    
+    // movzx rax, al
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x0f);
     emit_byte(gen, 0xb6);
     emit_byte(gen, 0xc0);
-    emit_byte(gen, 0x50);        // push rax
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_equal(CodeGen* gen) {
-    emit_byte(gen, 0x5b);        // pop rbx
-    emit_byte(gen, 0x58);        // pop rax
-    emit_byte(gen, 0x48);        // cmp rax, rbx
+    // pop rdx (second operand)
+    emit_byte(gen, 0x5a);
+    
+    // pop rax (first operand)
+    emit_byte(gen, 0x58);
+    
+    // cmp rax, rdx
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x39);
-    emit_byte(gen, 0xd8);
-    emit_byte(gen, 0x0f);        // sete al
+    emit_byte(gen, 0xd0);
+    
+    // sete al
+    emit_byte(gen, 0x0f);
     emit_byte(gen, 0x94);
     emit_byte(gen, 0xc0);
-    emit_byte(gen, 0x48);        // movzx rax, al
+    
+    // movzx rax, al
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x0f);
     emit_byte(gen, 0xb6);
     emit_byte(gen, 0xc0);
-    emit_byte(gen, 0x50);        // push rax
+    
+    // push rax
+    emit_byte(gen, 0x50);
 }
 
 void x64_emit_function_prologue(CodeGen* gen) {
-    // 标准x64函数序言 (Microsoft x64调用约定)
-    emit_byte(gen, 0x55);        // push rbp
-    emit_byte(gen, 0x48);        // mov rbp, rsp
+    // push rbp
+    emit_byte(gen, 0x55);
+    
+    // mov rbp, rsp
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x89);
     emit_byte(gen, 0xe5);
-
-    // 确保16字节栈对齐 (Windows x64 ABI要求)
-    emit_byte(gen, 0x48);        // sub rsp, 48 (预留48字节，保持16字节对齐)
+    
+    // sub rsp, 32 (reserve shadow space for Win64 ABI)
+    emit_rex(gen, true, false, false, false);
     emit_byte(gen, 0x83);
     emit_byte(gen, 0xec);
-    emit_byte(gen, 0x30);
-
-    // 保存传入的参数 (RCX=program_data, RDX=program_size)
-    emit_byte(gen, 0x48);        // mov [rbp-8], rcx (保存program_data)
-    emit_byte(gen, 0x89);
-    emit_byte(gen, 0x4d);
-    emit_byte(gen, 0xf8);
-
-    emit_byte(gen, 0x48);        // mov [rbp-16], rdx (保存program_size)
-    emit_byte(gen, 0x89);
-    emit_byte(gen, 0x55);
-    emit_byte(gen, 0xf0);
+    emit_byte(gen, 0x20);
 }
 
 void x64_emit_function_epilogue(CodeGen* gen) {
-    // 恢复栈指针
-    emit_byte(gen, 0x48);        // add rsp, 48
-    emit_byte(gen, 0x83);
-    emit_byte(gen, 0xc4);
-    emit_byte(gen, 0x30);
+    // mov rsp, rbp
+    emit_rex(gen, true, false, false, false);
+    emit_byte(gen, 0x89);
+    emit_byte(gen, 0xec);
+    
+    // pop rbp
+    emit_byte(gen, 0x5d);
+    
+    // ret
+    emit_byte(gen, 0xc3);
+}
 
-    // 设置返回值 (默认返回0表示成功)
-    emit_byte(gen, 0xb8);        // mov eax, 0
-    emit_int32(gen, 0);
-
-    // 标准函数尾声
-    emit_byte(gen, 0x5d);        // pop rbp
-    emit_byte(gen, 0xc3);        // ret
+char* generate_function_asm(ASTNode* func_node) {
+    if (!func_node || func_node->type != ASTC_FUNC_DECL) {
+        return NULL;
+    }
+    
+    // 分配一个初始的字符串缓冲区
+    size_t capacity = 1024;
+    char* asm_code = memory_alloc(capacity, MEMORY_POOL_GENERAL);
+    if (!asm_code) return NULL;
+    
+    size_t length = 0;
+    
+    // 生成函数标签
+    length += snprintf(asm_code + length, capacity - length,
+                      "%s:\n", func_node->data.func_decl.name);
+    
+    // 生成函数序言
+    length += snprintf(asm_code + length, capacity - length,
+                      "    push rbp\n"
+                      "    mov rbp, rsp\n"
+                      "    sub rsp, 32\n");
+    
+    // 生成函数体
+    if (func_node->data.func_decl.body) {
+        // TODO: 实现函数体的汇编生成
+        length += snprintf(asm_code + length, capacity - length,
+                         "    ; Function body implementation\n");
+    }
+    
+    // 生成函数尾声
+    length += snprintf(asm_code + length, capacity - length,
+                      "    mov rsp, rbp\n"
+                      "    pop rbp\n"
+                      "    ret\n");
+    
+    return asm_code;
 }
 

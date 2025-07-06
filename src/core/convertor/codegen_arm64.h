@@ -1,8 +1,11 @@
 #ifndef CODEGEN_ARM64_H
 #define CODEGEN_ARM64_H
 
-#include "../astc.h"
+#include "astc.h"
 #include "astc2native.h"
+
+// 生成单个函数的ARM64汇编代码
+char* generate_arm64_function_asm(ASTNode* func_node);
 
 // ARM64架构特定的机器码生成函数
 void arm64_emit_nop(CodeGen* gen);
@@ -20,7 +23,11 @@ void arm64_emit_sub(CodeGen* gen);
 void arm64_emit_mul(CodeGen* gen);
 void arm64_emit_div(CodeGen* gen);
 
-// Function prologue/epilogue
+// Comparison operations
+void arm64_emit_less_than(CodeGen* gen);
+void arm64_emit_equal(CodeGen* gen);
+
+// ARM64函数序言和尾声
 void arm64_emit_function_prologue(CodeGen* gen);
 void arm64_emit_function_epilogue(CodeGen* gen);
 

@@ -19,9 +19,10 @@ flowchart TD
     UrgentExecute --> PostActionDoc[事后补充文档]
     PostActionDoc --> End
     
-    CheckWorkId --> |已知work_id| ReadDocs[强制阅读文档]
+    CheckWorkId --> |已知work_id| ReadDocs[强制重新阅读文档]
     CheckWorkId --> |新工作流| CreateWorkId[创建新work_id]
-    CreateWorkId --> InitDocs[初始化工作流文档]
+    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md]
+    ReadTemplates --> InitDocs[初始化工作流文档]
     InitDocs --> ReadDocs
     
     ReadDocs --> CheckInput{用户输入?}
@@ -66,6 +67,14 @@ flowchart TD
    - **确定work_id**：
      - 如果是已知工作流，使用现有的work_id
      - 如果是新工作流，创建新的work_id并初始化相关文档
+   - **阅读模板文档**（新工作流）：
+     - 阅读 workplan_template.md（工作计划模板）
+     - 阅读 worknotes_template.md（工作笔记模板）
+     - 确保新创建的文档遵循统一的格式和标准
+   - **初始化工作流文档**：
+     - 基于模板创建 workplan_[work_id].md
+     - 基于模板创建 worknotes_[work_id].md
+     - 更新 cursor_running.md 添加新工作流
    - **阅读文档**：
      - 阅读 workflow_[work_id].md（工作流程文档）
      - 阅读 workplan_[work_id].md（任务非线性分解、动态规划、细节描述）

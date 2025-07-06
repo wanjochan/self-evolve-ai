@@ -7,6 +7,7 @@
 
 #include "astc.h"
 #include "utils.h"
+#include "memory.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,13 +20,12 @@
  * Create a new AST node
  */
 ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
-    ASTNode* node = (ASTNode*)malloc(sizeof(ASTNode));
+    ASTNode* node = (ASTNode*)memory_calloc(1, sizeof(ASTNode), MEMORY_POOL_C99_AST);
     if (!node) {
         return NULL;
     }
     
     // Initialize the node
-    memset(node, 0, sizeof(ASTNode));
     node->type = type;
     node->line = line;
     node->column = column;
@@ -112,21 +112,21 @@ void ast_free(ASTNode* node) {
     switch (node->type) {
         case ASTC_FUNC_DECL:
             if (node->data.func_decl.name) {
-                free(node->data.func_decl.name);
+                memory_free(node->data.func_decl.name);
             }
             ast_free(node->data.func_decl.return_type);
             if (node->data.func_decl.params) {
                 for (int i = 0; i < node->data.func_decl.param_count; i++) {
                     ast_free(node->data.func_decl.params[i]);
                 }
-                free(node->data.func_decl.params);
+                memory_free(node->data.func_decl.params);
             }
             ast_free(node->data.func_decl.body);
             break;
             
         case ASTC_VAR_DECL:
             if (node->data.var_decl.name) {
-                free(node->data.var_decl.name);
+                memory_free(node->data.var_decl.name);
             }
             ast_free(node->data.var_decl.type);
             ast_free(node->data.var_decl.initializer);
@@ -165,7 +165,7 @@ void ast_free(ASTNode* node) {
             
         case ASTC_PARAM_DECL:
             if (node->data.var_decl.name) {
-                free(node->data.var_decl.name);
+                memory_free(node->data.var_decl.name);
             }
             ast_free(node->data.var_decl.type);
             break;
@@ -175,8 +175,7 @@ void ast_free(ASTNode* node) {
             break;
     }
     
-    // Free the node itself
-    free(node);
+    memory_free(node);
 }
 
 /**
@@ -346,36 +345,34 @@ ASTCProgram* astc_load_program(const char* astc_file) {
     }
 
     // Create program structure
-    ASTCProgram* program = malloc(sizeof(ASTCProgram));
+    ASTCProgram* program = memory_calloc(1, sizeof(ASTCProgram), MEMORY_POOL_GENERAL);
     if (!program) {
         fclose(file);
         return NULL;
     }
-
-    memset(program, 0, sizeof(ASTCProgram));
 
     // Read header
     if (fread(&program->version, sizeof(uint32_t), 1, file) != 1 ||
         fread(&program->flags, sizeof(uint32_t), 1, file) != 1 ||
         fread(&program->entry_point, sizeof(uint32_t), 1, file) != 1 ||
         fread(&program->source_size, sizeof(uint32_t), 1, file) != 1) {
-        free(program);
+        memory_free(program);
         fclose(file);
         return NULL;
     }
 
     // Read source code if present
     if (program->source_size > 0) {
-        program->source_code = malloc(program->source_size + 1);
+        program->source_code = memory_alloc(program->source_size + 1, MEMORY_POOL_C99_STRINGS);
         if (!program->source_code) {
-            free(program);
+            memory_free(program);
             fclose(file);
             return NULL;
         }
 
         if (fread(program->source_code, 1, program->source_size, file) != program->source_size) {
-            free(program->source_code);
-            free(program);
+            memory_free(program->source_code);
+            memory_free(program);
             fclose(file);
             return NULL;
         }
@@ -384,26 +381,26 @@ ASTCProgram* astc_load_program(const char* astc_file) {
 
     // Read bytecode size
     if (fread(&program->bytecode_size, sizeof(uint32_t), 1, file) != 1) {
-        if (program->source_code) free(program->source_code);
-        free(program);
+        if (program->source_code) memory_free(program->source_code);
+        memory_free(program);
         fclose(file);
         return NULL;
     }
 
     // Read bytecode
     if (program->bytecode_size > 0) {
-        program->bytecode = malloc(program->bytecode_size);
+        program->bytecode = memory_alloc(program->bytecode_size, MEMORY_POOL_BYTECODE);
         if (!program->bytecode) {
-            if (program->source_code) free(program->source_code);
-            free(program);
+            if (program->source_code) memory_free(program->source_code);
+            memory_free(program);
             fclose(file);
             return NULL;
         }
 
         if (fread(program->bytecode, 1, program->bytecode_size, file) != program->bytecode_size) {
-            free(program->bytecode);
-            if (program->source_code) free(program->source_code);
-            free(program);
+            memory_free(program->bytecode);
+            if (program->source_code) memory_free(program->source_code);
+            memory_free(program);
             fclose(file);
             return NULL;
         }
@@ -430,12 +427,12 @@ void astc_free_program(ASTCProgram* program) {
     if (!program) return;
 
     if (program->source_code) {
-        free(program->source_code);
+        memory_free(program->source_code);
     }
     if (program->bytecode) {
-        free(program->bytecode);
+        memory_free(program->bytecode);
     }
-    free(program);
+    memory_free(program);
 }
 
 /**

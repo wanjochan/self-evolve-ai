@@ -18,6 +18,60 @@ extern "C" {
 #endif
 
 /**
+ * ASTC指令操作码定义
+ */
+typedef enum {
+    ASTC_OP_NOP = 0x00,         // 空操作
+    ASTC_OP_CONST_I32 = 0x10,   // 32位整数常量
+    ASTC_OP_ADD = 0x20,         // 加法
+    ASTC_OP_SUB = 0x21,         // 减法
+    ASTC_OP_MUL = 0x22,         // 乘法
+    ASTC_OP_DIV = 0x23,         // 除法
+    ASTC_OP_LOAD_LOCAL = 0x30,  // 加载局部变量
+    ASTC_OP_STORE_LOCAL = 0x31, // 存储局部变量
+    ASTC_OP_JUMP = 0x40,        // 无条件跳转
+    ASTC_OP_JUMP_IF_FALSE = 0x41, // 条件跳转
+    ASTC_OP_CALL_USER = 0x50,   // 调用用户函数
+    ASTC_OP_LIBC_CALL = 0xF0,   // 调用libc函数
+    ASTC_OP_RETURN = 0xFF       // 函数返回
+} ASTCOpcode;
+
+/**
+ * libc函数ID定义
+ */
+typedef enum {
+    LIBC_PRINTF = 0x0030,  // printf函数
+    LIBC_MALLOC = 0x0031,  // malloc函数
+    LIBC_FREE = 0x0032,    // free函数
+    LIBC_FOPEN = 0x0033,   // fopen函数
+    LIBC_FCLOSE = 0x0034,  // fclose函数
+    LIBC_FREAD = 0x0035,   // fread函数
+    LIBC_FWRITE = 0x0036   // fwrite函数
+} LibcFuncId;
+
+/**
+ * ASTC指令操作数联合体
+ */
+typedef union {
+    int32_t i32_val;           // 32位整数值
+    uint32_t var_index;        // 变量索引
+    uint32_t target;           // 跳转目标
+    uint32_t func_addr;        // 函数地址
+    struct {
+        uint16_t func_id;      // libc函数ID
+        uint16_t arg_count;    // 参数数量
+    } libc_call;
+} ASTCOperands;
+
+/**
+ * ASTC指令结构
+ */
+typedef struct {
+    ASTCOpcode opcode;        // 操作码
+    ASTCOperands operands;    // 操作数
+} ASTCInstruction;
+
+/**
  * 目标架构枚举
  */
 typedef enum {
@@ -144,6 +198,15 @@ void compile_complete_runtime_vm(CodeGen* gen);
  * @return 成功返回0，失败返回非0值
  */
 int generate_runtime_file(uint8_t* code, size_t code_size, const char* output_file);
+
+/**
+ * 将ASTC指令转换为目标架构的机器码
+ *
+ * @param instr ASTC指令
+ * @param gen 代码生成器
+ * @return 成功返回0，失败返回-1
+ */
+int convert_astc_to_machine_code(ASTCInstruction* instr, CodeGen* gen);
 
 #ifdef __cplusplus
 }
