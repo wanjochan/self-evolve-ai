@@ -223,10 +223,29 @@ bool semantic_analyze(SemanticContext* semantic, struct ASTNode* ast) {
 bool semantic_analyze_translation_unit(SemanticContext* semantic, struct ASTNode* ast) {
     if (!semantic || !ast) return false;
     
-    // TODO: Implement based on AST structure
     printf("Semantic: Analyzing translation unit\n");
     
-    return true;
+    // 遍历AST的所有顶层声明
+    struct ASTNode* current = ast->first_child;
+    while (current) {
+        if (current->type == ASTC_FUNC_DECL) {
+            if (!semantic_analyze_function(semantic, current)) {
+                return false;
+            }
+        } else if (current->type == ASTC_VAR_DECL) {
+            if (!semantic_analyze_declaration(semantic, current)) {
+                return false;
+            }
+        }
+        current = current->next;
+    }
+    
+    // 检查未使用的符号
+    if (semantic->warn_unused) {
+        check_unused_symbols(semantic, semantic->global_scope);
+    }
+    
+    return !semantic->has_error;
 }
 
 bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) {
@@ -237,7 +256,30 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
     semantic->in_function = true;
     semantic_enter_scope(semantic);
     
-    // TODO: Analyze function parameters and body
+    // 分析返回类型
+    struct Type* return_type = analyze_type(semantic, func->return_type);
+    if (!return_type) {
+        semantic_error(semantic, func, "Invalid return type");
+        return false;
+    }
+    
+    // 分析参数
+    struct ASTNode* param = func->parameters;
+    while (param) {
+        if (!semantic_analyze_declaration(semantic, param)) {
+            return false;
+        }
+        param = param->next;
+    }
+    
+    // 分析函数体
+    if (func->body) {
+        semantic->current_function_type = return_type;
+        if (!semantic_analyze_statement(semantic, func->body)) {
+            return false;
+        }
+        semantic->current_function_type = NULL;
+    }
     
     semantic_exit_scope(semantic);
     semantic->in_function = false;
@@ -248,21 +290,266 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
 bool semantic_analyze_statement(SemanticContext* semantic, struct ASTNode* stmt) {
     if (!semantic || !stmt) return false;
     
-    printf("Semantic: Analyzing statement\n");
-    
-    // TODO: Implement statement analysis
-    
-    return true;
+    switch (stmt->type) {
+        case ASTC_COMPOUND_STMT:
+            semantic_enter_scope(semantic);
+            bool result = analyze_compound_statement(semantic, stmt);
+            semantic_exit_scope(semantic);
+            return result;
+            
+        case ASTC_IF_STMT:
+            return analyze_if_statement(semantic, stmt);
+            
+        case ASTC_WHILE_STMT:
+            semantic->in_loop = true;
+            bool loop_result = analyze_while_statement(semantic, stmt);
+            semantic->in_loop = false;
+            return loop_result;
+            
+        case ASTC_RETURN_STMT:
+            return analyze_return_statement(semantic, stmt);
+            
+        case ASTC_EXPR_STMT:
+            return semantic_analyze_expression(semantic, stmt->expression) != NULL;
+            
+        default:
+            semantic_error(semantic, stmt, "Unsupported statement type");
+            return false;
+    }
 }
 
 struct Type* semantic_analyze_expression(SemanticContext* semantic, struct ASTNode* expr) {
     if (!semantic || !expr) return NULL;
     
-    printf("Semantic: Analyzing expression\n");
+    switch (expr->type) {
+        case ASTC_BINARY_EXPR: {
+            struct Type* left = semantic_analyze_expression(semantic, expr->left);
+            struct Type* right = semantic_analyze_expression(semantic, expr->right);
+            
+            if (!left || !right) return NULL;
+            
+            // 类型检查和转换
+            return check_binary_operation(semantic, expr->operator, left, right, expr);
+        }
+        
+        case ASTC_UNARY_EXPR: {
+            struct Type* operand = semantic_analyze_expression(semantic, expr->operand);
+            if (!operand) return NULL;
+            
+            return check_unary_operation(semantic, expr->operator, operand, expr);
+        }
+        
+        case ASTC_IDENTIFIER: {
+            Symbol* symbol = semantic_lookup_symbol(semantic, expr->name);
+            if (!symbol) {
+                semantic_error(semantic, expr, "Undefined identifier");
+                return NULL;
+            }
+            symbol->is_used = true;
+            return symbol->type;
+        }
+        
+        case ASTC_INTEGER_LITERAL:
+            return type_create(TYPE_INT);
+            
+        case ASTC_FLOAT_LITERAL:
+            return type_create(TYPE_FLOAT);
+            
+        case ASTC_CALL_EXPR: {
+            Symbol* func = semantic_lookup_symbol(semantic, expr->name);
+            if (!func || func->kind != SYMBOL_FUNCTION) {
+                semantic_error(semantic, expr, "Called object is not a function");
+                return NULL;
+            }
+            
+            // 检查参数数量和类型
+            if (!check_function_call(semantic, func, expr)) {
+                return NULL;
+            }
+            
+            return ((struct Type*)func->type)->data.function.return_type;
+        }
+        
+        default:
+            semantic_error(semantic, expr, "Unsupported expression type");
+            return NULL;
+    }
+}
+
+// 辅助函数实现
+static bool analyze_compound_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    struct ASTNode* current = stmt->first_child;
+    while (current) {
+        if (!semantic_analyze_statement(semantic, current)) {
+            return false;
+        }
+        current = current->next;
+    }
+    return true;
+}
+
+static bool analyze_if_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->condition);
+    if (!cond_type || !type_is_scalar(cond_type)) {
+        semantic_error(semantic, stmt->condition, "Condition must be a scalar type");
+        return false;
+    }
     
-    // TODO: Implement expression type checking
+    return semantic_analyze_statement(semantic, stmt->then_branch) &&
+           (!stmt->else_branch || semantic_analyze_statement(semantic, stmt->else_branch));
+}
+
+static bool analyze_while_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->condition);
+    if (!cond_type || !type_is_scalar(cond_type)) {
+        semantic_error(semantic, stmt->condition, "Condition must be a scalar type");
+        return false;
+    }
     
+    return semantic_analyze_statement(semantic, stmt->body);
+}
+
+static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic->in_function) {
+        semantic_error(semantic, stmt, "Return statement outside of function");
+        return false;
+    }
+    
+    if (!stmt->expression) {
+        if (semantic->current_function_type->kind != TYPE_VOID) {
+            semantic_error(semantic, stmt, "Return value required");
+            return false;
+        }
+        return true;
+    }
+    
+    struct Type* expr_type = semantic_analyze_expression(semantic, stmt->expression);
+    if (!expr_type) return false;
+    
+    if (!type_compatible(semantic->current_function_type, expr_type)) {
+        semantic_error(semantic, stmt, "Incompatible return type");
+        return false;
+    }
+    
+    return true;
+}
+
+static struct Type* check_binary_operation(SemanticContext* semantic, int operator,
+                                         struct Type* left, struct Type* right,
+                                         struct ASTNode* expr) {
+    // 算术运算符
+    if (operator >= TOKEN_PLUS && operator <= TOKEN_MODULO) {
+        if (!type_is_arithmetic(left) || !type_is_arithmetic(right)) {
+            semantic_error(semantic, expr, "Operands must be arithmetic types");
+            return NULL;
+        }
+        return type_arithmetic_conversion(left, right);
+    }
+    
+    // 比较运算符
+    if (operator >= TOKEN_EQUAL && operator <= TOKEN_GREATER_EQUAL) {
+        if (!type_compatible(left, right)) {
+            semantic_error(semantic, expr, "Incompatible operand types for comparison");
+            return NULL;
+        }
+        return type_create(TYPE_INT); // 比较运算返回int
+    }
+    
+    // 逻辑运算符
+    if (operator == TOKEN_LOGICAL_AND || operator == TOKEN_LOGICAL_OR) {
+        if (!type_is_scalar(left) || !type_is_scalar(right)) {
+            semantic_error(semantic, expr, "Operands must be scalar types");
+            return NULL;
+        }
+        return type_create(TYPE_INT); // 逻辑运算返回int
+    }
+    
+    semantic_error(semantic, expr, "Unsupported binary operator");
     return NULL;
+}
+
+static struct Type* check_unary_operation(SemanticContext* semantic, int operator,
+                                        struct Type* operand, struct ASTNode* expr) {
+    switch (operator) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+            if (!type_is_arithmetic(operand)) {
+                semantic_error(semantic, expr, "Operand must be arithmetic type");
+                return NULL;
+            }
+            return operand;
+            
+        case TOKEN_LOGICAL_NOT:
+            if (!type_is_scalar(operand)) {
+                semantic_error(semantic, expr, "Operand must be scalar type");
+                return NULL;
+            }
+            return type_create(TYPE_INT);
+            
+        case TOKEN_BITWISE_NOT:
+            if (!type_is_integral(operand)) {
+                semantic_error(semantic, expr, "Operand must be integral type");
+                return NULL;
+            }
+            return operand;
+            
+        default:
+            semantic_error(semantic, expr, "Unsupported unary operator");
+            return NULL;
+    }
+}
+
+static bool check_function_call(SemanticContext* semantic, Symbol* func,
+                              struct ASTNode* call) {
+    struct Type* func_type = func->type;
+    struct ASTNode* arg = call->arguments;
+    int param_count = 0;
+    
+    // 检查每个参数
+    while (arg && param_count < func_type->data.function.parameter_count) {
+        struct Type* arg_type = semantic_analyze_expression(semantic, arg);
+        if (!arg_type) return false;
+        
+        struct Type* param_type = func_type->data.function.parameters[param_count];
+        if (!type_compatible(param_type, arg_type)) {
+            semantic_error(semantic, arg,
+                         "Argument type incompatible with parameter type");
+            return false;
+        }
+        
+        arg = arg->next;
+        param_count++;
+    }
+    
+    // 检查参数数量
+    if (arg && !func_type->data.function.is_variadic) {
+        semantic_error(semantic, call, "Too many arguments");
+        return false;
+    }
+    
+    if (param_count < func_type->data.function.parameter_count) {
+        semantic_error(semantic, call, "Too few arguments");
+        return false;
+    }
+    
+    return true;
+}
+
+static void check_unused_symbols(SemanticContext* semantic, SymbolTable* scope) {
+    for (size_t i = 0; i < scope->bucket_count; i++) {
+        Symbol* symbol = scope->buckets[i];
+        while (symbol) {
+            if (!symbol->is_used && symbol->kind != SYMBOL_TYPE) {
+                char message[256];
+                snprintf(message, sizeof(message),
+                        "Unused %s '%s'",
+                        symbol->kind == SYMBOL_FUNCTION ? "function" : "variable",
+                        symbol->name);
+                semantic_warning(semantic, NULL, message);
+            }
+            symbol = symbol->next;
+        }
+    }
 }
 
 // ===============================================

@@ -177,6 +177,16 @@ int vprintf(const char* format, va_list args);
  */
 int vsprintf(char* str, const char* format, va_list args);
 
+/**
+ * Formatted print to string with size limit
+ */
+int snprintf(char* str, size_t size, const char* format, ...);
+
+/**
+ * Formatted print to string with size limit and va_list
+ */
+int vsnprintf(char* str, size_t size, const char* format, va_list args);
+
 // ===============================================
 // Binary I/O
 // ===============================================

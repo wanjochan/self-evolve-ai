@@ -457,15 +457,400 @@ int puts(const char* str) {
 }
 
 // ===============================================
-// Formatted I/O (Simplified Implementation)
+// Formatted I/O
 // ===============================================
 
-int printf(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    int result = vfprintf(stdout, format, args);
-    va_end(args);
-    return result;
+typedef struct {
+    char* buffer;           // 输出缓冲区
+    size_t size;           // 缓冲区大小
+    size_t pos;            // 当前位置
+    FILE* stream;          // 输出流
+    bool is_str;           // 是否输出到字符串
+} FormatContext;
+
+static void format_putc(int c, FormatContext* ctx) {
+    if (ctx->is_str) {
+        if (ctx->pos < ctx->size - 1) {
+            ctx->buffer[ctx->pos++] = (char)c;
+        }
+    } else {
+        fputc(c, ctx->stream);
+        ctx->pos++;
+    }
+}
+
+static void format_puts(const char* s, FormatContext* ctx) {
+    while (*s) {
+        format_putc(*s++, ctx);
+    }
+}
+
+static void format_pad(int width, char pad_char, FormatContext* ctx) {
+    while (width-- > 0) {
+        format_putc(pad_char, ctx);
+    }
+}
+
+static void format_integer(long long value, int base, bool is_unsigned,
+                         int width, int precision, bool left_align,
+                         bool show_sign, bool space_sign, bool alt_form,
+                         char pad_char, FormatContext* ctx) {
+    char buffer[32];
+    char* p = buffer + sizeof(buffer) - 1;
+    *p = '\0';
+    
+    unsigned long long uvalue;
+    if (is_unsigned) {
+        uvalue = (unsigned long long)value;
+    } else {
+        uvalue = value < 0 ? -value : value;
+    }
+    
+    // 转换数字到字符串
+    const char* digits = "0123456789abcdef";
+    do {
+        *--p = digits[uvalue % base];
+        uvalue /= base;
+    } while (uvalue);
+    
+    // 计算长度
+    int len = buffer + sizeof(buffer) - 1 - p;
+    int num_width = len;
+    
+    // 处理符号
+    bool need_sign = false;
+    if (!is_unsigned) {
+        if (value < 0) {
+            need_sign = true;
+            num_width++;
+        } else if (show_sign) {
+            need_sign = true;
+            num_width++;
+        } else if (space_sign) {
+            need_sign = true;
+            num_width++;
+        }
+    }
+    
+    // 处理替代形式
+    if (alt_form && base == 16) {
+        num_width += 2;
+    }
+    
+    // 处理精度
+    if (precision > len) {
+        num_width += precision - len;
+    }
+    
+    // 处理左对齐
+    if (!left_align && width > num_width) {
+        format_pad(width - num_width, pad_char, ctx);
+    }
+    
+    // 输出符号
+    if (need_sign) {
+        if (value < 0) {
+            format_putc('-', ctx);
+        } else if (show_sign) {
+            format_putc('+', ctx);
+        } else if (space_sign) {
+            format_putc(' ', ctx);
+        }
+    }
+    
+    // 输出替代形式
+    if (alt_form && base == 16) {
+        format_putc('0', ctx);
+        format_putc('x', ctx);
+    }
+    
+    // 输出前导零
+    if (precision > len) {
+        format_pad(precision - len, '0', ctx);
+    }
+    
+    // 输出数字
+    format_puts(p, ctx);
+    
+    // 处理右填充
+    if (left_align && width > num_width) {
+        format_pad(width - num_width, ' ', ctx);
+    }
+}
+
+static void format_float(double value, int width, int precision,
+                        bool left_align, bool show_sign, bool space_sign,
+                        char format, FormatContext* ctx) {
+    char buffer[32];
+    char fmt[8];
+    int i = 0;
+    
+    fmt[i++] = '%';
+    if (show_sign) fmt[i++] = '+';
+    if (space_sign) fmt[i++] = ' ';
+    if (left_align) fmt[i++] = '-';
+    fmt[i++] = '.';
+    fmt[i++] = '*';
+    fmt[i] = '\0';
+    
+    snprintf(buffer, sizeof(buffer), fmt, precision, value);
+    
+    int len = strlen(buffer);
+    if (!left_align && width > len) {
+        format_pad(width - len, ' ', ctx);
+    }
+    
+    format_puts(buffer, ctx);
+    
+    if (left_align && width > len) {
+        format_pad(width - len, ' ', ctx);
+    }
+}
+
+static int do_printf(const char* format, va_list args, FormatContext* ctx) {
+    if (!format) return -1;
+    
+    while (*format) {
+        if (*format != '%') {
+            format_putc(*format++, ctx);
+            continue;
+        }
+        
+        // 处理格式说明符
+        format++;
+        
+        // 解析标志
+        bool left_align = false;
+        bool show_sign = false;
+        bool space_sign = false;
+        bool alt_form = false;
+        char pad_char = ' ';
+        
+        while (true) {
+            switch (*format) {
+                case '-': left_align = true; format++; continue;
+                case '+': show_sign = true; format++; continue;
+                case ' ': space_sign = true; format++; continue;
+                case '#': alt_form = true; format++; continue;
+                case '0': pad_char = '0'; format++; continue;
+            }
+            break;
+        }
+        
+        // 解析宽度
+        int width = 0;
+        if (*format == '*') {
+            width = va_arg(args, int);
+            if (width < 0) {
+                left_align = true;
+                width = -width;
+            }
+            format++;
+        } else {
+            while (*format >= '0' && *format <= '9') {
+                width = width * 10 + (*format - '0');
+                format++;
+            }
+        }
+        
+        // 解析精度
+        int precision = -1;
+        if (*format == '.') {
+            format++;
+            precision = 0;
+            if (*format == '*') {
+                precision = va_arg(args, int);
+                format++;
+            } else {
+                while (*format >= '0' && *format <= '9') {
+                    precision = precision * 10 + (*format - '0');
+                    format++;
+                }
+            }
+        }
+        
+        // 解析长度修饰符
+        int length = 0; // 0=default, 1=h, 2=hh, 3=l, 4=ll, 5=L
+        while (true) {
+            switch (*format) {
+                case 'h':
+                    length = length == 1 ? 2 : 1;
+                    format++;
+                    continue;
+                case 'l':
+                    length = length == 3 ? 4 : 3;
+                    format++;
+                    continue;
+                case 'L':
+                    length = 5;
+                    format++;
+                    continue;
+            }
+            break;
+        }
+        
+        // 处理转换说明符
+        switch (*format) {
+            case 'd':
+            case 'i': {
+                long long value;
+                switch (length) {
+                    case 0: value = va_arg(args, int); break;
+                    case 1: value = (short)va_arg(args, int); break;
+                    case 2: value = (char)va_arg(args, int); break;
+                    case 3: value = va_arg(args, long); break;
+                    case 4: value = va_arg(args, long long); break;
+                    default: value = va_arg(args, int); break;
+                }
+                format_integer(value, 10, false, width, precision,
+                             left_align, show_sign, space_sign, alt_form,
+                             pad_char, ctx);
+                break;
+            }
+            
+            case 'u':
+            case 'x':
+            case 'X': {
+                unsigned long long value;
+                switch (length) {
+                    case 0: value = va_arg(args, unsigned int); break;
+                    case 1: value = (unsigned short)va_arg(args, unsigned int); break;
+                    case 2: value = (unsigned char)va_arg(args, unsigned int); break;
+                    case 3: value = va_arg(args, unsigned long); break;
+                    case 4: value = va_arg(args, unsigned long long); break;
+                    default: value = va_arg(args, unsigned int); break;
+                }
+                int base = *format == 'u' ? 10 : 16;
+                format_integer(value, base, true, width, precision,
+                             left_align, show_sign, space_sign, alt_form,
+                             pad_char, ctx);
+                break;
+            }
+            
+            case 'f':
+            case 'F':
+            case 'e':
+            case 'E':
+            case 'g':
+            case 'G': {
+                double value;
+                if (length == 5) {
+                    value = va_arg(args, long double);
+                } else {
+                    value = va_arg(args, double);
+                }
+                if (precision < 0) precision = 6;
+                format_float(value, width, precision, left_align,
+                           show_sign, space_sign, *format, ctx);
+                break;
+            }
+            
+            case 'c': {
+                int value = va_arg(args, int);
+                if (!left_align && width > 1) {
+                    format_pad(width - 1, ' ', ctx);
+                }
+                format_putc(value, ctx);
+                if (left_align && width > 1) {
+                    format_pad(width - 1, ' ', ctx);
+                }
+                break;
+            }
+            
+            case 's': {
+                const char* value = va_arg(args, const char*);
+                if (!value) value = "(null)";
+                int len = strlen(value);
+                if (precision >= 0 && len > precision) {
+                    len = precision;
+                }
+                if (!left_align && width > len) {
+                    format_pad(width - len, ' ', ctx);
+                }
+                for (int i = 0; i < len; i++) {
+                    format_putc(value[i], ctx);
+                }
+                if (left_align && width > len) {
+                    format_pad(width - len, ' ', ctx);
+                }
+                break;
+            }
+            
+            case 'p': {
+                void* value = va_arg(args, void*);
+                alt_form = true;
+                format_integer((long long)value, 16, true, width, precision,
+                             left_align, show_sign, space_sign, alt_form,
+                             pad_char, ctx);
+                break;
+            }
+            
+            case 'n': {
+                switch (length) {
+                    case 0: {
+                        int* p = va_arg(args, int*);
+                        if (p) *p = ctx->pos;
+                        break;
+                    }
+                    case 1: {
+                        short* p = va_arg(args, short*);
+                        if (p) *p = ctx->pos;
+                        break;
+                    }
+                    case 2: {
+                        char* p = va_arg(args, char*);
+                        if (p) *p = ctx->pos;
+                        break;
+                    }
+                    case 3: {
+                        long* p = va_arg(args, long*);
+                        if (p) *p = ctx->pos;
+                        break;
+                    }
+                    case 4: {
+                        long long* p = va_arg(args, long long*);
+                        if (p) *p = ctx->pos;
+                        break;
+                    }
+                }
+                break;
+            }
+            
+            case '%':
+                format_putc('%', ctx);
+                break;
+                
+            default:
+                format_putc('%', ctx);
+                if (*format) {
+                    format_putc(*format, ctx);
+                }
+                break;
+        }
+        
+        if (*format) {
+            format++;
+        }
+    }
+    
+    // 添加字符串结束符
+    if (ctx->is_str && ctx->pos < ctx->size) {
+        ctx->buffer[ctx->pos] = '\0';
+    }
+    
+    return ctx->pos;
+}
+
+int vfprintf(FILE* stream, const char* format, va_list args) {
+    if (!stream || !format) return -1;
+    
+    FormatContext ctx = {
+        .stream = stream,
+        .is_str = false,
+        .pos = 0
+    };
+    
+    return do_printf(format, args, &ctx);
 }
 
 int fprintf(FILE* stream, const char* format, ...) {
@@ -476,60 +861,55 @@ int fprintf(FILE* stream, const char* format, ...) {
     return result;
 }
 
-int vfprintf(FILE* stream, const char* format, va_list args) {
-    // Simplified implementation
-    if (!stream || !format) return -1;
+int printf(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    int result = vfprintf(stdout, format, args);
+    va_end(args);
+    return result;
+}
+
+int vsprintf(char* str, const char* format, va_list args) {
+    if (!str || !format) return -1;
     
-    int count = 0;
-    const char* p = format;
+    FormatContext ctx = {
+        .buffer = str,
+        .size = SIZE_MAX,
+        .is_str = true,
+        .pos = 0
+    };
     
-    while (*p) {
-        if (*p != '%') {
-            if (fputc(*p, stream) == EOF) return -1;
-            count++;
-            p++;
-            continue;
-        }
-        
-        p++; // Skip '%'
-        
-        switch (*p) {
-            case 'd': {
-                int val = va_arg(args, int);
-                char buffer[32];
-                sprintf(buffer, "%d", val);
-                if (fputs(buffer, stream) == EOF) return -1;
-                count += strlen(buffer);
-                break;
-            }
-            case 's': {
-                const char* str = va_arg(args, const char*);
-                if (!str) str = "(null)";
-                if (fputs(str, stream) == EOF) return -1;
-                count += strlen(str);
-                break;
-            }
-            case 'c': {
-                int ch = va_arg(args, int);
-                if (fputc(ch, stream) == EOF) return -1;
-                count++;
-                break;
-            }
-            case '%':
-                if (fputc('%', stream) == EOF) return -1;
-                count++;
-                break;
-            default:
-                if (fputc('%', stream) == EOF) return -1;
-                if (fputc(*p, stream) == EOF) return -1;
-                count += 2;
-                break;
-        }
-        
-        p++;
-    }
+    return do_printf(format, args, &ctx);
+}
+
+int sprintf(char* str, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    int result = vsprintf(str, format, args);
+    va_end(args);
+    return result;
+}
+
+int vsnprintf(char* str, size_t size, const char* format, va_list args) {
+    if (!format) return -1;
+    if (!str || size == 0) return 0;
     
-    return count;
+    FormatContext ctx = {
+        .buffer = str,
+        .size = size,
+        .is_str = true,
+        .pos = 0
+    };
+    
+    return do_printf(format, args, &ctx);
+}
+
+int snprintf(char* str, size_t size, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    int result = vsnprintf(str, size, format, args);
+    va_end(args);
+    return result;
 }
 
 // ===============================================
@@ -556,4 +936,135 @@ void perror(const char* str) {
         fprintf(stderr, "%s: ", str);
     }
     fprintf(stderr, "Error occurred\n");
+}
+
+// ===============================================
+// Binary I/O
+// ===============================================
+
+size_t fread(void* ptr, size_t size, size_t count, FILE* stream) {
+    if (!ptr || !stream || !stream->is_open || !stream->is_readable) {
+        return 0;
+    }
+    
+    size_t total = size * count;
+    size_t bytes_read = 0;
+    unsigned char* dest = (unsigned char*)ptr;
+    
+    while (bytes_read < total) {
+        int ch = fgetc(stream);
+        if (ch == EOF) {
+            break;
+        }
+        dest[bytes_read++] = (unsigned char)ch;
+    }
+    
+    return bytes_read / size;
+}
+
+size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream) {
+    if (!ptr || !stream || !stream->is_open || !stream->is_writable) {
+        return 0;
+    }
+    
+    size_t total = size * count;
+    size_t bytes_written = 0;
+    const unsigned char* src = (const unsigned char*)ptr;
+    
+    while (bytes_written < total) {
+        if (fputc(src[bytes_written], stream) == EOF) {
+            break;
+        }
+        bytes_written++;
+    }
+    
+    return bytes_written / size;
+}
+
+// ===============================================
+// File Positioning
+// ===============================================
+
+long ftell(FILE* stream) {
+    if (!stream || !stream->is_open) {
+        return -1L;
+    }
+    
+    // Get current position
+#ifdef _WIN32
+    long pos = _lseek(stream->fd, 0L, SEEK_CUR);
+#else
+    long pos = lseek(stream->fd, 0L, SEEK_CUR);
+#endif
+    
+    if (pos == -1) {
+        stream->has_error = true;
+        return -1L;
+    }
+    
+    // Adjust for buffered data
+    if (stream->is_readable) {
+        pos -= (stream->buffer_end - stream->buffer_pos);
+    } else if (stream->is_writable) {
+        pos += stream->buffer_pos;
+    }
+    
+    return pos;
+}
+
+int fseek(FILE* stream, long offset, int whence) {
+    if (!stream || !stream->is_open) {
+        return -1;
+    }
+    
+    // Flush any buffered data
+    if (stream->is_writable && stream->buffer_pos > 0) {
+        if (_file_flush_buffer(stream) != 0) {
+            return -1;
+        }
+    }
+    
+    // Reset buffer state
+    stream->buffer_pos = 0;
+    stream->buffer_end = 0;
+    stream->is_eof = false;
+    
+    // Seek to new position
+#ifdef _WIN32
+    if (_lseek(stream->fd, offset, whence) == -1L) {
+#else
+    if (lseek(stream->fd, offset, whence) == -1L) {
+#endif
+        stream->has_error = true;
+        return -1;
+    }
+    
+    return 0;
+}
+
+void rewind(FILE* stream) {
+    if (stream) {
+        clearerr(stream);
+        fseek(stream, 0L, SEEK_SET);
+    }
+}
+
+// ===============================================
+// File Management
+// ===============================================
+
+int remove(const char* filename) {
+    if (!filename) return -1;
+    
+#ifdef _WIN32
+    return _unlink(filename);
+#else
+    return unlink(filename);
+#endif
+}
+
+int rename(const char* old_name, const char* new_name) {
+    if (!old_name || !new_name) return -1;
+    
+    return rename(old_name, new_name);
 }
