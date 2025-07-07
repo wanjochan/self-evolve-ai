@@ -197,6 +197,69 @@ bool codegen_write_to_file(CodegenContext* codegen, const char* filename);
  */
 void codegen_print_stats(CodegenContext* codegen);
 
+// ===============================================
+// Enhanced Statement Generation Functions
+// ===============================================
+
+/**
+ * Generate compound statement
+ */
+bool codegen_compound_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+/**
+ * Generate return statement
+ */
+bool codegen_return_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+/**
+ * Generate expression statement
+ */
+bool codegen_expression_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+/**
+ * Generate if statement
+ */
+bool codegen_if_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+/**
+ * Generate while statement
+ */
+bool codegen_while_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+/**
+ * Generate for statement
+ */
+bool codegen_for_statement(CodegenContext* codegen, struct ASTNode* stmt);
+
+// ===============================================
+// Enhanced Expression Generation Functions
+// ===============================================
+
+/**
+ * Generate constant expression
+ */
+bool codegen_constant_expression(CodegenContext* codegen, struct ASTNode* expr);
+
+/**
+ * Generate identifier expression
+ */
+bool codegen_identifier_expression(CodegenContext* codegen, struct ASTNode* expr);
+
+/**
+ * Generate binary operation
+ */
+bool codegen_binary_operation(CodegenContext* codegen, struct ASTNode* expr);
+
+/**
+ * Generate unary operation
+ */
+bool codegen_unary_operation(CodegenContext* codegen, struct ASTNode* expr);
+
+/**
+ * Generate function call expression
+ */
+bool codegen_call_expression(CodegenContext* codegen, struct ASTNode* expr);
+
 #ifdef __cplusplus
 }
 #endif
