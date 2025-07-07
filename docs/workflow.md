@@ -21,11 +21,11 @@ flowchart TD
 
     CheckWorkId --> |已知work_id| ReadDocs[强制重新阅读文档]
     CheckWorkId --> |新工作流| CreateWorkId[创建新work_id]
-    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow_template.md]
+    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow.md]
     ReadTemplates --> InitDocs[初始化工作流文档]
     InitDocs --> ReadDocs
 
-    ReadDocs --> UpdateStatus[更新状态追踪<br/>cursor_running.md]
+    ReadDocs --> UpdateStatus[更新状态追踪]
     UpdateStatus --> CheckInput{用户输入?}
 
     CheckInput -->|有| EvaluateInput[评估用户输入]
@@ -53,7 +53,7 @@ flowchart TD
     UpdateStatusTrack --> NextCycle[结束当前回合]
     NextCycle --> ReadDocs
 
-    FinalUpdate --> UpdateFinalStatus[更新最终状态<br/>cursor_running.md]
+    FinalUpdate --> UpdateFinalStatus[更新最终状态]
     UpdateFinalStatus --> End
 ```
 
@@ -80,20 +80,20 @@ flowchart TD
    - **确定work_id**：
      - 如果是已知工作流，使用现有的work_id
      - 如果是新工作流，创建新的work_id并初始化相关文档
-   - **阅读模板文档**（新工作流）：
+   - **阅读模板文档**：
      - 阅读 workplan_template.md（工作计划模板）
      - 阅读 worknotes_template.md（工作笔记模板）
-     - 阅读 workflow_template.md（工作流模板）
+     - 阅读 workflow.md（工作流程说明）
      - 确保新创建的文档遵循统一的格式和标准
    - **初始化工作流文档**：
      - 基于模板创建 workplan_[work_id].md
      - 基于模板创建 worknotes_[work_id].md
-     - 更新 cursor_running.md 添加新工作流，状态设为 `INIT`
+     - 添加新工作流，状态设为 `INIT`
    - **更新状态追踪**：
-     - 每个主要阶段开始和结束时更新 cursor_running.md
+     - 每个主要阶段开始和结束时更新
      - 记录当前状态、任务和进度
    - **阅读文档**：
-     - 阅读 workflow_[work_id].md（工作流程文档）
+     - 阅读 workflow.md（工作流程说明）
      - 阅读 workplan_[work_id].md（任务非线性分解、动态规划、细节描述）
      - 阅读 worknotes_[work_id].md（上下文和经验）
    - **检查用户输入**：
@@ -119,7 +119,7 @@ flowchart TD
    - **更新进度**：
      - 更新 workplan_[work_id].md 的进度（仅在验证成功后）
      - 更新 worknotes_[work_id].md 的上下文和经验
-     - 更新 cursor_running.md 的状态追踪
+     - 更新状态追踪
      - 记录遇到的问题和解决方案
    - **循环完成**：
      - 结束当前回合，返回阅读文档开始下一循环
@@ -140,7 +140,7 @@ flowchart TD
 
 ## 工作流状态追踪
 
-每个工作流的状态将在 `cursor_running.md` 中进行集中追踪：
+每个工作流的状态将在 `workplan_{work_id}.md` 中进行集中追踪：
 
 ### 状态类型
 - `INIT` - 初始化阶段

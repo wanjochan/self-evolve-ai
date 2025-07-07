@@ -117,6 +117,7 @@ echo "3. 构建模块加载器..."
 cat > "$BIN_DIR/test_module_loader.c" << 'EOF'
 #include "../src/core/module.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 int main() {
     printf("=== 测试新模块系统 ===\n");
