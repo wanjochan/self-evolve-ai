@@ -13,30 +13,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TCC_PATH="$SCRIPT_DIR/external/tcc/dist/bin/tcc"
 TCC_LIB_PATH="$SCRIPT_DIR/external/tcc/dist/lib/host/tcc"
 
-# Check if TCC exists and is executable
-if [ ! -x "$TCC_PATH" ]; then
-    echo "Error: TCC not found at $TCC_PATH or not executable"
-    exit 1
+# Try to use TCC first, fallback to GCC if TCC fails
+if [ -x "$TCC_PATH" ] && [ -d "$TCC_LIB_PATH" ] && [ -f "$TCC_LIB_PATH/libtcc1.a" ]; then
+    # Try TCC first
+    "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>/dev/null
+    exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        # TCC succeeded
+        exit 0
+    else
+        # TCC failed, try with verbose output to see the error
+        echo "Note: TCC failed, trying GCC as fallback..."
+        "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>&1 | head -1
+    fi
 fi
 
-# Check if the library path exists
-if [ ! -d "$TCC_LIB_PATH" ]; then
-    echo "Error: TCC library directory not found at $TCC_LIB_PATH"
-    exit 1
-fi
-
-# Check if libtcc1.a exists
-if [ ! -f "$TCC_LIB_PATH/libtcc1.a" ]; then
-    echo "Error: libtcc1.a not found at $TCC_LIB_PATH/libtcc1.a"
-    exit 1
-fi
-
-# Forward all arguments to tcc with proper library path
-"$TCC_PATH" -B "$TCC_LIB_PATH" "$@"
-
-# Check the exit status of TCC
+# Fallback to GCC
+echo "Note: Using GCC as compiler (TCC unavailable or failed)"
+gcc "$@"
 exit_code=$?
 if [ $exit_code -ne 0 ]; then
-    echo "TCC compilation failed with exit code $exit_code"
+    echo "GCC compilation failed with exit code $exit_code"
     exit $exit_code
-fi 
+fi

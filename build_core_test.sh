@@ -88,7 +88,7 @@ echo "链接 core_test..."
     "$TESTS_DIR/test_module_system.o" \
     "$TESTS_DIR/test_specific_modules.o" \
     "$MODULES_DIR/module_module.o" \
-    "$MODULES_DIR/pipeline_module_final.o" \
+    "$MODULES_DIR/pipeline_module.o" \
     -I "$TESTS_DIR" -I "$SRC_DIR" \
     -o "$BIN_DIR/core_test"
 
