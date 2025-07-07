@@ -19,7 +19,7 @@ flowchart TD
     UrgentExecute --> PostActionDoc["事后补充文档"]
     PostActionDoc --> End
 
-    CheckWorkId --> |已知work_id| ReadDocs["强制重新阅读文档"]
+    CheckWorkId --> |已知work_id| ReadDocs["强制重新阅读文档<br/>workflow.md<br/>workplan_{work_id}.md<br/>worknotes_{work_id}.md"]
     CheckWorkId --> |新工作流| CreateWorkId["创建新work_id"]
     CreateWorkId --> ReadTemplates["强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow.md"]
     ReadTemplates --> InitDocs["初始化工作流文档"]
