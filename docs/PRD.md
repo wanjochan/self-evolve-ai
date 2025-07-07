@@ -13,8 +13,8 @@
 ## 核心设计
 
 ```
-Layer 1 Loader: loader_{arch}_{bits}.exe  //执行入口，未来参考cosmopolitan等制作跨架构统一入口 loader.exe
-    //导入vm模块 f'vm_{arch}_{bits}.native' 转发参数和环境变量给程序f'{program}.astc'
+Layer 1 Loader: simple_loader  //执行入口，架构检测和模块加载
+    //使用模块系统加载pipeline模块执行ASTC程序
     return import(’vm',arch=None,bits=None).main(program,argv[],env[]) //示意伪代码
 Layer 2 Runtime: f'vm_{arch}_{bits}.native'  // .native原生字节码模块，其中最重要是vm模块用于加载astc运行
     def main(astc_module_name,argv[],env[]):  

@@ -21,7 +21,7 @@
 
 // Architecture detection
 #if defined(__x86_64__) || defined(__amd64__)
-    #define ARCH_NAME "x86_64"
+    #define ARCH_NAME "x64"
     #define ARCH_BITS 64
 #elif defined(__aarch64__) || defined(__arm64__)
     #define ARCH_NAME "arm64"
@@ -313,51 +313,51 @@ int main(int argc, char* argv[]) {
     const char* astc_file = argv[1];
     printf("Loader: 目标程序: %s\n", astc_file);
     
-    // 构建VM模块路径
-    char vm_module_path[256];
-    snprintf(vm_module_path, sizeof(vm_module_path), "bin/layer2/vm_%s.native", ARCH_NAME);
-    
-    printf("Loader: VM模块路径: %s\n", vm_module_path);
-    
-    // 尝试加载VM模块
-    LoadedModule* vm_module = load_native_module(vm_module_path);
+    // 构建Pipeline模块路径（包含VM执行功能）
+    char pipeline_module_path[256];
+    snprintf(pipeline_module_path, sizeof(pipeline_module_path), "bin/pipeline_%s_%d.native", ARCH_NAME, ARCH_BITS);
+
+    printf("Loader: Pipeline模块路径: %s\n", pipeline_module_path);
+
+    // 尝试加载Pipeline模块
+    LoadedModule* pipeline_module = load_native_module(pipeline_module_path);
     vm_execute_astc_t vm_execute_func = NULL;
-    
-    if (vm_module) {
+
+    if (pipeline_module) {
         // 查找执行函数
-        vm_execute_func = (vm_execute_astc_t)resolve_export(vm_module, "vm_execute_astc");
+        vm_execute_func = (vm_execute_astc_t)resolve_export(pipeline_module, "vm_execute_astc");
         if (!vm_execute_func) {
             // 尝试备用函数名
-            vm_execute_func = (vm_execute_astc_t)resolve_export(vm_module, "execute_astc");
+            vm_execute_func = (vm_execute_astc_t)resolve_export(pipeline_module, "execute_astc");
             if (!vm_execute_func) {
                 // 尝试native_main
-                native_main_t native_main = (native_main_t)resolve_export(vm_module, "native_main");
+                native_main_t native_main = (native_main_t)resolve_export(pipeline_module, "native_main");
                 if (native_main) {
                     printf("Loader: 使用native_main函数\n");
                     int result = native_main(argc - 1, argv + 1);
-                    unload_native_module(vm_module);
+                    unload_native_module(pipeline_module);
                     return result;
                 }
             }
         }
         
         if (vm_execute_func) {
-            printf("Loader: 调用VM模块执行ASTC程序...\n");
-            
-            // 尝试调用VM模块函数
+            printf("Loader: 调用Pipeline模块执行ASTC程序...\n");
+
+            // 尝试调用Pipeline模块函数
             // 注意：这里可能会因为函数指针不正确而失败
             // 如果失败，我们将fallback到内置VM
             int result = vm_execute_func(astc_file, argc - 1, argv + 1);
-            
-            printf("Loader: VM模块执行完成，返回值: %d\n", result);
-            unload_native_module(vm_module);
+
+            printf("Loader: Pipeline模块执行完成，返回值: %d\n", result);
+            unload_native_module(pipeline_module);
             return result;
         } else {
-            printf("Loader: 警告: 无法找到VM模块执行函数，使用内置VM\n");
-            unload_native_module(vm_module);
+            printf("Loader: 警告: 无法找到Pipeline模块执行函数，使用内置VM\n");
+            unload_native_module(pipeline_module);
         }
     } else {
-        printf("Loader: 警告: 无法加载VM模块，使用内置VM\n");
+        printf("Loader: 警告: 无法加载Pipeline模块，使用内置VM\n");
     }
     
     // Fallback到内置VM
