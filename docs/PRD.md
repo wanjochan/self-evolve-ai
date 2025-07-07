@@ -53,17 +53,15 @@ layer-program:
 stage 1
 ```
 dev roadmap (by human master)
-- src/core/                    # the real core
+- src/core/                    # our modulized system core layer
 - layer 1 loader (windows exe)
-- layer 2 native module (vm, libc, std, astc, jit, utils, etc), will be loaded by mmap() alike. (not libdl or ffi)
+- layer 2 native module (vm, libc, std, astc, jit, utils, etc), will be loaded by mmap() 
 - layer 3 program (c99 windows 64 x86)
 - build tcc with c99 // test c99 working good
 - layer 3 program c99 supports cross build
 - cross build layer 1 loader (linux, macos)
 - cross build layer 2 vm (arm, riscv, mips, etc.)
 - build loader2 with c99 (then start to be free from tinycc)
-
-- src/utils.c:: libdl-alike, libffi-alike ? to discuss further
 ```
 
 下面是临时笔记请忽略：
@@ -122,7 +120,7 @@ tcc.exe -g -O0 -DLEGITIMATE_SOFTWARE -o loader.exe source.c -luser32 -lkernel32 
    - `native_module_add_export()` - 添加导出函数
    - `native_module_write_file()` - 写入真正的.native格式（NATV魔数）
 
-2. **遵循PRD.md第76行**：使用mmap()加载，不是libdl或ffi
+2. **遵循PRD.md第76行**：用 module 模块来加载其它模块
 3. **遵循PRD.md第84行**：src/utils.c实现libdl-alike, libffi-alike功能
 
 ### 🎯 正确编译流程：

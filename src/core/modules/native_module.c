@@ -770,7 +770,7 @@ static struct {
 // ===============================================
 
 // Module load function
-static int native_load(void) {
+static int native_init(void) {
     // Resolve required memory functions
     Module* memory = module_get("memory");
     if (!memory) {
@@ -792,7 +792,7 @@ static int native_load(void) {
 }
 
 // Module unload function
-static void native_unload(void) {
+static void native_cleanup(void) {
     // Nothing to clean up
 }
 
@@ -811,19 +811,14 @@ static void* native_resolve(const char* symbol) {
     return NULL;
 }
 
-// Module definition
+// Module definition - updated to match new module.h structure
 Module module_native = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = native_load,
-    .unload = native_unload,
-    .resolve = native_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = native_init,
+    .cleanup = native_cleanup,
+    .resolve = native_resolve
 };
 
-// Register module
-REGISTER_MODULE(native); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

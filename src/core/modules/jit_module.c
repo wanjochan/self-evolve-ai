@@ -610,7 +610,7 @@ static void* jit_resolve(const char* symbol) {
 /**
  * Initialize the module
  */
-static int jit_load(void) {
+static int jit_init(void) {
     // Resolve dependencies
     Module* memory_module = module_load("memory");
     if (!memory_module) {
@@ -645,23 +645,19 @@ static int jit_load(void) {
 /**
  * Clean up the module
  */
-static void jit_unload(void) {
+static void jit_cleanup(void) {
     jit_initialized = false;
 }
 
-// Module definition
+// Module definition - updated to match new module.h structure
 Module module_jit = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = jit_load,
-    .unload = jit_unload,
-    .resolve = jit_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = jit_init,
+    .cleanup = jit_cleanup,
+    .resolve = jit_resolve
 };
 
 // Register the module
-REGISTER_MODULE(jit); 
+// REGISTER_MODULE(jit); 

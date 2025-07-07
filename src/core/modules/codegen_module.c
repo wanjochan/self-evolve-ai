@@ -323,7 +323,7 @@ static void* codegen_resolve(const char* symbol) {
 /**
  * Initialize the module
  */
-static int codegen_load(void) {
+static int codegen_init(void) {
     // Resolve dependencies
     Module* memory_module = module_load("memory");
     if (!memory_module) {
@@ -362,23 +362,18 @@ static int codegen_load(void) {
 /**
  * Clean up the module
  */
-static void codegen_unload(void) {
+static void codegen_cleanup(void) {
     // Nothing to clean up
 }
 
-// Module definition
+// Module definition - updated to match new module.h structure
 Module module_codegen = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = codegen_load,
-    .unload = codegen_unload,
-    .resolve = codegen_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = codegen_init,
+    .cleanup = codegen_cleanup,
+    .resolve = codegen_resolve
 };
 
-// Register the module
-REGISTER_MODULE(codegen); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

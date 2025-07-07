@@ -27,7 +27,7 @@
 #endif
 
 // Module name
-static const char* MODULE_NAME = "utils";
+#define MODULE_NAME "utils"
 
 // Dependency on memory module
 MODULE_DEPENDS_ON(memory);
@@ -508,7 +508,7 @@ static struct {
 // ===============================================
 
 // Module load function
-static int utils_load(void) {
+static int utils_init(void) {
     // Resolve required memory functions
     Module* memory = module_get("memory");
     if (!memory) {
@@ -526,7 +526,7 @@ static int utils_load(void) {
 }
 
 // Module unload function
-static void utils_unload(void) {
+static void utils_cleanup(void) {
     // Nothing to clean up
 }
 
@@ -545,19 +545,14 @@ static void* utils_resolve(const char* symbol) {
     return NULL;
 }
 
-// Module definition
-static Module module_utils = {
+// Module definition - updated to match new module.h structure
+Module module_utils = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = utils_load,
-    .unload = utils_unload,
-    .resolve = utils_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = utils_init,
+    .cleanup = utils_cleanup,
+    .resolve = utils_resolve
 };
 
-// Register module
-REGISTER_MODULE(utils); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

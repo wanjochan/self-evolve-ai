@@ -1,16 +1,17 @@
 /**
  * module.h - 核心模块系统
  * 
- * 这是整个系统的核心骨架，连接所有底层组件。
+ * 这是整个系统的"创世纪"，定义了什么是一个模块。
  * 设计理念：极简主义 + 高度灵活性 + 自我进化能力
  */
 
 #ifndef MODULE_H
 #define MODULE_H
 
-#include <stddef.h>
-#include <stdbool.h>
+// #include <stdbool.h>
+
 #include <stdint.h>
+#include <stddef.h>  // for size_t
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,222 +38,74 @@ typedef enum {
 } ModuleState;
 
 // ===============================================
-// 模块接口 - 核心抽象
+// 模块接口 - 支持动态加载
 // ===============================================
 typedef struct Module {
     // 基本信息
     const char* name;           // 模块名称
-    void* handle;               // 模块句柄（实现特定）
     ModuleState state;          // 当前状态
     const char* error;          // 最后错误信息
-    
-    // 核心功能
-    int (*load)(void);          // 加载并初始化模块
-    void (*unload)(void);       // 卸载并清理模块
+
+    // 动态加载信息
+    void* native_handle;        // .native文件的加载句柄
+    void* base_addr;           // 内存映射基地址
+    size_t file_size;          // 文件大小
+
+    // 核心功能 (对于动态加载的模块，这些可能为NULL)
+    int (*init)(void);          // 初始化模块
+    void (*cleanup)(void);      // 清理模块
     void* (*resolve)(const char* symbol);  // 解析符号
-    
-    // 可选回调
-    void (*on_init)(void);      // 成功加载后调用
-    void (*on_exit)(void);      // 卸载前调用
-    void (*on_error)(const char* msg);  // 错误时调用
 } Module;
 
+// 模块管理器模块 - 系统的第一个模块，类似上帝模块。是否一定要 extern，这里待讨论
+extern Module module_module;
+
 // ===============================================
-// 模块注册和依赖声明宏
+// 动态模块加载系统
 // ===============================================
 
 /**
- * 注册模块 - 使用构造函数确保模块在main()之前注册
- * 
- * 用法: REGISTER_MODULE(module_name)
+ * 动态加载.native模块文件 (类似Python的import)
+ * 第一次加载时从文件系统读取，后续调用返回缓存的模块
+ * @param name 模块名称 (如 "memory", "vm", "astc")
+ * @return 加载成功的模块指针，失败返回NULL
  */
-#define REGISTER_MODULE(name) \
-    __attribute__((constructor)) \
-    static void _register_##name(void) { \
-        module_register(&module_##name); \
-    }
+extern Module* module_load(const char* name);
 
 /**
- * 声明模块依赖 - 确保依赖模块在本模块之前加载
- * 
- * 用法: MODULE_DEPENDS_ON("memory", "utils", ...)
+ * 获取已缓存的模块 (不会触发新的加载)
+ * @param name 模块名称
+ * @return 模块指针，未找到返回NULL
  */
-#define MODULE_DEPENDS_ON(...) \
-    static const char* _module_deps[] = { \
-        __VA_ARGS__, \
-        NULL \
-    }; \
-    __attribute__((constructor)) \
-    static void _register_deps(void) { \
-        extern Module* module_get(const char*); \
-        extern int module_register_dependencies(Module*, const char**); \
-        Module* self = module_get(MODULE_NAME); \
-        if (self) { \
-            module_register_dependencies(self, _module_deps); \
-        } \
-    }
+extern Module* module_get(const char* name);
 
-// ===============================================
-// 核心API - 模块系统基础
-// ===============================================
+/**
+ * 从模块解析符号
+ * @param module 模块指针
+ * @param symbol 符号名称
+ * @return 符号地址，未找到返回NULL
+ */
+extern void* module_resolve(Module* module, const char* symbol);
+
+/**
+ * 卸载模块并从缓存中移除
+ * @param module 模块指针
+ */
+extern void module_unload(Module* module);
 
 /**
  * 初始化模块系统
- * 
- * 返回: 0表示成功，非0表示失败
+ * @return 0成功，-1失败
  */
-int module_init(void);
+extern int module_system_init(void);
 
 /**
- * 清理模块系统
+ * 清理模块系统，卸载所有缓存的模块
  */
-void module_cleanup(void);
-
-/**
- * 注册模块
- * 
- * @param module 要注册的模块
- * @return 0表示成功，非0表示失败
- */
-int module_register(Module* module);
-
-/**
- * 加载模块
- * 
- * @param name 模块名称
- * @return 加载的模块，如果失败返回NULL
- */
-Module* module_load(const char* name);
-
-/**
- * 卸载模块
- * 
- * @param module 要卸载的模块
- */
-void module_unload(Module* module);
-
-/**
- * 从特定模块解析符号
- * 
- * @param module 模块
- * @param symbol 符号名称
- * @return 符号地址，如果未找到返回NULL
- */
-void* module_resolve(Module* module, const char* symbol);
-
-/**
- * 从任何已加载模块解析符号
- * 
- * @param symbol 符号名称
- * @return 符号地址，如果未找到返回NULL
- */
-void* module_resolve_global(const char* symbol);
-
-/**
- * 获取模块
- * 
- * @param name 模块名称
- * @return 模块，如果未找到返回NULL
- */
-Module* module_get(const char* name);
-
-// ===============================================
-// 依赖管理API
-// ===============================================
-
-/**
- * 注册单个依赖
- * 
- * @param module 模块
- * @param dependency 依赖模块名称
- * @return 0表示成功，非0表示失败
- */
-int module_register_dependency(Module* module, const char* dependency);
-
-/**
- * 注册多个依赖
- * 
- * @param module 模块
- * @param dependencies 依赖模块名称数组，以NULL结尾
- * @return 0表示成功，非0表示失败
- */
-int module_register_dependencies(Module* module, const char** dependencies);
-
-/**
- * 获取模块依赖
- * 
- * @param module 模块
- * @return 依赖模块名称数组，以NULL结尾
- */
-const char** module_get_dependencies(const Module* module);
-
-// ===============================================
-// 工具函数
-// ===============================================
-
-/**
- * 获取模块最后错误
- * 
- * @param module 模块
- * @return 错误信息
- */
-const char* module_get_error(const Module* module);
-
-/**
- * 获取模块状态
- * 
- * @param module 模块
- * @return 模块状态
- */
-ModuleState module_get_state(const Module* module);
-
-/**
- * 检查模块是否已加载
- * 
- * @param module 模块
- * @return true表示已加载，false表示未加载
- */
-bool module_is_loaded(const Module* module);
-
-// ===============================================
-// 内置模块声明
-// ===============================================
-
-/**
- * 内置核心模块（暂定，还要优化调整的）:
- * 
- * memory: 内存管理模块
- * utils: 工具函数模块
- * native: 原生模块管理
- * astc: ASTC字节码定义和工具
- * vm: 虚拟机模块，加载ASTC字节码
- * jit: JIT编译器，将ASTC转为原生代码
- * c2astc: C到ASTC转换
- * astc2native: ASTC到原生模块转换
- * codegen: 代码生成辅助
- * std: 标准库函数
- * libc: C标准库封装
- */
-
-// 每个模块应该在其实现文件中定义自己的Module实例
-// 例如: Module module_memory = { "memory", ... };
-
-// 模块使用示例:
-// 
-// 1. 加载模块:
-//    Module* memory = module_load("memory");
-// 
-// 2. 解析符号:
-//    void* (*alloc)(size_t) = module_resolve(memory, "memory_alloc");
-// 
-// 3. 使用符号:
-//    void* ptr = alloc(1024);
-//
-// 4. 全局解析:
-//    void* (*alloc)(size_t) = module_resolve_global("memory_alloc");
+extern void module_system_cleanup(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // MODULE_H 
+#endif // MODULE_H

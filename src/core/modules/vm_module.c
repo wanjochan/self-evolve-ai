@@ -19,12 +19,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
 // Module name
-static const char* MODULE_NAME = "vm";
-
-// Dependency on memory module
-MODULE_DEPENDS_ON(memory);
+#define MODULE_NAME "vm"
 
 // Function type definitions for memory module functions
 typedef void* (*memory_alloc_t)(size_t size);
@@ -33,25 +31,18 @@ typedef void (*memory_free_t)(void* ptr);
 typedef void* (*memory_copy_t)(void* dest, const void* src, size_t size);
 typedef void* (*memory_set_t)(void* dest, int value, size_t size);
 
-// Cached memory functions
-static memory_alloc_t mem_alloc;
-static memory_realloc_t mem_realloc;
-static memory_free_t mem_free;
-static memory_copy_t mem_copy;
-static memory_set_t mem_set;
+// Global function pointers for memory operations
+static memory_alloc_t mem_alloc = NULL;
+static memory_realloc_t mem_realloc = NULL;
+static memory_free_t mem_free = NULL;
+static memory_copy_t mem_copy = NULL;
+static memory_set_t mem_set = NULL;
 
 // ===============================================
-// VM Configuration
+// VM Core Definitions
 // ===============================================
 
-#define VM_STACK_SIZE 8192
-#define VM_REGISTER_COUNT 32
-#define VM_MAX_CALL_DEPTH 256
-
-// ===============================================
-// VM State
-// ===============================================
-
+// VM状态
 typedef enum {
     VM_STATE_UNINITIALIZED,
     VM_STATE_READY,
@@ -61,10 +52,7 @@ typedef enum {
     VM_STATE_ERROR
 } VMState;
 
-// ===============================================
-// VM Error Codes
-// ===============================================
-
+// VM错误代码
 typedef enum {
     VM_ERROR_NONE = 0,
     VM_ERROR_INVALID_CONTEXT,
@@ -79,10 +67,7 @@ typedef enum {
     VM_ERROR_UNKNOWN
 } VMErrorCode;
 
-// ===============================================
-// VM Context
-// ===============================================
-
+// VM上下文
 typedef struct VMContext {
     // VM state
     VMState state;
@@ -122,10 +107,7 @@ typedef struct VMContext {
     
 } VMContext;
 
-// ===============================================
-// VM Instructions
-// ===============================================
-
+// ASTC指令集
 typedef enum {
     // Control flow
     VM_OP_NOP = 0x00,
@@ -174,10 +156,20 @@ typedef enum {
     VM_OP_EXIT = 0xFF
 } VMOpcode;
 
+// ASTC文件头
+typedef struct {
+    char magic[4];          // "ASTC"
+    uint32_t version;       // 版本号
+    uint32_t flags;         // 标志
+    uint32_t entry_point;   // 入口点
+    uint32_t source_size;   // 源码大小
+} ASTCHeader;
+
 // ===============================================
-// Forward declarations
+// VM Core Functions
 // ===============================================
 
+// Function declarations
 static VMContext* vm_create_context(void);
 static void vm_destroy_context(VMContext* ctx);
 static int vm_load_program(VMContext* ctx, const uint8_t* bytecode, size_t size);
@@ -194,374 +186,313 @@ static int vm_disassemble_instruction(const uint8_t* bytecode, size_t offset, ch
 static int vm_disassemble_program(const uint8_t* bytecode, size_t size);
 static void vm_set_error(VMContext* ctx, VMErrorCode error, const char* format, ...);
 
-// ===============================================
-// VM Implementation
-// ===============================================
-
 /**
- * Create VM context
+ * 创建VM上下文
  */
 static VMContext* vm_create_context(void) {
-    VMContext* ctx = mem_alloc(sizeof(VMContext));
+    VMContext* ctx = mem_alloc ? mem_alloc(sizeof(VMContext)) : malloc(sizeof(VMContext));
     if (!ctx) {
         return NULL;
     }
-
-    // Initialize context
-    mem_set(ctx, 0, sizeof(VMContext));
     
-    // Allocate stack
-    ctx->stack = mem_alloc(VM_STACK_SIZE * sizeof(uint64_t));
-    if (!ctx->stack) {
-        mem_free(ctx);
-        return NULL;
+    // 初始化上下文
+    if (mem_set) {
+        mem_set(ctx, 0, sizeof(VMContext));
+    } else {
+        memset(ctx, 0, sizeof(VMContext));
     }
-    ctx->stack_size = VM_STACK_SIZE;
     
-    // Allocate registers
-    ctx->registers = mem_alloc(VM_REGISTER_COUNT * sizeof(uint64_t));
-    if (!ctx->registers) {
-        mem_free(ctx->stack);
-        mem_free(ctx);
-        return NULL;
-    }
-    ctx->register_count = VM_REGISTER_COUNT;
-
-    // Allocate call stack
-    ctx->call_stack = mem_alloc(VM_MAX_CALL_DEPTH * sizeof(size_t));
-    if (!ctx->call_stack) {
-        mem_free(ctx->registers);
-        mem_free(ctx->stack);
-        mem_free(ctx);
-        return NULL;
-    }
-    ctx->call_stack_size = VM_MAX_CALL_DEPTH;
-    
-    // Set initial state
     ctx->state = VM_STATE_UNINITIALIZED;
     
+    // 分配栈空间 (64KB)
+    ctx->stack_size = 64 * 1024 / sizeof(uint64_t);
+    ctx->stack = mem_alloc ? mem_alloc(ctx->stack_size * sizeof(uint64_t)) : malloc(ctx->stack_size * sizeof(uint64_t));
+    if (!ctx->stack) {
+        if (mem_free) mem_free(ctx); else free(ctx);
+        return NULL;
+    }
+    
+    // 分配寄存器 (32个)
+    ctx->register_count = 32;
+    ctx->registers = mem_alloc ? mem_alloc(ctx->register_count * sizeof(uint64_t)) : malloc(ctx->register_count * sizeof(uint64_t));
+    if (!ctx->registers) {
+        if (mem_free) mem_free(ctx->stack); else free(ctx->stack);
+        if (mem_free) mem_free(ctx); else free(ctx);
+        return NULL;
+    }
+    
+    // 分配调用栈 (1024层)
+    ctx->call_stack_size = 1024;
+    ctx->call_stack = mem_alloc ? mem_alloc(ctx->call_stack_size * sizeof(size_t)) : malloc(ctx->call_stack_size * sizeof(size_t));
+    if (!ctx->call_stack) {
+        if (mem_free) mem_free(ctx->registers); else free(ctx->registers);
+        if (mem_free) mem_free(ctx->stack); else free(ctx->stack);
+        if (mem_free) mem_free(ctx); else free(ctx);
+        return NULL;
+    }
+    
+    ctx->state = VM_STATE_READY;
     return ctx;
 }
 
 /**
- * Destroy VM context
+ * 销毁VM上下文
  */
 static void vm_destroy_context(VMContext* ctx) {
     if (!ctx) {
         return;
     }
-
-    // Free bytecode if owned by context
+    
     if (ctx->bytecode) {
-        mem_free(ctx->bytecode);
+        if (mem_free) mem_free(ctx->bytecode); else free(ctx->bytecode);
     }
     
-    // Free call stack
     if (ctx->call_stack) {
-        mem_free(ctx->call_stack);
+        if (mem_free) mem_free(ctx->call_stack); else free(ctx->call_stack);
     }
     
-    // Free registers
     if (ctx->registers) {
-        mem_free(ctx->registers);
+        if (mem_free) mem_free(ctx->registers); else free(ctx->registers);
     }
     
-    // Free stack
     if (ctx->stack) {
-        mem_free(ctx->stack);
+        if (mem_free) mem_free(ctx->stack); else free(ctx->stack);
     }
     
-    // Free context
-    mem_free(ctx);
+    if (mem_free) mem_free(ctx); else free(ctx);
 }
 
 /**
- * Load program into VM context
+ * 加载程序到VM
  */
 static int vm_load_program(VMContext* ctx, const uint8_t* bytecode, size_t size) {
     if (!ctx || !bytecode || size == 0) {
+        if (ctx) vm_set_error(ctx, VM_ERROR_INVALID_BYTECODE, "Invalid parameters");
         return -1;
     }
-
-    // Reset context
-    vm_reset(ctx);
     
-    // Validate bytecode
+    // 验证字节码
     if (!vm_validate_bytecode(bytecode, size)) {
-        vm_set_error(ctx, VM_ERROR_INVALID_BYTECODE, "Invalid bytecode format");
-                    return -1;
-                }
+        vm_set_error(ctx, VM_ERROR_INVALID_BYTECODE, "Bytecode validation failed");
+        return -1;
+    }
     
-    // Allocate memory for bytecode copy
-    ctx->bytecode = mem_alloc(size);
+    // 分配内存并复制字节码
+    if (ctx->bytecode) {
+        if (mem_free) mem_free(ctx->bytecode); else free(ctx->bytecode);
+    }
+    
+    ctx->bytecode = mem_alloc ? mem_alloc(size) : malloc(size);
     if (!ctx->bytecode) {
-        vm_set_error(ctx, VM_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for bytecode");
-                    return -1;
-                }
+        vm_set_error(ctx, VM_ERROR_OUT_OF_MEMORY, "Failed to allocate bytecode memory");
+        return -1;
+    }
     
-    // Copy bytecode
-    mem_copy(ctx->bytecode, bytecode, size);
+    if (mem_copy) {
+        mem_copy(ctx->bytecode, bytecode, size);
+    } else {
+        memcpy(ctx->bytecode, bytecode, size);
+    }
+    
     ctx->bytecode_size = size;
+    ctx->program_counter = 0;
+    ctx->stack_pointer = 0;
+    ctx->call_depth = 0;
     
-    // Set state to ready
+    // 重置统计信息
+    ctx->instruction_count = 0;
+    ctx->cycle_count = 0;
+    
+    // 重置标志
+    ctx->zero_flag = false;
+    ctx->carry_flag = false;
+    ctx->overflow_flag = false;
+    ctx->negative_flag = false;
+    
     ctx->state = VM_STATE_READY;
+    ctx->last_error = VM_ERROR_NONE;
     
-                    return 0;
-}
-
-/**
- * Execute VM program
- */
-static int vm_execute(VMContext* ctx) {
-    if (!ctx || !ctx->bytecode) {
-        return -1;
-    }
-
-    // Check if VM is ready
-    if (ctx->state != VM_STATE_READY && ctx->state != VM_STATE_PAUSED) {
-        vm_set_error(ctx, VM_ERROR_INVALID_CONTEXT, "VM not ready for execution");
-        return -1;
-    }
-
-    // Set state to running
-    ctx->state = VM_STATE_RUNNING;
-    
-    // Main execution loop
-    while (ctx->state == VM_STATE_RUNNING) {
-        // Execute one instruction
-        int result = vm_step(ctx);
-        
-        // Check for errors or halt
-        if (result != 0 || ctx->program_counter >= ctx->bytecode_size) {
-            break;
-        }
-    }
-    
-    // Set state to stopped if still running
-    if (ctx->state == VM_STATE_RUNNING) {
-        ctx->state = VM_STATE_STOPPED;
-    }
-    
-    // Return error code if in error state
-    if (ctx->state == VM_STATE_ERROR) {
-        return -1;
-    }
-
     return 0;
 }
 
 /**
- * Execute single instruction
+ * 执行VM程序
  */
-static int vm_step(VMContext* ctx) {
-    if (!ctx || !ctx->bytecode) {
-        return -1;
-    }
-
-    // Check if VM is running
-    if (ctx->state != VM_STATE_RUNNING) {
+static int vm_execute(VMContext* ctx) {
+    if (!ctx) {
         return -1;
     }
     
-    // Check program counter bounds
+    if (ctx->state != VM_STATE_READY) {
+        vm_set_error(ctx, VM_ERROR_INVALID_CONTEXT, "VM not ready");
+        return -1;
+    }
+    
+    ctx->state = VM_STATE_RUNNING;
+    
+    // 执行主循环
+    while (ctx->state == VM_STATE_RUNNING && ctx->program_counter < ctx->bytecode_size) {
+        if (vm_step(ctx) != 0) {
+            break;
+        }
+    }
+    
+    if (ctx->state == VM_STATE_RUNNING) {
+        ctx->state = VM_STATE_STOPPED;
+    }
+    
+    return (ctx->last_error == VM_ERROR_NONE) ? 0 : -1;
+}
+
+/**
+ * 执行单步指令
+ */
+static int vm_step(VMContext* ctx) {
+    if (!ctx || ctx->state != VM_STATE_RUNNING) {
+        return -1;
+    }
+    
     if (ctx->program_counter >= ctx->bytecode_size) {
         vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Program counter out of bounds");
         ctx->state = VM_STATE_ERROR;
         return -1;
     }
-
-    // Fetch opcode
-    VMOpcode opcode = (VMOpcode)ctx->bytecode[ctx->program_counter++];
     
-    // Execute instruction
-        switch (opcode) {
+    // 读取指令
+    VMOpcode opcode = (VMOpcode)ctx->bytecode[ctx->program_counter];
+    ctx->program_counter++;
+    ctx->instruction_count++;
+    ctx->cycle_count++;
+    
+    // 执行指令
+    switch (opcode) {
         case VM_OP_NOP:
-            // No operation
-                break;
-
+            // 无操作
+            break;
+            
         case VM_OP_HALT:
-            // Halt execution
             ctx->state = VM_STATE_STOPPED;
-                break;
-
-        case VM_OP_JUMP:
-            // Jump to address
-            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
-                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Jump target out of bounds");
-                ctx->state = VM_STATE_ERROR;
-                    return -1;
-                }
+            break;
             
-            // Read target address
-            uint32_t target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
-            ctx->program_counter = target;
-                break;
-
-        case VM_OP_JUMP_IF:
-            // Jump if condition is true
-            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
-                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Jump target out of bounds");
-                ctx->state = VM_STATE_ERROR;
-                    return -1;
-                }
-            
-            // Read target address
-            uint32_t cond_target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
-            ctx->program_counter += sizeof(uint32_t);
-            
-            // Jump if zero flag is set
-            if (ctx->zero_flag) {
-                ctx->program_counter = cond_target;
-                }
-                break;
-
-        case VM_OP_CALL:
-            // Call subroutine
-            if (ctx->program_counter + sizeof(uint32_t) > ctx->bytecode_size) {
-                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Call target out of bounds");
+        case VM_OP_PRINT: {
+            // 简单的打印指令 - 打印栈顶值
+            if (ctx->stack_pointer == 0) {
+                vm_set_error(ctx, VM_ERROR_STACK_UNDERFLOW, "Stack underflow in PRINT");
                 ctx->state = VM_STATE_ERROR;
                 return -1;
+            }
+            uint64_t value = ctx->stack[--ctx->stack_pointer];
+            printf("VM Print: %llu\n", (unsigned long long)value);
+            break;
         }
-
-            // Check call depth
-            if (ctx->call_depth >= ctx->call_stack_size) {
-                vm_set_error(ctx, VM_ERROR_CALL_DEPTH_EXCEEDED, "Call stack overflow");
+        
+        case VM_OP_PUSH: {
+            // 推送立即数到栈
+            if (ctx->program_counter + 8 > ctx->bytecode_size) {
+                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Incomplete PUSH instruction");
                 ctx->state = VM_STATE_ERROR;
-            return -1;
+                return -1;
             }
             
-            // Read target address
-            uint32_t call_target = *(uint32_t*)(ctx->bytecode + ctx->program_counter);
-            ctx->program_counter += sizeof(uint32_t);
-            
-            // Push return address to call stack
-            ctx->call_stack[ctx->call_depth++] = ctx->program_counter;
-            
-            // Jump to target
-            ctx->program_counter = call_target;
-            break;
-            
-        case VM_OP_RETURN:
-            // Return from subroutine
-            if (ctx->call_depth == 0) {
-                vm_set_error(ctx, VM_ERROR_STACK_UNDERFLOW, "Call stack underflow");
+            if (ctx->stack_pointer >= ctx->stack_size) {
+                vm_set_error(ctx, VM_ERROR_STACK_OVERFLOW, "Stack overflow in PUSH");
                 ctx->state = VM_STATE_ERROR;
-        return -1;
-    }
-
-            // Pop return address from call stack
-            ctx->program_counter = ctx->call_stack[--ctx->call_depth];
-            break;
-            
-        case VM_OP_LOAD_IMM:
-            // Load immediate value into register
-            if (ctx->program_counter + 1 + sizeof(uint64_t) > ctx->bytecode_size) {
-                vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Load immediate operands out of bounds");
-                ctx->state = VM_STATE_ERROR;
-        return -1;
-    }
-
-            // Read register index
-            uint8_t reg_idx = ctx->bytecode[ctx->program_counter++];
-            
-            // Check register index
-            if (reg_idx >= ctx->register_count) {
-                vm_set_error(ctx, VM_ERROR_INVALID_OPERAND, "Invalid register index");
-                ctx->state = VM_STATE_ERROR;
-        return -1;
-    }
-
-            // Read immediate value
-            uint64_t imm_value = *(uint64_t*)(ctx->bytecode + ctx->program_counter);
-            ctx->program_counter += sizeof(uint64_t);
-            
-            // Load value into register
-            ctx->registers[reg_idx] = imm_value;
-            break;
-            
-        // Add more instructions here...
-            
-        case VM_OP_EXIT:
-            // Exit with status code
-            if (ctx->program_counter < ctx->bytecode_size) {
-                // Read exit code
-                uint8_t exit_code = ctx->bytecode[ctx->program_counter++];
-                
-                // Store exit code in register 0
-                ctx->registers[0] = exit_code;
+                return -1;
             }
             
-            // Halt execution
+            // 读取8字节立即数
+            uint64_t value = 0;
+            for (int i = 0; i < 8; i++) {
+                value |= ((uint64_t)ctx->bytecode[ctx->program_counter + i]) << (i * 8);
+            }
+            ctx->program_counter += 8;
+            
+            ctx->stack[ctx->stack_pointer++] = value;
+            break;
+        }
+        
+        case VM_OP_POP: {
+            // 弹出栈顶值
+            if (ctx->stack_pointer == 0) {
+                vm_set_error(ctx, VM_ERROR_STACK_UNDERFLOW, "Stack underflow in POP");
+                ctx->state = VM_STATE_ERROR;
+                return -1;
+            }
+            ctx->stack_pointer--;
+            break;
+        }
+        
+        case VM_OP_ADD: {
+            // 加法：弹出两个值，推送结果
+            if (ctx->stack_pointer < 2) {
+                vm_set_error(ctx, VM_ERROR_STACK_UNDERFLOW, "Stack underflow in ADD");
+                ctx->state = VM_STATE_ERROR;
+                return -1;
+            }
+            uint64_t b = ctx->stack[--ctx->stack_pointer];
+            uint64_t a = ctx->stack[--ctx->stack_pointer];
+            uint64_t result = a + b;
+            ctx->stack[ctx->stack_pointer++] = result;
+            break;
+        }
+        
+        case VM_OP_EXIT: {
+            // 退出指令
             ctx->state = VM_STATE_STOPPED;
             break;
-            
+        }
+        
         default:
-            // Unknown opcode
             vm_set_error(ctx, VM_ERROR_INVALID_INSTRUCTION, "Unknown opcode: 0x%02X", opcode);
             ctx->state = VM_STATE_ERROR;
-        return -1;
+            return -1;
     }
-
-    // Update statistics
-    ctx->instruction_count++;
-    ctx->cycle_count++; // Simplified cycle counting
     
     return 0;
 }
 
 /**
- * Reset VM context
+ * 重置VM状态
  */
 static void vm_reset(VMContext* ctx) {
     if (!ctx) {
         return;
     }
     
-    // Reset program counter
     ctx->program_counter = 0;
-    
-    // Reset stack pointer
     ctx->stack_pointer = 0;
-    
-    // Reset call depth
     ctx->call_depth = 0;
     
-    // Reset registers
-    if (ctx->registers) {
+    // 清空寄存器
+    if (ctx->registers && mem_set) {
         mem_set(ctx->registers, 0, ctx->register_count * sizeof(uint64_t));
+    } else if (ctx->registers) {
+        memset(ctx->registers, 0, ctx->register_count * sizeof(uint64_t));
     }
     
-    // Reset flags
+    // 重置标志
     ctx->zero_flag = false;
     ctx->carry_flag = false;
     ctx->overflow_flag = false;
     ctx->negative_flag = false;
     
-    // Reset statistics
+    // 重置统计信息
     ctx->instruction_count = 0;
     ctx->cycle_count = 0;
     
-    // Reset error
+    ctx->state = VM_STATE_READY;
     ctx->last_error = VM_ERROR_NONE;
-    ctx->error_message[0] = '\0';
-    
-    // Set state to ready if bytecode is loaded
-    if (ctx->bytecode) {
-        ctx->state = VM_STATE_READY;
-    } else {
-        ctx->state = VM_STATE_UNINITIALIZED;
-    }
 }
 
 /**
- * Get VM state
+ * 获取VM状态
  */
 static VMState vm_get_state(const VMContext* ctx) {
-    return ctx ? ctx->state : VM_STATE_ERROR;
+    return ctx ? ctx->state : VM_STATE_UNINITIALIZED;
 }
 
 /**
- * Set VM state
+ * 设置VM状态
  */
 static void vm_set_state(VMContext* ctx, VMState state) {
     if (ctx) {
@@ -570,21 +501,17 @@ static void vm_set_state(VMContext* ctx, VMState state) {
 }
 
 /**
- * Get execution statistics
+ * 获取执行统计信息
  */
 static void vm_get_stats(const VMContext* ctx, uint64_t* instructions, uint64_t* cycles) {
-    if (!ctx) {
-        if (instructions) *instructions = 0;
-        if (cycles) *cycles = 0;
-        return;
+    if (ctx) {
+        if (instructions) *instructions = ctx->instruction_count;
+        if (cycles) *cycles = ctx->cycle_count;
     }
-
-    if (instructions) *instructions = ctx->instruction_count;
-    if (cycles) *cycles = ctx->cycle_count;
 }
 
 /**
- * Print VM context for debugging
+ * 打印VM上下文信息
  */
 static void vm_print_context(const VMContext* ctx) {
     if (!ctx) {
@@ -594,47 +521,67 @@ static void vm_print_context(const VMContext* ctx) {
     
     printf("VM Context:\n");
     printf("  State: %d\n", ctx->state);
-    printf("  Program Counter: %zu\n", ctx->program_counter);
-    printf("  Stack Pointer: %zu\n", ctx->stack_pointer);
-    printf("  Call Depth: %zu\n", ctx->call_depth);
-    printf("  Flags: Z=%d C=%d O=%d N=%d\n",
-           ctx->zero_flag, ctx->carry_flag, ctx->overflow_flag, ctx->negative_flag);
+    printf("  PC: %zu\n", ctx->program_counter);
+    printf("  SP: %zu\n", ctx->stack_pointer);
     printf("  Instructions: %llu\n", (unsigned long long)ctx->instruction_count);
     printf("  Cycles: %llu\n", (unsigned long long)ctx->cycle_count);
+    printf("  Error: %d (%s)\n", ctx->last_error, ctx->error_message);
     
-    // Print registers
-    printf("  Registers:\n");
-    for (size_t i = 0; i < ctx->register_count; i += 4) {
-        printf("    ");
-        for (size_t j = 0; j < 4 && i + j < ctx->register_count; j++) {
-            printf("R%02zu=0x%016llx ", i + j, (unsigned long long)ctx->registers[i + j]);
-        }
-        printf("\n");
+    // 打印栈顶几个值
+    printf("  Stack (top 4): ");
+    for (int i = 0; i < 4 && i < (int)ctx->stack_pointer; i++) {
+        printf("%llu ", (unsigned long long)ctx->stack[ctx->stack_pointer - 1 - i]);
     }
-    
-    // Print top of stack
-    printf("  Stack (top %d entries):\n", 8);
-    for (size_t i = 0; i < 8 && i < ctx->stack_pointer; i++) {
-        size_t idx = ctx->stack_pointer - i - 1;
-        printf("    [%zu] = 0x%016llx\n", idx, (unsigned long long)ctx->stack[idx]);
-    }
+    printf("\n");
 }
 
 /**
- * Validate bytecode
+ * 验证字节码
  */
 static bool vm_validate_bytecode(const uint8_t* bytecode, size_t size) {
     if (!bytecode || size == 0) {
         return false;
     }
     
-    // Simplified validation - just check if size is reasonable
-    // In a real implementation, we would check for valid instructions and structure
-    return size >= 4 && size <= 1024 * 1024; // Between 4 bytes and 1MB
+    // 基本长度检查
+    if (size < 1) {
+        return false;
+    }
+    
+    // 简单的指令验证
+    for (size_t i = 0; i < size; ) {
+        VMOpcode opcode = (VMOpcode)bytecode[i];
+        i++;
+        
+        switch (opcode) {
+            case VM_OP_NOP:
+            case VM_OP_HALT:
+            case VM_OP_POP:
+            case VM_OP_ADD:
+            case VM_OP_PRINT:
+            case VM_OP_EXIT:
+                // 单字节指令
+                break;
+                
+            case VM_OP_PUSH:
+                // 需要8字节立即数
+                if (i + 8 > size) {
+                    return false;
+                }
+                i += 8;
+                break;
+                
+            default:
+                // 未知指令，但不立即失败
+                break;
+        }
+    }
+    
+    return true;
 }
 
 /**
- * Get opcode name for debugging
+ * 获取操作码名称
  */
 static const char* vm_get_opcode_name(VMOpcode opcode) {
     switch (opcode) {
@@ -673,60 +620,206 @@ static const char* vm_get_opcode_name(VMOpcode opcode) {
 }
 
 /**
- * Disassemble instruction
+ * 反汇编单条指令
  */
 static int vm_disassemble_instruction(const uint8_t* bytecode, size_t offset, 
                                      char* buffer, size_t buffer_size) {
     if (!bytecode || !buffer || buffer_size == 0) {
         return -1;
     }
-
-    // Get opcode
+    
     VMOpcode opcode = (VMOpcode)bytecode[offset];
+    const char* name = vm_get_opcode_name(opcode);
     
-    // Format instruction
-    const char* opcode_name = vm_get_opcode_name(opcode);
-    snprintf(buffer, buffer_size, "%04zx: %02x %s", offset, opcode, opcode_name);
+    switch (opcode) {
+        case VM_OP_PUSH:
+            if (offset + 9 <= buffer_size) {
+                uint64_t value = 0;
+                for (int i = 0; i < 8; i++) {
+                    value |= ((uint64_t)bytecode[offset + 1 + i]) << (i * 8);
+                }
+                snprintf(buffer, buffer_size, "%s %llu", name, (unsigned long long)value);
+                return 9; // 1 + 8 bytes
+            }
+            break;
+            
+        default:
+            snprintf(buffer, buffer_size, "%s", name);
+            return 1;
+    }
     
-        return 0;
+    return -1;
 }
 
 /**
- * Disassemble program
+ * 反汇编整个程序
  */
 static int vm_disassemble_program(const uint8_t* bytecode, size_t size) {
     if (!bytecode || size == 0) {
         return -1;
     }
-
-    printf("VM Disassembly:\n");
     
-    // Simple disassembly - just print opcodes
-    for (size_t offset = 0; offset < size; offset++) {
-        char buffer[128];
-        vm_disassemble_instruction(bytecode, offset, buffer, sizeof(buffer));
-        printf("%s\n", buffer);
+    printf("Disassembly:\n");
+    printf("============\n");
+    
+    for (size_t offset = 0; offset < size; ) {
+        char instruction[256];
+        int bytes = vm_disassemble_instruction(bytecode, offset, instruction, sizeof(instruction));
+        
+        if (bytes <= 0) {
+            printf("%04zx: <invalid>\n", offset);
+            offset++;
+        } else {
+            printf("%04zx: %s\n", offset, instruction);
+            offset += bytes;
+        }
     }
     
     return 0;
 }
 
 /**
- * Set error message
+ * 设置错误信息
  */
 static void vm_set_error(VMContext* ctx, VMErrorCode error, const char* format, ...) {
     if (!ctx) {
         return;
     }
-
+    
     ctx->last_error = error;
     
-    va_list args;
-    va_start(args, format);
-    vsnprintf(ctx->error_message, sizeof(ctx->error_message), format, args);
-    va_end(args);
+    if (format) {
+        va_list args;
+        va_start(args, format);
+        vsnprintf(ctx->error_message, sizeof(ctx->error_message), format, args);
+        va_end(args);
+    } else {
+        ctx->error_message[0] = '\0';
+    }
+}
+
+/**
+ * 加载并执行ASTC文件 - 供simple_loader调用
+ */
+int vm_execute_astc(const char* astc_file, int argc, char* argv[]) {
+    printf("VM: 执行ASTC文件 %s\n", astc_file);
     
-    ctx->state = VM_STATE_ERROR;
+    if (!astc_file) {
+        return -1;
+    }
+
+    // 打开ASTC文件
+    FILE* file = fopen(astc_file, "rb");
+    if (!file) {
+        printf("VM: 错误: 无法打开ASTC文件 %s\n", astc_file);
+        return -1;
+    }
+
+    // 读取头部
+    ASTCHeader header;
+    if (fread(&header, sizeof(ASTCHeader), 1, file) != 1) {
+        printf("VM: 错误: 读取ASTC头部失败\n");
+        fclose(file);
+        return -1;
+    }
+
+    // 验证魔数
+    if (memcmp(header.magic, "ASTC", 4) != 0) {
+        printf("VM: 错误: 无效的ASTC文件格式\n");
+        fclose(file);
+        return -1;
+    }
+
+    printf("VM: ASTC文件版本: %u\n", header.version);
+    printf("VM: 源码大小: %u 字节\n", header.source_size);
+
+    // 跳过源码部分
+    fseek(file, header.source_size, SEEK_CUR);
+
+    // 读取字节码大小
+    uint32_t bytecode_size;
+    if (fread(&bytecode_size, sizeof(uint32_t), 1, file) != 1) {
+        printf("VM: 错误: 读取字节码大小失败\n");
+        fclose(file);
+        return -1;
+    }
+
+    printf("VM: 字节码大小: %u 字节\n", bytecode_size);
+
+    // 读取字节码
+    uint8_t* bytecode = mem_alloc ? mem_alloc(bytecode_size) : malloc(bytecode_size);
+    if (!bytecode) {
+        printf("VM: 错误: 内存分配失败\n");
+        fclose(file);
+        return -1;
+    }
+
+    if (fread(bytecode, 1, bytecode_size, file) != bytecode_size) {
+        printf("VM: 错误: 读取字节码失败\n");
+        if (mem_free) mem_free(bytecode); else free(bytecode);
+        fclose(file);
+        return -1;
+    }
+
+    fclose(file);
+
+    // 反汇编字节码（调试用）
+    printf("\n=== ASTC字节码反汇编 ===\n");
+    vm_disassemble_program(bytecode, bytecode_size);
+    printf("\n");
+
+    // 创建VM上下文
+    VMContext* ctx = vm_create_context();
+    if (!ctx) {
+        printf("VM: 错误: 创建VM上下文失败\n");
+        if (mem_free) mem_free(bytecode); else free(bytecode);
+        return -1;
+    }
+
+    // 加载程序
+    int load_result = vm_load_program(ctx, bytecode, bytecode_size);
+    if (load_result != 0) {
+        printf("VM: 错误: 加载程序失败\n");
+        vm_destroy_context(ctx);
+        if (mem_free) mem_free(bytecode); else free(bytecode);
+        return -1;
+    }
+
+    printf("=== 执行ASTC程序 ===\n");
+
+    // 执行程序
+    int exec_result = vm_execute(ctx);
+
+    printf("=== 执行完成 ===\n");
+
+    // 打印执行统计
+    uint64_t instructions, cycles;
+    vm_get_stats(ctx, &instructions, &cycles);
+    printf("VM: 执行统计: %llu 指令, %llu 周期\n", 
+           (unsigned long long)instructions, (unsigned long long)cycles);
+
+    // 清理
+    vm_destroy_context(ctx);
+    if (mem_free) mem_free(bytecode); else free(bytecode);
+
+    return exec_result;
+}
+
+/**
+ * 兼容性函数
+ */
+int execute_astc(const char* astc_file, int argc, char* argv[]) {
+    return vm_execute_astc(astc_file, argc, argv);
+}
+
+/**
+ * Native模块主入口
+ */
+int native_main(int argc, char* argv[]) {
+    if (argc < 2) {
+        return -1;
+    }
+    return vm_execute_astc(argv[1], argc - 1, argv + 1);
 }
 
 // ===============================================
@@ -752,32 +845,26 @@ static struct {
     {"get_opcode_name", vm_get_opcode_name},
     {"disassemble_instruction", vm_disassemble_instruction},
     {"disassemble_program", vm_disassemble_program},
+    {"vm_execute_astc", vm_execute_astc},
+    {"execute_astc", execute_astc},
+    {"native_main", native_main},
     {NULL, NULL}  // Sentinel
 };
 
-// Module load function
-static int vm_load(void) {
-    // Resolve required memory functions
-    Module* memory = module_get("memory");
-    if (!memory) {
-        return -1;
-    }
-    
-    mem_alloc = module_resolve(memory, "alloc");
-    mem_realloc = module_resolve(memory, "realloc");
-    mem_free = module_resolve(memory, "free");
-    mem_copy = module_resolve(memory, "copy");
-    mem_set = module_resolve(memory, "set");
-    
-    if (!mem_alloc || !mem_realloc || !mem_free || !mem_copy || !mem_set) {
-        return -1;
-    }
+// Module init function
+static int vm_init(void) {
+    // 初始化内存函数指针为标准库函数
+    mem_alloc = malloc;
+    mem_realloc = realloc;
+    mem_free = free;
+    mem_copy = memcpy;
+    mem_set = memset;
     
     return 0;
 }
 
-// Module unload function
-static void vm_unload(void) {
+// Module cleanup function
+static void vm_cleanup(void) {
     // Nothing to clean up
 }
 
@@ -796,19 +883,14 @@ static void* vm_resolve(const char* symbol) {
     return NULL;
 }
 
-// Module definition
-static Module module_vm = {
+// Module definition - updated to match new module.h structure
+Module module_vm = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = vm_load,
-    .unload = vm_unload,
-    .resolve = vm_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = vm_init,
+    .cleanup = vm_cleanup,
+    .resolve = vm_resolve
 };
 
-// Register module
-REGISTER_MODULE(vm);
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

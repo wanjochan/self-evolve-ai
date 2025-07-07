@@ -676,23 +676,4 @@ ASTCProgram* astc_load_program(const char* astc_file);
 void astc_free_program(ASTCProgram* program);
 int astc_validate_program(const ASTCProgram* program);
 
-// // C99 Compiler functions for ASTC
-// C99CompilerContext* c99_create_context(void);
-// void c99_free_context(C99CompilerContext* ctx);
-// int c99_compile_source(C99CompilerContext* ctx, const char* source_file, const char* output_file);
-// int c99_parse_source(C99CompilerContext* ctx);
-// int c99_generate_bytecode(C99CompilerContext* ctx);
-// int c99_optimize_bytecode(C99CompilerContext* ctx);
-// int c99_emit_native_code(C99CompilerContext* ctx, const char* target_arch);
-
-// // C99 Standard Library support
-// int c99_init_stdlib(C99CompilerContext* ctx);
-// int c99_register_builtin_functions(C99CompilerContext* ctx);
-// int c99_register_libc_functions(C99CompilerContext* ctx);
-
-// // C99 Error handling
-// void c99_report_error(C99CompilerContext* ctx, const char* message, int line, int column);
-// void c99_report_warning(C99CompilerContext* ctx, const char* message, int line, int column);
-// const char* c99_get_error_summary(C99CompilerContext* ctx);
-
 #endif // ASTC_H

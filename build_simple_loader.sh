@@ -17,8 +17,6 @@ fi
 echo "使用 TinyCC 编译 simple_loader..."
 $CC -o bin/simple_loader \
     src/layer1/simple_loader.c \
-    src/core/module.c \
-    -Isrc/core \
     -std=c99 \
     -O2 \
     -Wall

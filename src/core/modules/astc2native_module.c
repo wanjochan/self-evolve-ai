@@ -618,7 +618,7 @@ static void* astc2native_resolve(const char* symbol) {
 /**
  * Initialize the module
  */
-static int astc2native_load(void) {
+static int astc2native_init(void) {
     // Resolve dependencies
     Module* memory_module = module_load("memory");
     if (!memory_module) {
@@ -663,23 +663,18 @@ static int astc2native_load(void) {
 /**
  * Clean up the module
  */
-static void astc2native_unload(void) {
+static void astc2native_cleanup(void) {
     // Nothing to clean up
 }
 
-// Module definition
+// Module definition - updated to match new module.h structure
 Module module_astc2native = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = astc2native_load,
-    .unload = astc2native_unload,
-    .resolve = astc2native_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = astc2native_init,
+    .cleanup = astc2native_cleanup,
+    .resolve = astc2native_resolve
 };
 
-// Register the module
-REGISTER_MODULE(astc2native); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

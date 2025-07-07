@@ -890,3 +890,42 @@ void libc_module_destructor(void) {
     libc_native_cleanup();
 }
 #endif
+
+// ===============================================
+// Module System Integration
+// ===============================================
+
+#include "../module.h"
+
+/**
+ * Initialize the module
+ */
+static int libc_module_init(void) {
+    return libc_native_init();
+}
+
+/**
+ * Clean up the module
+ */
+static void libc_module_cleanup(void) {
+    libc_native_cleanup();
+}
+
+/**
+ * Resolve a symbol from this module
+ */
+static void* libc_module_resolve(const char* symbol) {
+    return libc_native_get_function(symbol);
+}
+
+// Module definition - compatible with new module.h structure
+Module module_libc = {
+    .name = "libc",
+    .state = MODULE_UNLOADED,
+    .error = NULL,
+    .init = libc_module_init,
+    .cleanup = libc_module_cleanup,
+    .resolve = libc_module_resolve
+};
+
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

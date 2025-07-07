@@ -24,6 +24,7 @@
 #include "../core/astc.h"
 #include "../core/native.h"
 #include "../core/utils.h"
+#include "../module.h"
 
 // ===============================================
 // Standard Library Module Information
@@ -348,3 +349,40 @@ void* std_module_get_function(const char* name) {
 // We use custom .native format with native.c system for symbol management
 // This follows PRD.md specification: use mmap() alike, not libdl or traditional DLL
 // All exports are handled via native_module_add_export() in main() function
+
+// ===============================================
+// Module System Integration
+// ===============================================
+
+/**
+ * Initialize the module
+ */
+static int std_init(void) {
+    return std_module_init();
+}
+
+/**
+ * Clean up the module
+ */
+static void std_cleanup(void) {
+    std_module_cleanup();
+}
+
+/**
+ * Resolve a symbol from this module
+ */
+static void* std_resolve(const char* symbol) {
+    return std_module_get_function(symbol);
+}
+
+// Module definition - compatible with new module.h structure
+Module module_std = {
+    .name = "std",
+    .state = MODULE_UNLOADED,
+    .error = NULL,
+    .init = std_init,
+    .cleanup = std_cleanup,
+    .resolve = std_resolve
+};
+
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

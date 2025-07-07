@@ -14,7 +14,7 @@
 #include <stdarg.h>
 
 // Module name
-static const char* MODULE_NAME = "astc";
+#define MODULE_NAME "astc"
 
 // Dependency on memory module
 MODULE_DEPENDS_ON(memory);
@@ -672,8 +672,8 @@ static struct {
 // Module Interface
 // ===============================================
 
-// Module load function
-static int astc_load(void) {
+// Module init function (renamed from astc_load)
+static int astc_init(void) {
     // Resolve required memory functions
     Module* memory = module_get("memory");
     if (!memory) {
@@ -692,8 +692,8 @@ static int astc_load(void) {
     return 0;
 }
 
-// Module unload function
-static void astc_unload(void) {
+// Module cleanup function (renamed from astc_unload)
+static void astc_cleanup(void) {
     // Nothing to clean up
 }
 
@@ -712,19 +712,14 @@ static void* astc_resolve(const char* symbol) {
     return NULL;
 }
 
-// Module definition
-static Module module_astc = {
+// Module definition - updated to match new module.h structure
+Module module_astc = {
     .name = MODULE_NAME,
-    .handle = NULL,
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = astc_load,
-    .unload = astc_unload,
-    .resolve = astc_resolve,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = astc_init,
+    .cleanup = astc_cleanup,
+    .resolve = astc_resolve
 };
 
-// Register module
-REGISTER_MODULE(astc);
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

@@ -1,8 +1,8 @@
 /**
- * memory_module.c - Memory Management Module
+ * memory_module.c - 内存管理模块
  * 
- * Provides memory management functionality as a module.
- * Implements the functionality defined in memory.h.
+ * 基于新的模块系统实现的内存管理模块。
+ * 作为示例，展示如何使用新的模块系统创建模块。
  */
 
 #include "../module.h"
@@ -13,538 +13,348 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Module name
-static const char* MODULE_NAME = "memory";
-
 // ===============================================
-// Memory Pool Types
+// 内部常量和配置
 // ===============================================
 
+// 内存池类型
 typedef enum {
-    MEMORY_POOL_GENERAL,    // General purpose allocations
-    MEMORY_POOL_BYTECODE,   // ASTC bytecode storage
-    MEMORY_POOL_JIT,        // JIT compiled code
-    MEMORY_POOL_MODULES,    // Native modules
-    MEMORY_POOL_TEMP,       // Temporary allocations
+    MEMORY_POOL_GENERAL,    // 通用内存
+    MEMORY_POOL_BYTECODE,   // 字节码存储
+    MEMORY_POOL_JIT,        // JIT编译代码
+    MEMORY_POOL_MODULES,    // 模块数据
+    MEMORY_POOL_TEMP,       // 临时数据
     MEMORY_POOL_C99_AST,    // C99 AST nodes
     MEMORY_POOL_C99_SYMBOLS,// C99 symbol table
     MEMORY_POOL_C99_STRINGS,// C99 string literals
-    MEMORY_POOL_COUNT
+    MEMORY_POOL_COUNT       // 内存池数量
 } MemoryPoolType;
 
-// ===============================================
-// Memory Statistics
-// ===============================================
+// 内存块头
+typedef struct MemoryBlock {
+    size_t size;                  // 块大小
+    MemoryPoolType pool;          // 所属内存池
+    struct MemoryBlock* next;     // 链表下一项
+    struct MemoryBlock* prev;     // 链表前一项
+    unsigned char data[];         // 实际数据
+} MemoryBlock;
 
+// 内存池统计
 typedef struct {
-    size_t total_allocated;
-    size_t total_freed;
-    size_t current_usage;
-    size_t peak_usage;
-    size_t allocation_count;
-    size_t free_count;
-    size_t pool_usage[MEMORY_POOL_COUNT];
-} MemoryStats;
+    size_t total_allocated;       // 总分配字节数
+    size_t current_usage;         // 当前使用字节数
+    size_t peak_usage;            // 峰值使用字节数
+    size_t allocation_count;      // 分配次数
+    size_t free_count;            // 释放次数
+} MemoryPoolStats;
+
+// 内存API结构
+typedef struct {
+    void* (*alloc)(size_t size);
+    void (*free)(void* ptr);
+    void* (*realloc)(void* ptr, size_t size);
+    void* (*calloc)(size_t count, size_t size);
+    void* (*alloc_pool)(size_t size, MemoryPoolType pool);
+    void (*get_stats)(MemoryPoolStats stats[MEMORY_POOL_COUNT]);
+    void (*print_stats)(void);
+} MemoryAPI;
 
 // ===============================================
-// C99 Compiler Memory Management
+// 内部状态
 // ===============================================
 
-typedef struct C99MemoryContext {
-    size_t ast_nodes_allocated;
-    size_t symbols_allocated;
-    size_t strings_allocated;
-    size_t total_c99_memory;
-    bool leak_detection_enabled;
-} C99MemoryContext;
+// 内存池链表头
+static MemoryBlock* memory_pools[MEMORY_POOL_COUNT] = {NULL};
+
+// 内存池统计
+static MemoryPoolStats pool_stats[MEMORY_POOL_COUNT] = {{0}};
+
+// 是否已初始化
+static bool initialized = false;
 
 // ===============================================
-// Module State
+// 内部函数
 // ===============================================
 
-// 全局内存统计
-static MemoryStats g_memory_stats = {0};
-
-// 内存池状态
-static bool g_initialized = false;
-
-// 调试级别
-static int g_debug_level = 0;
-
-// ===============================================
-// Memory Management Functions
-// ===============================================
-
-/**
- * Initialize memory management system
- */
-static int memory_init(void) {
-    if (g_initialized) {
-        return 0;
-    }
-    
-    memset(&g_memory_stats, 0, sizeof(MemoryStats));
-    g_initialized = true;
-    
-    if (g_debug_level > 0) {
-        printf("Memory: Initialized memory management system\n");
-    }
-    
-    return 0;
+// 获取内存块
+static MemoryBlock* get_block(void* ptr) {
+    if (!ptr) return NULL;
+    return (MemoryBlock*)((unsigned char*)ptr - sizeof(MemoryBlock));
 }
 
-/**
- * Cleanup memory management system
- */
-static void memory_cleanup(void) {
-    if (!g_initialized) {
-        return;
+// 添加到内存池
+static void add_to_pool(MemoryBlock* block, MemoryPoolType pool) {
+    if (!block) return;
+    
+    block->pool = pool;
+    block->next = memory_pools[pool];
+    block->prev = NULL;
+    
+    if (memory_pools[pool]) {
+        memory_pools[pool]->prev = block;
     }
     
-    if (g_debug_level > 0) {
-        memory_print_report();
-    }
+    memory_pools[pool] = block;
     
-    g_initialized = false;
+    // 更新统计
+    pool_stats[pool].total_allocated += block->size;
+    pool_stats[pool].current_usage += block->size;
+    pool_stats[pool].allocation_count++;
     
-    if (g_debug_level > 0) {
-        printf("Memory: Cleaned up memory management system\n");
+    if (pool_stats[pool].current_usage > pool_stats[pool].peak_usage) {
+        pool_stats[pool].peak_usage = pool_stats[pool].current_usage;
     }
 }
 
-/**
- * Basic memory allocation function
- */
-static void* memory_alloc_basic(size_t size) {
-    return malloc(size);
-}
-
-/**
- * Allocate memory from specific pool
- */
-static void* memory_alloc(size_t size, MemoryPoolType pool) {
-    if (!g_initialized || pool >= MEMORY_POOL_COUNT) {
-        return malloc(size); // Fallback to standard malloc if not initialized
+// 从内存池移除
+static void remove_from_pool(MemoryBlock* block) {
+    if (!block) return;
+    
+    MemoryPoolType pool = block->pool;
+    
+    if (block->prev) {
+        block->prev->next = block->next;
+    } else {
+        memory_pools[pool] = block->next;
     }
     
-    void* ptr = malloc(size);
-    if (ptr) {
-        g_memory_stats.total_allocated += size;
-        g_memory_stats.current_usage += size;
-        g_memory_stats.allocation_count++;
-        g_memory_stats.pool_usage[pool] += size;
-        
-        if (g_memory_stats.current_usage > g_memory_stats.peak_usage) {
-            g_memory_stats.peak_usage = g_memory_stats.current_usage;
-        }
-        
-        if (g_debug_level > 1) {
-            printf("Memory: Allocated %zu bytes in pool %d at %p\n", size, pool, ptr);
-        }
+    if (block->next) {
+        block->next->prev = block->prev;
     }
     
-    return ptr;
+    // 更新统计
+    pool_stats[pool].current_usage -= block->size;
+    pool_stats[pool].free_count++;
 }
 
-/**
- * Basic memory reallocation function
- */
-static void* memory_realloc_basic(void* ptr, size_t size) {
-    return realloc(ptr, size);
+// ===============================================
+// 内存管理函数
+// ===============================================
+
+// 函数声明
+static void* memory_alloc_pool(size_t size, MemoryPoolType pool);
+static void* memory_alloc(size_t size);
+static void memory_free(void* ptr);
+static void* memory_realloc(void* ptr, size_t size);
+static void* memory_calloc(size_t count, size_t size);
+static void memory_get_stats(MemoryPoolStats stats[MEMORY_POOL_COUNT]);
+static void memory_print_stats(void);
+
+// 分配内存
+static void* memory_alloc(size_t size) {
+    return memory_alloc_pool(size, MEMORY_POOL_GENERAL);
 }
 
-/**
- * Reallocate memory
- */
-static void* memory_realloc(void* ptr, size_t new_size, MemoryPoolType pool) {
-    if (!g_initialized) {
-        return realloc(ptr, new_size); // Fallback to standard realloc if not initialized
+// 释放内存
+static void memory_free(void* ptr) {
+    if (!ptr) return;
+    
+    MemoryBlock* block = get_block(ptr);
+    remove_from_pool(block);
+    free(block);
+}
+
+// 重新分配内存
+static void* memory_realloc(void* ptr, size_t size) {
+    if (!ptr) return memory_alloc(size);
+    if (size == 0) {
+        memory_free(ptr);
+        return NULL;
     }
     
-    void* new_ptr = realloc(ptr, new_size);
-    if (new_ptr) {
-        g_memory_stats.total_allocated += new_size;
-        g_memory_stats.current_usage += new_size;
-        g_memory_stats.pool_usage[pool] += new_size;
-        
-        if (g_memory_stats.current_usage > g_memory_stats.peak_usage) {
-            g_memory_stats.peak_usage = g_memory_stats.current_usage;
-        }
-        
-        if (g_debug_level > 1) {
-            printf("Memory: Reallocated from %p to %p, new size %zu bytes in pool %d\n", 
-                   ptr, new_ptr, new_size, pool);
-        }
-    }
+    MemoryBlock* old_block = get_block(ptr);
+    MemoryPoolType pool = old_block->pool;
+    
+    // 分配新块
+    void* new_ptr = memory_alloc_pool(size, pool);
+    if (!new_ptr) return NULL;
+    
+    // 复制数据
+    size_t copy_size = old_block->size < size ? old_block->size : size;
+    memcpy(new_ptr, ptr, copy_size);
+    
+    // 释放旧块
+    memory_free(ptr);
     
     return new_ptr;
 }
 
-/**
- * Basic memory free function
- */
-static void memory_free_basic(void* ptr) {
-    free(ptr);
-}
-
-/**
- * Free memory
- */
-static void memory_free(void* ptr) {
-    if (!g_initialized || !ptr) {
-        free(ptr); // Fallback to standard free if not initialized
-        return;
-    }
-    
-    if (g_debug_level > 1) {
-        printf("Memory: Freed memory at %p\n", ptr);
-    }
-    
-    free(ptr);
-    g_memory_stats.free_count++;
-}
-
-/**
- * Memory copy function
- */
-static void* memory_copy(void* dest, const void* src, size_t size) {
-    return memcpy(dest, src, size);
-}
-
-/**
- * Memory set function
- */
-static void* memory_set(void* dest, int value, size_t size) {
-    return memset(dest, value, size);
-}
-
-/**
- * Allocate zero-initialized memory
- */
-static void* memory_calloc(size_t count, size_t size, MemoryPoolType pool) {
-    size_t total_size = count * size;
-    void* ptr = memory_alloc(total_size, pool);
+// 分配并清零内存
+static void* memory_calloc(size_t count, size_t size) {
+    size_t total = count * size;
+    void* ptr = memory_alloc(total);
     if (ptr) {
-        memset(ptr, 0, total_size);
+        memset(ptr, 0, total);
     }
     return ptr;
 }
 
-/**
- * Duplicate string with memory tracking
- */
-static char* memory_strdup(const char* str, MemoryPoolType pool) {
-    if (!str) {
-        return NULL;
+// 从特定内存池分配内存
+static void* memory_alloc_pool(size_t size, MemoryPoolType pool) {
+    if (pool >= MEMORY_POOL_COUNT) {
+        pool = MEMORY_POOL_GENERAL;
     }
     
-    size_t len = strlen(str) + 1;
-    char* dup = (char*)memory_alloc(len, pool);
-    if (dup) {
-        strcpy(dup, str);
-    }
-    return dup;
+    // 分配内存块
+    MemoryBlock* block = malloc(sizeof(MemoryBlock) + size);
+    if (!block) return NULL;
+    
+    block->size = size;
+    block->pool = pool;
+    block->next = NULL;
+    block->prev = NULL;
+    
+    // 添加到内存池
+    add_to_pool(block, pool);
+    
+    return block->data;
 }
 
-/**
- * Get memory statistics
- */
-static void memory_get_stats(MemoryStats* stats) {
-    if (!stats) {
-        return;
-    }
-    
-    if (g_initialized) {
-        *stats = g_memory_stats;
-    } else {
-        memset(stats, 0, sizeof(MemoryStats));
-    }
+// 获取内存池统计
+static void memory_get_stats(MemoryPoolStats stats[MEMORY_POOL_COUNT]) {
+    if (!stats) return;
+    memcpy(stats, pool_stats, sizeof(pool_stats));
 }
 
-/**
- * Print memory usage report
- */
-static void memory_print_report(void) {
-    if (!g_initialized) {
-        printf("Memory: System not initialized\n");
-        return;
-    }
+// 打印内存池统计
+static void memory_print_stats(void) {
+    printf("Memory Pool Statistics:\n");
+    printf("Pool                 | Total      | Current    | Peak       | Allocs     | Frees\n");
+    printf("--------------------+------------+------------+------------+------------+------------\n");
     
-    printf("Memory Usage Report:\n");
-    printf("  Total Allocated: %zu bytes\n", g_memory_stats.total_allocated);
-    printf("  Total Freed: %zu bytes\n", g_memory_stats.total_freed);
-    printf("  Current Usage: %zu bytes\n", g_memory_stats.current_usage);
-    printf("  Peak Usage: %zu bytes\n", g_memory_stats.peak_usage);
-    printf("  Allocation Count: %zu\n", g_memory_stats.allocation_count);
-    printf("  Free Count: %zu\n", g_memory_stats.free_count);
+    const char* pool_names[] = {
+        "General",
+        "Bytecode",
+        "JIT",
+        "Modules",
+        "Temporary",
+        "C99 AST",
+        "C99 Symbols",
+        "C99 Strings"
+    };
     
-    printf("  Pool Usage:\n");
     for (int i = 0; i < MEMORY_POOL_COUNT; i++) {
-        printf("    Pool %d: %zu bytes\n", i, g_memory_stats.pool_usage[i]);
-    }
-}
-
-/**
- * Check for memory leaks
- */
-static bool memory_check_leaks(void) {
-    if (!g_initialized) {
-        return false;
+        printf("%-20s | %10zu | %10zu | %10zu | %10zu | %10zu\n",
+               pool_names[i],
+               pool_stats[i].total_allocated,
+               pool_stats[i].current_usage,
+               pool_stats[i].peak_usage,
+               pool_stats[i].allocation_count,
+               pool_stats[i].free_count);
     }
     
-    bool has_leaks = g_memory_stats.allocation_count > g_memory_stats.free_count;
+    // 计算总计
+    size_t total_allocated = 0;
+    size_t current_usage = 0;
+    size_t peak_usage = 0;
+    size_t allocation_count = 0;
+    size_t free_count = 0;
     
-    if (has_leaks && g_debug_level > 0) {
-        printf("Memory: Detected %zu possible leaks\n", 
-               g_memory_stats.allocation_count - g_memory_stats.free_count);
+    for (int i = 0; i < MEMORY_POOL_COUNT; i++) {
+        total_allocated += pool_stats[i].total_allocated;
+        current_usage += pool_stats[i].current_usage;
+        peak_usage += pool_stats[i].peak_usage;
+        allocation_count += pool_stats[i].allocation_count;
+        free_count += pool_stats[i].free_count;
     }
     
-    return has_leaks;
-}
-
-/**
- * Set memory debugging level
- */
-static void memory_set_debug_level(int level) {
-    g_debug_level = level;
-    
-    if (g_initialized && g_debug_level > 0) {
-        printf("Memory: Debug level set to %d\n", g_debug_level);
-    }
-}
-
-// ===============================================
-// C99 Compiler Memory Management
-// ===============================================
-
-/**
- * Create C99 compiler memory context
- */
-static C99MemoryContext* c99_memory_create_context(void) {
-    C99MemoryContext* ctx = (C99MemoryContext*)memory_alloc(
-        sizeof(C99MemoryContext), MEMORY_POOL_GENERAL);
-    
-    if (ctx) {
-        memset(ctx, 0, sizeof(C99MemoryContext));
-        ctx->leak_detection_enabled = true;
-        
-        if (g_debug_level > 0) {
-            printf("Memory: Created C99 memory context at %p\n", ctx);
-        }
-    }
-    
-    return ctx;
-}
-
-/**
- * Destroy C99 compiler memory context and check for leaks
- */
-static void c99_memory_destroy_context(C99MemoryContext* ctx) {
-    if (!ctx) {
-        return;
-    }
-    
-    if (ctx->leak_detection_enabled && g_debug_level > 0) {
-        printf("Memory: C99 context statistics on destruction:\n");
-        printf("  AST nodes: %zu\n", ctx->ast_nodes_allocated);
-        printf("  Symbols: %zu\n", ctx->symbols_allocated);
-        printf("  Strings: %zu\n", ctx->strings_allocated);
-        printf("  Total: %zu\n", ctx->total_c99_memory);
-    }
-    
-    memory_free(ctx);
-    
-    if (g_debug_level > 0) {
-        printf("Memory: Destroyed C99 memory context\n");
-    }
-}
-
-/**
- * Allocate memory for C99 AST node
- */
-static void* c99_memory_alloc_ast_node(C99MemoryContext* ctx, size_t size) {
-    if (!ctx) {
-        return memory_alloc(size, MEMORY_POOL_C99_AST);
-    }
-    
-    void* ptr = memory_alloc(size, MEMORY_POOL_C99_AST);
-    if (ptr) {
-        ctx->ast_nodes_allocated++;
-        ctx->total_c99_memory += size;
-    }
-    
-    return ptr;
-}
-
-/**
- * Allocate memory for C99 symbol table entry
- */
-static void* c99_memory_alloc_symbol(C99MemoryContext* ctx, size_t size) {
-    if (!ctx) {
-        return memory_alloc(size, MEMORY_POOL_C99_SYMBOLS);
-    }
-    
-    void* ptr = memory_alloc(size, MEMORY_POOL_C99_SYMBOLS);
-    if (ptr) {
-        ctx->symbols_allocated++;
-        ctx->total_c99_memory += size;
-    }
-    
-    return ptr;
-}
-
-/**
- * Allocate memory for C99 string literal
- */
-static char* c99_memory_alloc_string(C99MemoryContext* ctx, const char* str) {
-    if (!ctx || !str) {
-        return memory_strdup(str, MEMORY_POOL_C99_STRINGS);
-    }
-    
-    size_t len = strlen(str) + 1;
-    char* dup = (char*)memory_alloc(len, MEMORY_POOL_C99_STRINGS);
-    
-    if (dup) {
-        strcpy(dup, str);
-        ctx->strings_allocated++;
-        ctx->total_c99_memory += len;
-    }
-    
-    return dup;
-}
-
-/**
- * Free C99 compiler memory with context tracking
- */
-static void c99_memory_free(C99MemoryContext* ctx, void* ptr) {
-    // Just use regular memory_free since we don't track individual allocations
-    memory_free(ptr);
-}
-
-/**
- * Get C99 compiler memory statistics
- */
-static void c99_memory_get_stats(C99MemoryContext* ctx, MemoryStats* stats) {
-    if (!ctx || !stats) {
-        return;
-    }
-    
-    // Fill in general memory stats
-    memory_get_stats(stats);
-    
-    // Add C99-specific stats to the output structure
-    // (we don't modify the stats structure directly, just provide info)
-}
-
-/**
- * Print C99 compiler memory report
- */
-static void c99_memory_print_report(C99MemoryContext* ctx) {
-    if (!ctx) {
-        printf("Memory: C99 context is NULL\n");
-        return;
-    }
-    
-    printf("C99 Memory Report:\n");
-    printf("  AST Nodes: %zu\n", ctx->ast_nodes_allocated);
-    printf("  Symbols: %zu\n", ctx->symbols_allocated);
-    printf("  Strings: %zu\n", ctx->strings_allocated);
-    printf("  Total Memory: %zu bytes\n", ctx->total_c99_memory);
+    printf("--------------------+------------+------------+------------+------------+------------\n");
+    printf("%-20s | %10zu | %10zu | %10zu | %10zu | %10zu\n",
+           "Total",
+           total_allocated,
+           current_usage,
+           peak_usage,
+           allocation_count,
+           free_count);
 }
 
 // ===============================================
-// Executable Memory Allocation
+// 模块API
 // ===============================================
 
-/**
- * Allocate executable memory (cross-platform)
- */
-static void* allocate_executable_memory(size_t size) {
-#ifdef _WIN32
-    return VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-#else
-    #include <sys/mman.h>
-    void* ptr = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    return (ptr == MAP_FAILED) ? NULL : ptr;
-#endif
-}
+// 内存API实例
+static MemoryAPI memory_api = {
+    .alloc = memory_alloc,
+    .free = memory_free,
+    .realloc = memory_realloc,
+    .calloc = memory_calloc,
+    .alloc_pool = memory_alloc_pool,
+    .get_stats = memory_get_stats,
+    .print_stats = memory_print_stats
+};
 
-/**
- * Free executable memory
- */
-static void free_executable_memory(void* ptr, size_t size) {
-#ifdef _WIN32
-    VirtualFree(ptr, 0, MEM_RELEASE);
-#else
-    #include <sys/mman.h>
-    munmap(ptr, size);
-#endif
+// 获取内存API
+static MemoryAPI* get_memory_api(void) {
+    return &memory_api;
 }
 
 // ===============================================
-// Symbol Table
+// 符号表
 // ===============================================
 
-// Symbol table
 static struct {
     const char* name;
     void* symbol;
 } memory_symbols[] = {
-    // Basic memory functions
-    {"alloc", memory_alloc_basic},
-    {"realloc", memory_realloc_basic},
-    {"free", memory_free_basic},
-    {"copy", memory_copy},
-    {"set", memory_set},
-    
-    // Enhanced memory management
-    {"init", memory_init},
-    {"cleanup", memory_cleanup},
-    {"alloc_pool", memory_alloc},
-    {"realloc_pool", memory_realloc},
-    {"calloc", memory_calloc},
-    {"strdup", memory_strdup},
-    {"get_stats", memory_get_stats},
-    {"print_report", memory_print_report},
-    {"check_leaks", memory_check_leaks},
-    {"set_debug_level", memory_set_debug_level},
-    
-    // C99 memory management
-    {"c99_create_context", c99_memory_create_context},
-    {"c99_destroy_context", c99_memory_destroy_context},
-    {"c99_alloc_ast_node", c99_memory_alloc_ast_node},
-    {"c99_alloc_symbol", c99_memory_alloc_symbol},
-    {"c99_alloc_string", c99_memory_alloc_string},
-    {"c99_free", c99_memory_free},
-    {"c99_get_stats", c99_memory_get_stats},
-    {"c99_print_report", c99_memory_print_report},
-    
-    // Executable memory
-    {"allocate_executable", allocate_executable_memory},
-    {"free_executable", free_executable_memory},
-    
-    {NULL, NULL}  // Sentinel
+    {"memory_alloc", memory_alloc},
+    {"memory_free", memory_free},
+    {"memory_realloc", memory_realloc},
+    {"memory_calloc", memory_calloc},
+    {"memory_alloc_pool", memory_alloc_pool},
+    {"memory_get_stats", memory_get_stats},
+    {"memory_print_stats", memory_print_stats},
+    {"get_memory_api", get_memory_api},
+    {NULL, NULL}
 };
 
 // ===============================================
-// Module Interface
+// 模块接口实现
 // ===============================================
 
-// Module load function
-static int memory_load_module(void) {
-    // Initialize memory system
-    return memory_init();
+// 初始化模块
+static int memory_init(void) {
+    if (initialized) {
+        return 0;  // 已初始化
+    }
+    
+    // 初始化内存池
+    for (int i = 0; i < MEMORY_POOL_COUNT; i++) {
+        memory_pools[i] = NULL;
+        memset(&pool_stats[i], 0, sizeof(MemoryPoolStats));
+    }
+    
+    initialized = true;
+    printf("Memory module initialized\n");
+    
+    return 0;
 }
 
-// Module unload function
-static void memory_unload_module(void) {
-    // Cleanup memory system
-    memory_cleanup();
+// 清理模块
+static void memory_cleanup(void) {
+    if (!initialized) {
+        return;  // 未初始化
+    }
+    
+    // 释放所有内存块
+    for (int i = 0; i < MEMORY_POOL_COUNT; i++) {
+        MemoryBlock* block = memory_pools[i];
+        while (block) {
+            MemoryBlock* next = block->next;
+            free(block);
+            block = next;
+        }
+        memory_pools[i] = NULL;
+    }
+    
+    // 打印最终统计
+    memory_print_stats();
+    
+    initialized = false;
+    printf("Memory module cleaned up\n");
 }
 
-// Symbol resolution function
-static void* memory_resolve_symbol(const char* symbol) {
+// 解析符号
+static void* memory_resolve(const char* symbol) {
     if (!symbol) {
         return NULL;
     }
@@ -558,19 +368,18 @@ static void* memory_resolve_symbol(const char* symbol) {
     return NULL;
 }
 
-// Module definition
-static Module module_memory = {
-    .name = MODULE_NAME,
-    .handle = NULL,
+// ===============================================
+// 模块定义
+// ===============================================
+
+// 内存模块定义
+Module module_memory = {
+    .name = "memory",
     .state = MODULE_UNLOADED,
     .error = NULL,
-    .load = memory_load_module,
-    .unload = memory_unload_module,
-    .resolve = memory_resolve_symbol,
-    .on_init = NULL,
-    .on_exit = NULL,
-    .on_error = NULL
+    .init = memory_init,
+    .cleanup = memory_cleanup,
+    .resolve = memory_resolve
 };
 
-// Register module
-REGISTER_MODULE(memory); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制
