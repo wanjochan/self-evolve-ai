@@ -19,14 +19,14 @@ Layer 1: Loader (loader_{arch}_{bits}.exe)
 Layer 2: Runtime (5个核心模块)
     1. module_module       - 增强的模块管理器 (智能加载+符号解析)
     2. layer0_module       - 基础功能 (memory+utils+std+libdl)
-    3. pipeline_module     - 编译流水线:
+    3. pipeline_module/     - 编译流水线:
        ├── frontend: c2astc (C代码→ASTC字节码)
-       ├── backend: codegen (ASTC字节码→ASTC汇编) + astc2native (AOT编译)
+       ├── backend: codegen (ASTC字节码→ASTC汇编) + astc2native (AOT编译，实现 astc 字节码转成原生机器码)
        └── execution: astc + vm (ASTC字节码执行)
     4. compiler_module     - 编译器集成:
        ├── jit (即时编译，ASTC字节码→原生机器码)
        └── ffi (外部函数接口，类似libffi)
-    5. libc_module         - C99标准库 (保持独立)
+    5. libc_module/         - C99标准库；注：这个不着急开工，这个是给后面其它应用包括 c99 编译器替代 ssh.sh用的
     ↓ 执行
 Layer 3: Program ({program}.astc)
 ```
@@ -36,13 +36,13 @@ Layer 3: Program ({program}.astc)
 **pipeline_module.c** (编译流水线):
 - ✅ frontend: c2astc (C代码转ASTC字节码)
 - ✅ backend: codegen (ASTC字节码转ASTC汇编)
-- ⚠️ backend: astc2native (AOT编译) - 当前在compiler_module中，应移到此处
+- ✅ backend: astc2native (AOT编译) - 已从compiler_module移入
 - ✅ execution: astc + vm (ASTC字节码执行)
 
 **compiler_module.c** (编译器集成):
 - ✅ jit (即时编译，ASTC字节码→原生机器码)
-- ⚠️ aot (预先编译) - 实际上就是astc2native，应移到pipeline_module
 - ✅ ffi (外部函数接口，类似libffi)
+- ✅ aot功能已移至pipeline_module，保持架构清晰
 
 ## 按需加载机制
 
@@ -157,7 +157,9 @@ typedef struct Module {
 - `pipeline_compile_and_run()` - 编译并执行
 - `pipeline_get_assembly()` - 获取汇编代码
 - `pipeline_get_bytecode()` - 获取字节码
-- ⚠️ `pipeline_astc2native()` - AOT编译 (待从compiler_module移入)
+- ✅ `pipeline_astc2native()` - AOT编译 (已从compiler_module移入)
+- `aot_create_compiler()` - 创建AOT编译器
+- `aot_compile_to_executable()` - 编译为可执行文件
 
 ### 4. Compiler编译器集成模块 (compiler_module.c)
 

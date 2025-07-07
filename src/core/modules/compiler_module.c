@@ -1,10 +1,11 @@
 /**
  * compiler_module.c - Compiler Module
- * 
- * 编译器模块，整合了多种编译方式：
+ *
+ * 编译器模块，整合了特殊编译方式：
  * - JIT: 即时编译，运行时将字节码编译为机器码
- * - AOT: 预先编译，将ASTC字节码编译为原生可执行文件
  * - FFI: 外部函数接口，与C库和系统API交互
+ *
+ * 注意：AOT编译功能已移至pipeline_module.c的backend部分
  */
 
 #include "../module.h"
@@ -31,10 +32,9 @@
 
 #define MODULE_NAME "compiler"
 #define MODULE_VERSION "1.0.0"
-#define MODULE_DESCRIPTION "Integrated JIT/AOT/FFI compiler module"
+#define MODULE_DESCRIPTION "Integrated JIT/FFI compiler module"
 
-// 依赖layer0模块
-MODULE_DEPENDS_ON(layer0);
+// 依赖layer0模块 (通过动态加载)
 
 // ===============================================
 // 编译器类型和状态
@@ -43,7 +43,6 @@ MODULE_DEPENDS_ON(layer0);
 // 编译器类型
 typedef enum {
     COMPILER_JIT,    // 即时编译器
-    COMPILER_AOT,    // 预先编译器
     COMPILER_FFI     // 外部函数接口
 } CompilerType;
 
@@ -184,45 +183,184 @@ static CompileResult jit_compile_bytecode(JITCompiler* jit, const uint8_t* bytec
     memcpy(jit->code_buffer + jit->code_size, prologue, sizeof(prologue));
     jit->code_size += sizeof(prologue);
     
-    // 处理字节码指令（简化版）
-    for (size_t i = 0; i < bytecode_size; i++) {
+    // 处理字节码指令（增强版）
+    for (size_t i = 0; i < bytecode_size; ) {
         uint8_t opcode = bytecode[i];
-        
+
         switch (opcode) {
-            case 0x10: // LOAD_IMM
-                if (i + 4 < bytecode_size) {
-                    int32_t value = *(int32_t*)(bytecode + i + 1);
-                    
-                    // mov eax, immediate
-                    uint8_t load_imm[] = {0xb8, 0x00, 0x00, 0x00, 0x00};
-                    *(int32_t*)(load_imm + 1) = value;
-                    
-                    if (jit->code_size + sizeof(load_imm) > jit->code_capacity) {
+            case 0x00: // NOP
+                i++;
+                break;
+
+            case 0x01: // HALT
+                // 生成 exit 系统调用
+                {
+                    uint8_t exit_code[] = {
+                        0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00,  // mov rax, 60 (sys_exit)
+                        0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00,  // mov rdi, 0 (exit status)
+                        0x0f, 0x05                                  // syscall
+                    };
+
+                    if (jit->code_size + sizeof(exit_code) > jit->code_capacity) {
                         strcpy(jit->error_message, "Code buffer overflow");
                         return COMPILE_ERROR_CODEGEN_FAILED;
                     }
-                    
-                    memcpy(jit->code_buffer + jit->code_size, load_imm, sizeof(load_imm));
-                    jit->code_size += sizeof(load_imm);
-                    i += 4;
+
+                    memcpy(jit->code_buffer + jit->code_size, exit_code, sizeof(exit_code));
+                    jit->code_size += sizeof(exit_code);
+                }
+                i++;
+                break;
+
+            case 0x10: // LOAD_IMM
+                if (i + 9 < bytecode_size) {
+                    uint8_t reg = bytecode[i + 1];
+                    int64_t value = *(int64_t*)(bytecode + i + 2);
+
+                    // 生成 mov reg, immediate (64位)
+                    if (reg == 0) { // rax
+                        uint8_t load_imm[] = {0x48, 0xb8}; // mov rax, imm64
+
+                        if (jit->code_size + sizeof(load_imm) + 8 > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, load_imm, sizeof(load_imm));
+                        jit->code_size += sizeof(load_imm);
+                        *(int64_t*)(jit->code_buffer + jit->code_size) = value;
+                        jit->code_size += 8;
+                    } else if (reg == 1) { // rbx
+                        uint8_t load_imm[] = {0x48, 0xbb}; // mov rbx, imm64
+
+                        if (jit->code_size + sizeof(load_imm) + 8 > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, load_imm, sizeof(load_imm));
+                        jit->code_size += sizeof(load_imm);
+                        *(int64_t*)(jit->code_buffer + jit->code_size) = value;
+                        jit->code_size += 8;
+                    }
+                    i += 10;
+                } else {
+                    i++;
                 }
                 break;
-                
-            case 0xFF: // EXIT
-                // 生成函数结尾
-                uint8_t epilogue[] = {
-                    0x48, 0x89, 0xec,    // mov rsp, rbp
-                    0x5d,                // pop rbp
-                    0xc3                 // ret
-                };
-                
-                if (jit->code_size + sizeof(epilogue) > jit->code_capacity) {
-                    strcpy(jit->error_message, "Code buffer overflow");
-                    return COMPILE_ERROR_CODEGEN_FAILED;
+
+            case 0x20: // ADD
+                if (i + 3 < bytecode_size) {
+                    uint8_t reg1 = bytecode[i + 1];
+                    uint8_t reg2 = bytecode[i + 2];
+                    uint8_t dst_reg = bytecode[i + 3];
+
+                    // 简化实现：只支持 rax = rax + rbx
+                    if (reg1 == 0 && reg2 == 1 && dst_reg == 0) {
+                        uint8_t add_instr[] = {0x48, 0x01, 0xd8}; // add rax, rbx
+
+                        if (jit->code_size + sizeof(add_instr) > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, add_instr, sizeof(add_instr));
+                        jit->code_size += sizeof(add_instr);
+                    }
+                    i += 4;
+                } else {
+                    i++;
                 }
-                
-                memcpy(jit->code_buffer + jit->code_size, epilogue, sizeof(epilogue));
-                jit->code_size += sizeof(epilogue);
+                break;
+
+            case 0x21: // SUB
+                if (i + 3 < bytecode_size) {
+                    uint8_t reg1 = bytecode[i + 1];
+                    uint8_t reg2 = bytecode[i + 2];
+                    uint8_t dst_reg = bytecode[i + 3];
+
+                    // 简化实现：只支持 rax = rax - rbx
+                    if (reg1 == 0 && reg2 == 1 && dst_reg == 0) {
+                        uint8_t sub_instr[] = {0x48, 0x29, 0xd8}; // sub rax, rbx
+
+                        if (jit->code_size + sizeof(sub_instr) > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, sub_instr, sizeof(sub_instr));
+                        jit->code_size += sizeof(sub_instr);
+                    }
+                    i += 4;
+                } else {
+                    i++;
+                }
+                break;
+
+            case 0x31: // RETURN
+                {
+                    // 生成函数结尾
+                    uint8_t epilogue[] = {
+                        0x48, 0x89, 0xec,    // mov rsp, rbp
+                        0x5d,                // pop rbp
+                        0xc3                 // ret
+                    };
+
+                    if (jit->code_size + sizeof(epilogue) > jit->code_capacity) {
+                        strcpy(jit->error_message, "Code buffer overflow");
+                        return COMPILE_ERROR_CODEGEN_FAILED;
+                    }
+
+                    memcpy(jit->code_buffer + jit->code_size, epilogue, sizeof(epilogue));
+                    jit->code_size += sizeof(epilogue);
+                }
+                i++;
+                break;
+
+            case 0x50: // PUSH
+                if (i + 1 < bytecode_size) {
+                    uint8_t reg = bytecode[i + 1];
+
+                    if (reg == 0) { // push rax
+                        uint8_t push_instr[] = {0x50}; // push rax
+
+                        if (jit->code_size + sizeof(push_instr) > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, push_instr, sizeof(push_instr));
+                        jit->code_size += sizeof(push_instr);
+                    }
+                    i += 2;
+                } else {
+                    i++;
+                }
+                break;
+
+            case 0x51: // POP
+                if (i + 1 < bytecode_size) {
+                    uint8_t reg = bytecode[i + 1];
+
+                    if (reg == 0) { // pop rax
+                        uint8_t pop_instr[] = {0x58}; // pop rax
+
+                        if (jit->code_size + sizeof(pop_instr) > jit->code_capacity) {
+                            strcpy(jit->error_message, "Code buffer overflow");
+                            return COMPILE_ERROR_CODEGEN_FAILED;
+                        }
+
+                        memcpy(jit->code_buffer + jit->code_size, pop_instr, sizeof(pop_instr));
+                        jit->code_size += sizeof(pop_instr);
+                    }
+                    i += 2;
+                } else {
+                    i++;
+                }
+                break;
+
+            default:
+                i++;
                 break;
         }
     }
@@ -265,69 +403,7 @@ static void jit_free_code_block(JITCodeBlock* code_block) {
     code_block->is_executable = false;
 }
 
-// ===============================================
-// AOT编译器实现
-// ===============================================
 
-// AOT编译器上下文
-typedef struct {
-    TargetArch target_arch;
-    OptLevel opt_level;
-    char output_file[256];
-    char error_message[256];
-} AOTCompiler;
-
-// 创建AOT编译器
-static AOTCompiler* aot_create_compiler(TargetArch arch, OptLevel opt_level) {
-    AOTCompiler* aot = malloc(sizeof(AOTCompiler));
-    if (!aot) return NULL;
-    
-    aot->target_arch = arch;
-    aot->opt_level = opt_level;
-    aot->output_file[0] = '\0';
-    aot->error_message[0] = '\0';
-    
-    return aot;
-}
-
-// 销毁AOT编译器
-static void aot_destroy_compiler(AOTCompiler* aot) {
-    if (!aot) return;
-    free(aot);
-}
-
-// AOT编译ASTC字节码为可执行文件
-static CompileResult aot_compile_to_executable(AOTCompiler* aot, const uint8_t* bytecode,
-                                             size_t bytecode_size, const char* output_file) {
-    if (!aot || !bytecode || !output_file) {
-        return COMPILE_ERROR_INVALID_INPUT;
-    }
-    
-    strcpy(aot->output_file, output_file);
-    
-    // 简化的AOT编译实现
-    // 生成一个简单的可执行文件
-    FILE* file = fopen(output_file, "wb");
-    if (!file) {
-        strcpy(aot->error_message, "Failed to create output file");
-        return COMPILE_ERROR_CODEGEN_FAILED;
-    }
-    
-    // 写入简单的文件头
-    uint8_t header[] = {
-        0x7f, 0x45, 0x4c, 0x46,  // ELF magic
-        0x02, 0x01, 0x01, 0x00   // 64-bit, little-endian, version 1
-    };
-    
-    fwrite(header, sizeof(header), 1, file);
-    
-    // 写入字节码数据
-    fwrite(bytecode, bytecode_size, 1, file);
-    
-    fclose(file);
-    
-    return COMPILE_SUCCESS;
-}
 
 // ===============================================
 // FFI (外部函数接口) 实现
@@ -494,7 +570,6 @@ typedef struct {
     
     union {
         JITCompiler* jit;
-        AOTCompiler* aot;
         FFIContext* ffi;
     } compiler;
     
@@ -519,15 +594,7 @@ static CompilerContext* compiler_create_context(CompilerType type, TargetArch ar
                 return NULL;
             }
             break;
-            
-        case COMPILER_AOT:
-            ctx->compiler.aot = aot_create_compiler(arch, opt_level);
-            if (!ctx->compiler.aot) {
-                free(ctx);
-                return NULL;
-            }
-            break;
-            
+
         case COMPILER_FFI:
             ctx->compiler.ffi = ffi_create_context();
             if (!ctx->compiler.ffi) {
@@ -547,9 +614,6 @@ static void compiler_destroy_context(CompilerContext* ctx) {
     switch (ctx->type) {
         case COMPILER_JIT:
             jit_destroy_compiler(ctx->compiler.jit);
-            break;
-        case COMPILER_AOT:
-            aot_destroy_compiler(ctx->compiler.aot);
             break;
         case COMPILER_FFI:
             ffi_destroy_context(ctx->compiler.ffi);
@@ -571,7 +635,7 @@ static CompileResult compiler_compile_bytecode(CompilerContext* ctx, const uint8
         case COMPILER_JIT: {
             JITCodeBlock* code_block = malloc(sizeof(JITCodeBlock));
             if (!code_block) return COMPILE_ERROR_MEMORY_ALLOC;
-            
+
             CompileResult res = jit_compile_bytecode(ctx->compiler.jit, bytecode, bytecode_size, code_block);
             if (res == COMPILE_SUCCESS) {
                 *result = code_block;
@@ -581,17 +645,7 @@ static CompileResult compiler_compile_bytecode(CompilerContext* ctx, const uint8
             }
             return res;
         }
-        
-        case COMPILER_AOT: {
-            if (!output_file) return COMPILE_ERROR_INVALID_INPUT;
-            
-            CompileResult res = aot_compile_to_executable(ctx->compiler.aot, bytecode, bytecode_size, output_file);
-            if (res != COMPILE_SUCCESS) {
-                strcpy(ctx->error_message, ctx->compiler.aot->error_message);
-            }
-            return res;
-        }
-        
+
         case COMPILER_FFI:
             strcpy(ctx->error_message, "FFI does not support bytecode compilation");
             return COMPILE_ERROR_INVALID_INPUT;
@@ -626,10 +680,7 @@ static struct {
     {"jit_execute_code", jit_execute_code},
     {"jit_free_code_block", jit_free_code_block},
     
-    // AOT编译器
-    {"aot_create_compiler", aot_create_compiler},
-    {"aot_destroy_compiler", aot_destroy_compiler},
-    {"aot_compile_to_executable", aot_compile_to_executable},
+
     
     // FFI接口
     {"ffi_create_context", ffi_create_context},
@@ -653,9 +704,9 @@ static struct {
 static int compiler_init(void) {
     printf("Compiler Module: Initializing integrated compiler...\n");
     printf("Compiler Module: JIT compiler initialized\n");
-    printf("Compiler Module: AOT compiler initialized\n");
     printf("Compiler Module: FFI interface initialized\n");
-    
+    printf("Compiler Module: Note - AOT compiler moved to pipeline_module\n");
+
     return 0;
 }
 
