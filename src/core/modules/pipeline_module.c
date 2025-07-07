@@ -2541,6 +2541,69 @@ static struct {
 };
 
 // ===============================================
+// 简单的导出函数 (供c2native工具的假导出表使用)
+// ===============================================
+
+/**
+ * 简单的ASTC执行接口 - 供simple_loader调用
+ * 这些函数将被c2native工具放在导出表的固定偏移位置
+ */
+
+// 这个函数将被放在偏移0处
+int vm_execute_astc(const char* astc_file, int argc, char* argv[]) {
+    printf("Pipeline Module: vm_execute_astc called with file: %s\n", astc_file);
+
+    if (!astc_file) {
+        printf("Pipeline Module: Error - astc_file is NULL\n");
+        return 1;
+    }
+
+    printf("Pipeline Module: Successfully called vm_execute_astc\n");
+    printf("Pipeline Module: Note - This is a placeholder implementation\n");
+    printf("Pipeline Module: File: %s, argc: %d\n", astc_file, argc);
+
+    // 简单的成功返回，表示函数被正确调用
+    return 0;
+}
+
+// 这个函数将被放在偏移128处
+int execute_astc(const char* astc_file, int argc, char* argv[]) {
+    return vm_execute_astc(astc_file, argc, argv);
+}
+
+// 这个函数将被放在偏移256处
+int native_main(int argc, char* argv[]) {
+    if (argc < 2) {
+        printf("Pipeline Module: Usage: native_main <astc_file> [args...]\n");
+        return 1;
+    }
+    return vm_execute_astc(argv[1], argc - 1, argv + 1);
+}
+
+// 这个函数将被放在偏移384处
+int test_export_function(void) {
+    printf("Pipeline Module: test_export_function called\n");
+    return 42;
+}
+
+// 这个函数将被放在偏移512处
+int module_init(void) {
+    printf("Pipeline Module: module_init called\n");
+    return 0;
+}
+
+// 这个函数将被放在偏移640处
+void module_cleanup(void) {
+    printf("Pipeline Module: module_cleanup called\n");
+}
+
+// 这个函数将被放在偏移768处
+void* pipeline_module_resolve(const char* symbol) {
+    printf("Pipeline Module: pipeline_module_resolve called for symbol: %s\n", symbol ? symbol : "NULL");
+    return NULL;
+}
+
+// ===============================================
 // 模块初始化和清理
 // ===============================================
 
