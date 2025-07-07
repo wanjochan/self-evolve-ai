@@ -35,7 +35,7 @@ flowchart TD
 
     CheckInput -->|无| CheckCompletion{工作计划已完成?}
     CheckCompletion -->|是| FinalUpdate[更新文档并结束]
-    CheckCompletion -->|否| ExecutePlan[执行当前计划]
+    CheckCompletion -->|否| UpdateNeeded{需要更新文档?}
 
     UpdateDocs --> ExecutePlan
     ExecutePlan --> CheckParallel{是否有并行任务?}
@@ -86,28 +86,28 @@ flowchart TD
      - 阅读 workflow.md（工作流程说明）
      - 确保新创建的文档遵循统一的格式和标准
    - **初始化工作流文档**：
-     - 基于模板创建 workplan_[work_id].md
-     - 基于模板创建 worknotes_[work_id].md
+     - 基于模板创建 workplan_{work_id}.md
+     - 基于模板创建 worknotes_{work_id}.md
      - 添加新工作流，状态设为 `INIT`
    - **更新状态追踪**：
      - 每个主要阶段开始和结束时更新
      - 记录当前状态、任务和进度
    - **阅读文档**：
      - 阅读 workflow.md（工作流程说明）
-     - 阅读 workplan_[work_id].md（任务非线性分解、动态规划、细节描述）
-     - 阅读 worknotes_[work_id].md（上下文和经验）
+     - 阅读 workplan_{work_id}.md（任务非线性分解、动态规划、细节描述）
+     - 阅读 worknotes_{work_id}.md（上下文和经验）
    - **检查用户输入**：
      - 如有用户新输入，评估输入内容
      - 如无新输入，检查工作计划完成状态
    - **有用户输入时**：
-     - 评估是否需要更新 workplan_[work_id].md 和 worknotes_[work_id].md
+     - 评估是否需要更新 workplan_{work_id}.md 和 worknotes_{work_id}.md
      - 如需要则更新文档
      - 执行当前计划
    - **无用户输入时**：
      - 如工作计划已完成，更新文档并结束会话
      - 如工作计划未完成，直接执行当前计划
    - **执行计划**：
-     - 根据 workplan_[work_id].md 执行下一步
+     - 根据 workplan_{work_id}.md 执行下一步
      - 检查是否有标记为 `[PARALLEL]` 的任务组
      - 对并行任务进行拆分和同时执行
      - **重要**：脚本或代码创建后必须实际执行并验证结果
@@ -117,8 +117,8 @@ flowchart TD
      - 如发现问题，立即修复并重新验证
      - 只有验证通过后才能标记相关任务为完成
    - **更新进度**：
-     - 更新 workplan_[work_id].md 的进度（仅在验证成功后）
-     - 更新 worknotes_[work_id].md 的上下文和经验
+     - 更新 workplan_{work_id}.md 的进度（仅在验证成功后）
+     - 更新 worknotes_{work_id}.md 的上下文和经验
      - 更新状态追踪
      - 记录遇到的问题和解决方案
    - **循环完成**：
@@ -153,7 +153,7 @@ flowchart TD
 
 ### 状态记录格式
 ```
-[work_id] | [状态] | [当前任务] | [最后更新时间] | [进度百分比]
+{work_id} | [状态] | [当前任务] | [最后更新时间] | [进度百分比]
 ```
 
 ### 状态更新时机
@@ -167,7 +167,7 @@ flowchart TD
 对于复杂工作流，支持并行任务处理：
 
 ### 任务并行化
-- 在 `workplan_[work_id].md` 中使用 `[PARALLEL]` 标记可并行执行的任务组
+- 在 `workplan_{work_id}.md` 中使用 `[PARALLEL]` 标记可并行执行的任务组
 - 示例：
   ```
   - T1 [50%] 核心功能开发 [PARALLEL]
@@ -193,4 +193,4 @@ flowchart TD
 - 每个并行任务应有明确的输入和预期输出
 - 并行任务之间应尽量减少依赖
 - 所有并行任务完成后进行统一验证
-- 在 `worknotes_[work_id].md` 中记录每个并行分支的执行情况
+- 在 `worknotes_{work_id}.md` 中记录每个并行分支的执行情况
