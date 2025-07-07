@@ -3,6 +3,7 @@
  */
 
 #include "c99_parser.h"
+#include "../../core/astc.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -118,28 +119,23 @@ void parser_error(ParserContext* parser, const char* message) {
 
 struct ASTNode* parser_create_ast_node(ParserContext* parser, ASTNodeType type) {
     if (!parser) return NULL;
-    
+
     int line = parser->current_token ? parser->current_token->line : 0;
     int column = parser->current_token ? parser->current_token->column : 0;
-    
-    // TODO: Implement ast_create_node
-    struct ASTNode* node = malloc(sizeof(struct ASTNode));
+
+    // Use the proper ast_create_node function
+    struct ASTNode* node = ast_create_node(type, line, column);
     if (node) {
-        memset(node, 0, sizeof(struct ASTNode));
-        // node->type = type;
-        // node->line = line;
-        // node->column = column;
-        
         // Register node for cleanup
         if (parser->ast_node_count >= parser->ast_node_capacity) {
             parser->ast_node_capacity *= 2;
-            parser->ast_nodes = realloc(parser->ast_nodes, 
+            parser->ast_nodes = realloc(parser->ast_nodes,
                                        sizeof(struct ASTNode*) * parser->ast_node_capacity);
         }
-        
+
         parser->ast_nodes[parser->ast_node_count++] = node;
     }
-    
+
     return node;
 }
 
@@ -149,12 +145,16 @@ struct ASTNode* parser_create_ast_node(ParserContext* parser, ASTNodeType type) 
 
 struct ASTNode* parser_parse_translation_unit(ParserContext* parser) {
     if (!parser) return NULL;
-    
-    struct ASTNode* translation_unit = parser_create_ast_node(parser, 0); // ASTC_TRANSLATION_UNIT
+
+    struct ASTNode* translation_unit = parser_create_ast_node(parser, ASTC_TRANSLATION_UNIT);
     if (!translation_unit) return NULL;
-    
+
     printf("Parser: Parsing translation unit\n");
-    
+
+    // Initialize translation unit data
+    translation_unit->data.translation_unit.declarations = NULL;
+    translation_unit->data.translation_unit.declaration_count = 0;
+
     // Parse external declarations
     while (parser->current_token && parser->current_token->type != TOKEN_EOF) {
         struct ASTNode* external_decl = parser_parse_external_declaration(parser);
@@ -164,10 +164,18 @@ struct ASTNode* parser_parse_translation_unit(ParserContext* parser) {
             }
             continue;
         }
-        
-        // TODO: Add to translation unit
+
+        // Add to translation unit
+        translation_unit->data.translation_unit.declaration_count++;
+        translation_unit->data.translation_unit.declarations = realloc(
+            translation_unit->data.translation_unit.declarations,
+            sizeof(struct ASTNode*) * translation_unit->data.translation_unit.declaration_count
+        );
+        translation_unit->data.translation_unit.declarations[
+            translation_unit->data.translation_unit.declaration_count - 1
+        ] = external_decl;
     }
-    
+
     return translation_unit;
 }
 
@@ -180,32 +188,41 @@ struct ASTNode* parser_parse_external_declaration(ParserContext* parser) {
 
 struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
     if (!parser) return NULL;
-    
-    struct ASTNode* func_decl = parser_create_ast_node(parser, 1); // ASTC_FUNC_DECL
+
+    struct ASTNode* func_decl = parser_create_ast_node(parser, ASTC_FUNC_DECL);
     if (!func_decl) return NULL;
-    
+
     printf("Parser: Parsing function definition\n");
-    
-    // Skip type specifiers for now
-    while (parser->current_token && 
-           (parser->current_token->type == TOKEN_INT || 
+
+    // Initialize function declaration data
+    func_decl->data.func_decl.name = NULL;
+    func_decl->data.func_decl.return_type = NULL;
+    func_decl->data.func_decl.params = NULL;
+    func_decl->data.func_decl.param_count = 0;
+    func_decl->data.func_decl.has_body = 0;
+    func_decl->data.func_decl.body = NULL;
+
+    // Skip type specifiers for now (TODO: parse return type properly)
+    while (parser->current_token &&
+           (parser->current_token->type == TOKEN_INT ||
             parser->current_token->type == TOKEN_VOID ||
             parser->current_token->type == TOKEN_CHAR)) {
         parser_advance(parser);
     }
-    
+
     // Parse function name
     if (parser_match(parser, TOKEN_IDENTIFIER)) {
-        printf("Parser: Found function '%s'\n", parser->current_token->value);
+        func_decl->data.func_decl.name = strdup(parser->current_token->value);
+        printf("Parser: Found function '%s'\n", func_decl->data.func_decl.name);
         parser_advance(parser);
     } else {
         parser_error(parser, "Expected function name");
         return NULL;
     }
-    
+
     // Parse parameter list
     if (parser_expect(parser, TOKEN_LPAREN)) {
-        // Skip to closing paren for now
+        // Skip to closing paren for now (TODO: parse parameters properly)
         int paren_count = 1;
         while (paren_count > 0 && parser->current_token && parser->current_token->type != TOKEN_EOF) {
             if (parser->current_token->type == TOKEN_LPAREN) {
@@ -216,10 +233,12 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
             parser_advance(parser);
         }
     }
-    
+
     // Parse function body
     if (parser_match(parser, TOKEN_LBRACE)) {
-        return parser_parse_compound_statement(parser);
+        func_decl->data.func_decl.body = parser_parse_compound_statement(parser);
+        func_decl->data.func_decl.has_body = 1;
+        return func_decl;
     } else {
         parser_error(parser, "Expected function body");
         return NULL;
