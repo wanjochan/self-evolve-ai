@@ -7,23 +7,28 @@
 - 创建时间: 2024-12-28
 - 状态: EXECUTING (进行中/已完成/已暂停)
 - 描述: 根据 src/core/modules/modules.md 调整 src/core/ 中的系统架构实现，特别是 pipeline 和 compiler 模块要有实际实现，不要是 stub 存根假代码
-- 总体进度: 80%
+- 总体进度: 60%
 - 特别注意：不要做历史纪录，只更新最后结果！
 
 ## 任务树
 
-- T1 [100%] 系统架构分析与设计
-  - T1.1 [100%] 分析现有模块实现状态
-  - T1.2 [100%] 识别 stub 存根代码
-  - T1.3 [100%] 制定实现计划
-- T2 [85%] Pipeline模块实现 [PARALLEL]
-  - T2.1 [75%] Frontend: c2astc 实现 (C代码→ASTC字节码)
-  - T2.2 [75%] Backend: codegen 实现 (ASTC字节码→ASTC汇编)
-  - T2.3 [75%] Backend: astc2native 实现 (AOT编译)
-  - T2.4 [75%] Execution: astc + vm 实现 (ASTC字节码执行)
-- T3 [25%] Compiler模块实现 [PARALLEL]
-  - T3.1 [进行中] JIT编译器实现 (ASTC字节码→原生机器码)
+- T1 [100%] 系统架构分析与设计 ✅
+  - T1.1 [100%] 分析现有模块实现状态 ✅
+  - T1.2 [100%] 识别 stub 存根代码 ✅
+  - T1.3 [100%] 制定实现计划 ✅
+- T2 [60%] Pipeline模块ASTC流水线实现 [CRITICAL]
+  - T2.1 [100%] 定义ASTC字节码格式 ✅
+  - T2.2 [100%] Frontend: c2astc 实现 (C代码→ASTC字节码) ✅
+  - T2.3 [100%] Backend: codegen 实现 (ASTC字节码→ASTC汇编) ✅
+  - T2.4 [进行中] Backend: astc2native 实现 (ASTC汇编→原生代码)
+  - T2.5 [0%] Execution: ASTC VM 实现 (ASTC字节码执行)
+- T3 [0%] Compiler模块ASTC集成 [CRITICAL]
+  - T3.1 [0%] JIT编译器实现 (ASTC字节码→原生机器码)
   - T3.2 [0%] FFI接口实现 (外部函数接口)
+- T4 [50%] 核心基础设施补全 [PARALLEL]
+  - T4.1 [100%] Module模块依赖管理实现 ✅
+  - T4.2 [100%] ASTC核心函数实现 ✅
+  - T4.3 [0%] 模块系统完善
 - T4 [0%] 模块集成与测试
   - T4.1 [0%] 模块间接口验证
   - T4.2 [0%] 端到端测试

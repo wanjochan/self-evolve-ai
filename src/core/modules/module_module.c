@@ -447,22 +447,114 @@ Module* module_get(const char* name) {
     return find_module(name);
 }
 
-// 注册单个依赖 (暂时禁用，需要重构为缓存机制)
+// 注册单个依赖
 static int module_register_dependency(Module* module, const char* dependency) {
-    // TODO: 重构为缓存机制
-    return 0;  // 暂时返回成功
+    if (!module || !dependency) return -1;
+
+    // 查找模块在缓存中的索引
+    size_t module_index = MAX_MODULES;
+    for (size_t i = 0; i < module_cache.count; i++) {
+        if (module_cache.loaded_modules[i] == module) {
+            module_index = i;
+            break;
+        }
+    }
+
+    if (module_index >= MAX_MODULES) {
+        printf("Module: 错误: 模块未在缓存中找到\n");
+        return -1;
+    }
+
+    ModuleDependencies* deps = &module_cache.dependencies[module_index];
+
+    // 检查是否已经存在该依赖
+    for (size_t i = 0; i < deps->count; i++) {
+        if (strcmp(deps->names[i], dependency) == 0) {
+            return 0; // 已存在，返回成功
+        }
+    }
+
+    // 检查依赖数量限制
+    if (deps->count >= MAX_DEPENDENCIES) {
+        printf("Module: 错误: 模块 %s 依赖数量超过限制 %d\n", module->name, MAX_DEPENDENCIES);
+        return -1;
+    }
+
+    // 扩展依赖数组
+    if (deps->names == NULL) {
+        deps->names = malloc(MAX_DEPENDENCIES * sizeof(char*));
+        deps->modules = malloc(MAX_DEPENDENCIES * sizeof(Module*));
+        if (!deps->names || !deps->modules) {
+            printf("Module: 错误: 内存分配失败\n");
+            return -1;
+        }
+    }
+
+    // 添加新依赖
+    deps->names[deps->count] = strdup(dependency);
+    deps->modules[deps->count] = NULL; // 稍后解析
+    deps->count++;
+
+    printf("Module: 为模块 %s 注册依赖: %s\n", module->name, dependency);
+    return 0;
 }
 
-// 注册多个依赖 (暂时禁用，需要重构为缓存机制)
+// 注册多个依赖
 static int module_register_dependencies(Module* module, const char** dependencies) {
-    // TODO: 重构为缓存机制
-    return 0;  // 暂时返回成功
+    if (!module || !dependencies) return -1;
+
+    int success_count = 0;
+    int total_count = 0;
+
+    // 遍历依赖数组
+    for (const char** dep = dependencies; *dep != NULL; dep++) {
+        total_count++;
+        if (module_register_dependency(module, *dep) == 0) {
+            success_count++;
+        } else {
+            printf("Module: 警告: 注册依赖 %s 失败\n", *dep);
+        }
+    }
+
+    printf("Module: 为模块 %s 注册了 %d/%d 个依赖\n",
+           module->name, success_count, total_count);
+
+    return (success_count == total_count) ? 0 : -1;
 }
 
-// 获取模块依赖 (暂时禁用，需要重构为缓存机制)
+// 获取模块依赖
 static const char** module_get_dependencies(const Module* module) {
-    // TODO: 重构为缓存机制
-    return NULL;  // 暂时返回NULL
+    if (!module) return NULL;
+
+    // 查找模块在缓存中的索引
+    size_t module_index = MAX_MODULES;
+    for (size_t i = 0; i < module_cache.count; i++) {
+        if (module_cache.loaded_modules[i] == module) {
+            module_index = i;
+            break;
+        }
+    }
+
+    if (module_index >= MAX_MODULES) {
+        return NULL;
+    }
+
+    ModuleDependencies* deps = &module_cache.dependencies[module_index];
+
+    if (deps->count == 0 || !deps->names) {
+        return NULL;
+    }
+
+    // 创建以NULL结尾的依赖名称数组
+    const char** result = malloc((deps->count + 1) * sizeof(char*));
+    if (!result) return NULL;
+
+    for (size_t i = 0; i < deps->count; i++) {
+        result[i] = deps->names[i];
+    }
+    result[deps->count] = NULL;
+
+    return result;
 }
 
 // 获取模块状态
@@ -505,10 +597,58 @@ static Module* find_module(const char* name) {
     return find_loaded_module(name);
 }
 
-// 解析依赖 (暂时禁用，需要重构为缓存机制)
+// 解析依赖
 static int resolve_dependencies(Module* module) {
-    // TODO: 重构为缓存机制
-    return 0;  // 暂时返回成功
+    if (!module) return -1;
+
+    // 查找模块在缓存中的索引
+    size_t module_index = MAX_MODULES;
+    for (size_t i = 0; i < module_cache.count; i++) {
+        if (module_cache.loaded_modules[i] == module) {
+            module_index = i;
+            break;
+        }
+    }
+
+    if (module_index >= MAX_MODULES) {
+        printf("Module: 错误: 模块未在缓存中找到\n");
+        return -1;
+    }
+
+    ModuleDependencies* deps = &module_cache.dependencies[module_index];
+
+    if (deps->count == 0) {
+        return 0; // 无依赖，成功
+    }
+
+    printf("Module: 解析模块 %s 的 %zu 个依赖\n", module->name, deps->count);
+
+    int resolved_count = 0;
+    for (size_t i = 0; i < deps->count; i++) {
+        const char* dep_name = deps->names[i];
+
+        // 尝试查找已加载的依赖模块
+        Module* dep_module = find_loaded_module(dep_name);
+
+        if (!dep_module) {
+            // 尝试动态加载依赖模块
+            printf("Module: 尝试加载依赖模块: %s\n", dep_name);
+            dep_module = load_module(dep_name);
+        }
+
+        if (dep_module) {
+            deps->modules[i] = dep_module;
+            resolved_count++;
+            printf("Module: 依赖 %s 解析成功\n", dep_name);
+        } else {
+            printf("Module: 警告: 无法解析依赖 %s\n", dep_name);
+        }
+    }
+
+    printf("Module: 模块 %s 成功解析了 %d/%zu 个依赖\n",
+           module->name, resolved_count, deps->count);
+
+    return (resolved_count == (int)deps->count) ? 0 : -1;
 }
 
 // 符号哈希函数
@@ -588,10 +728,22 @@ static void clear_symbol_cache(void) {
     }
 }
 
-// 注册依赖 (暂时禁用，需要重构为缓存机制)
+// 注册依赖 (通过模块索引)
 static int register_dependency(size_t module_index, const char* dep_name) {
-    // TODO: 重构为缓存机制
-    return 0;  // 暂时返回成功
+    if (module_index >= MAX_MODULES || !dep_name) return -1;
+
+    if (module_index >= module_cache.count) {
+        printf("Module: 错误: 模块索引 %zu 超出范围\n", module_index);
+        return -1;
+    }
+
+    Module* module = module_cache.loaded_modules[module_index];
+    if (!module) {
+        printf("Module: 错误: 模块索引 %zu 对应的模块为空\n", module_index);
+        return -1;
+    }
+
+    return module_register_dependency(module, dep_name);
 }
 
 // ===============================================
@@ -808,6 +960,14 @@ static struct {
     {"module_get_error", module_get_error},
     {"resolve_native_file", resolve_native_file},
     {"load_module", load_module},
+
+    // 依赖管理接口
+    {"module_register_dependency", module_register_dependency},
+    {"module_register_dependencies", module_register_dependencies},
+    {"module_get_dependencies", module_get_dependencies},
+    {"resolve_dependencies", resolve_dependencies},
+    {"register_dependency", register_dependency},
+
     {NULL, NULL}
 };
 

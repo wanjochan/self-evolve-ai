@@ -677,4 +677,6 @@ ASTCProgram* astc_load_program(const char* astc_file);
 void astc_free_program(ASTCProgram* program);
 int astc_validate_program(const ASTCProgram* program);
 
+
+
 #endif // ASTC_H

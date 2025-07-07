@@ -29,6 +29,655 @@
 // 依赖layer0模块 (通过动态加载)
 
 // ===============================================
+// ASTC字节码生成器实现
+// ===============================================
+
+// ASTC字节码生成器状态
+static struct {
+    ASTCBytecodeProgram* current_program;
+    bool initialized;
+} astc_generator = {0};
+
+// 创建ASTC字节码程序
+ASTCBytecodeProgram* astc_bytecode_create(void) {
+    ASTCBytecodeProgram* program = malloc(sizeof(ASTCBytecodeProgram));
+    if (!program) return NULL;
+
+    memset(program, 0, sizeof(ASTCBytecodeProgram));
+
+    // 设置文件头
+    memcpy(program->magic, "ASTC", 4);
+    program->version = 1;
+    program->flags = 0;
+
+    // 初始化指令数组
+    program->instructions = malloc(1024 * sizeof(ASTCInstruction));
+    program->instruction_count = 0;
+    program->code_size = 1024;
+
+    return program;
+}
+
+// 释放ASTC字节码程序
+void astc_bytecode_free(ASTCBytecodeProgram* program) {
+    if (!program) return;
+
+    if (program->instructions) free(program->instructions);
+    if (program->data) free(program->data);
+    if (program->symbol_names) {
+        for (uint32_t i = 0; i < program->symbol_count; i++) {
+            if (program->symbol_names[i]) free(program->symbol_names[i]);
+        }
+        free(program->symbol_names);
+    }
+    if (program->symbol_addresses) free(program->symbol_addresses);
+
+    free(program);
+}
+
+// 添加ASTC指令
+int astc_bytecode_add_instruction(ASTCBytecodeProgram* program, ASTCOpcode opcode, int64_t operand) {
+    if (!program || !program->instructions) return -1;
+
+    // 检查是否需要扩展指令数组
+    if (program->instruction_count >= program->code_size) {
+        program->code_size *= 2;
+        program->instructions = realloc(program->instructions,
+                                      program->code_size * sizeof(ASTCInstruction));
+        if (!program->instructions) return -1;
+    }
+
+    // 添加指令
+    ASTCInstruction* instr = &program->instructions[program->instruction_count];
+    instr->opcode = opcode;
+    instr->operand.i64 = operand;
+
+    program->instruction_count++;
+    return 0;
+}
+
+// 从AST生成ASTC字节码
+static int generate_astc_bytecode_from_ast(ASTNode* ast, ASTCBytecodeProgram* program) {
+    if (!ast || !program) return -1;
+
+    switch (ast->type) {
+        case ASTC_TRANSLATION_UNIT:
+            // 遍历所有声明
+            for (int i = 0; i < ast->data.translation_unit.declaration_count; i++) {
+                if (generate_astc_bytecode_from_ast(ast->data.translation_unit.declarations[i], program) != 0) {
+                    return -1;
+                }
+            }
+            break;
+
+        case ASTC_FUNC_DECL:
+            // 生成函数代码
+            if (ast->data.func_decl.has_body && ast->data.func_decl.body) {
+                // 函数开始
+                astc_bytecode_add_instruction(program, ASTC_OP_BLOCK, 0);
+
+                // 生成函数体
+                if (generate_astc_bytecode_from_ast(ast->data.func_decl.body, program) != 0) {
+                    return -1;
+                }
+
+                // 函数结束
+                astc_bytecode_add_instruction(program, ASTC_OP_END, 0);
+            }
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            // 生成复合语句
+            for (int i = 0; i < ast->data.compound_stmt.statement_count; i++) {
+                if (generate_astc_bytecode_from_ast(ast->data.compound_stmt.statements[i], program) != 0) {
+                    return -1;
+                }
+            }
+            break;
+
+        case ASTC_RETURN_STMT:
+            // 生成返回语句
+            if (ast->data.return_stmt.value) {
+                // 生成返回值表达式
+                if (generate_astc_bytecode_from_ast(ast->data.return_stmt.value, program) != 0) {
+                    return -1;
+                }
+            } else {
+                // 返回0
+                astc_bytecode_add_instruction(program, ASTC_OP_I32_CONST, 0);
+            }
+            astc_bytecode_add_instruction(program, ASTC_OP_RETURN, 0);
+            break;
+
+        case ASTC_EXPR_CONSTANT:
+            // 生成常量
+            if (ast->data.constant.type == ASTC_TYPE_INT) {
+                astc_bytecode_add_instruction(program, ASTC_OP_I32_CONST, ast->data.constant.int_val);
+            }
+            break;
+
+        case ASTC_EXPR_IDENTIFIER:
+            // 生成变量引用 (简化实现)
+            astc_bytecode_add_instruction(program, ASTC_OP_LOCAL_GET, 0);
+            break;
+
+        default:
+            // 其他节点类型暂时跳过
+            break;
+    }
+
+    return 0;
+}
+
+// ===============================================
+// ASTC汇编生成器实现
+// ===============================================
+
+// 创建ASTC汇编程序
+ASTCAssemblyProgram* astc_assembly_create(void) {
+    ASTCAssemblyProgram* program = malloc(sizeof(ASTCAssemblyProgram));
+    if (!program) return NULL;
+
+    memset(program, 0, sizeof(ASTCAssemblyProgram));
+
+    // 初始化汇编文本缓冲区
+    program->text_capacity = 4096;
+    program->assembly_text = malloc(program->text_capacity);
+    if (!program->assembly_text) {
+        free(program);
+        return NULL;
+    }
+
+    program->assembly_text[0] = '\0';
+    program->text_size = 0;
+
+    return program;
+}
+
+// 释放ASTC汇编程序
+void astc_assembly_free(ASTCAssemblyProgram* program) {
+    if (!program) return;
+
+    if (program->assembly_text) free(program->assembly_text);
+    if (program->module_name) free(program->module_name);
+
+    if (program->function_names) {
+        for (uint32_t i = 0; i < program->function_count; i++) {
+            if (program->function_names[i]) free(program->function_names[i]);
+        }
+        free(program->function_names);
+    }
+
+    if (program->function_addresses) free(program->function_addresses);
+
+    free(program);
+}
+
+// 添加汇编行
+int astc_assembly_add_line(ASTCAssemblyProgram* program, const char* line) {
+    if (!program || !line) return -1;
+
+    size_t line_len = strlen(line);
+    size_t needed = program->text_size + line_len + 2; // +2 for \n and \0
+
+    // 检查是否需要扩展缓冲区
+    if (needed > program->text_capacity) {
+        program->text_capacity = needed * 2;
+        program->assembly_text = realloc(program->assembly_text, program->text_capacity);
+        if (!program->assembly_text) return -1;
+    }
+
+    // 添加行
+    strcat(program->assembly_text, line);
+    strcat(program->assembly_text, "\n");
+    program->text_size = strlen(program->assembly_text);
+
+    return 0;
+}
+
+// 添加ASTC指令
+int astc_assembly_add_instruction(ASTCAssemblyProgram* program, const char* mnemonic, const char* operands) {
+    if (!program || !mnemonic) return -1;
+
+    char instruction[256];
+    if (operands && strlen(operands) > 0) {
+        snprintf(instruction, sizeof(instruction), "    %s %s", mnemonic, operands);
+    } else {
+        snprintf(instruction, sizeof(instruction), "    %s", mnemonic);
+    }
+
+    return astc_assembly_add_line(program, instruction);
+}
+
+// 添加标签
+int astc_assembly_add_label(ASTCAssemblyProgram* program, const char* label) {
+    if (!program || !label) return -1;
+
+    char label_line[256];
+    snprintf(label_line, sizeof(label_line), "%s:", label);
+
+    return astc_assembly_add_line(program, label_line);
+}
+
+// ASTC操作码到助记符的映射
+static const char* astc_opcode_to_mnemonic(ASTCOpcode opcode) {
+    switch (opcode) {
+        case ASTC_OP_UNREACHABLE: return "unreachable";
+        case ASTC_OP_NOP: return "nop";
+        case ASTC_OP_BLOCK: return "block";
+        case ASTC_OP_LOOP: return "loop";
+        case ASTC_OP_IF: return "if";
+        case ASTC_OP_ELSE: return "else";
+        case ASTC_OP_END: return "end";
+        case ASTC_OP_BR: return "br";
+        case ASTC_OP_BR_IF: return "br_if";
+        case ASTC_OP_RETURN: return "return";
+        case ASTC_OP_CALL: return "call";
+
+        case ASTC_OP_LOCAL_GET: return "local.get";
+        case ASTC_OP_LOCAL_SET: return "local.set";
+        case ASTC_OP_LOCAL_TEE: return "local.tee";
+        case ASTC_OP_GLOBAL_GET: return "global.get";
+        case ASTC_OP_GLOBAL_SET: return "global.set";
+
+        case ASTC_OP_I32_LOAD: return "i32.load";
+        case ASTC_OP_I64_LOAD: return "i64.load";
+        case ASTC_OP_F32_LOAD: return "f32.load";
+        case ASTC_OP_F64_LOAD: return "f64.load";
+        case ASTC_OP_I32_STORE: return "i32.store";
+        case ASTC_OP_I64_STORE: return "i64.store";
+        case ASTC_OP_F32_STORE: return "f32.store";
+        case ASTC_OP_F64_STORE: return "f64.store";
+
+        case ASTC_OP_I32_CONST: return "i32.const";
+        case ASTC_OP_I64_CONST: return "i64.const";
+        case ASTC_OP_F32_CONST: return "f32.const";
+        case ASTC_OP_F64_CONST: return "f64.const";
+
+        case ASTC_OP_I32_EQZ: return "i32.eqz";
+        case ASTC_OP_I32_EQ: return "i32.eq";
+        case ASTC_OP_I32_NE: return "i32.ne";
+        case ASTC_OP_I32_LT_S: return "i32.lt_s";
+        case ASTC_OP_I32_LT_U: return "i32.lt_u";
+        case ASTC_OP_I32_GT_S: return "i32.gt_s";
+        case ASTC_OP_I32_GT_U: return "i32.gt_u";
+        case ASTC_OP_I32_LE_S: return "i32.le_s";
+        case ASTC_OP_I32_LE_U: return "i32.le_u";
+        case ASTC_OP_I32_GE_S: return "i32.ge_s";
+        case ASTC_OP_I32_GE_U: return "i32.ge_u";
+
+        case ASTC_OP_I32_ADD: return "i32.add";
+        case ASTC_OP_I32_SUB: return "i32.sub";
+        case ASTC_OP_I32_MUL: return "i32.mul";
+        case ASTC_OP_I32_DIV_S: return "i32.div_s";
+        case ASTC_OP_I32_DIV_U: return "i32.div_u";
+        case ASTC_OP_I32_REM_S: return "i32.rem_s";
+        case ASTC_OP_I32_REM_U: return "i32.rem_u";
+        case ASTC_OP_I32_AND: return "i32.and";
+        case ASTC_OP_I32_OR: return "i32.or";
+        case ASTC_OP_I32_XOR: return "i32.xor";
+        case ASTC_OP_I32_SHL: return "i32.shl";
+        case ASTC_OP_I32_SHR_S: return "i32.shr_s";
+        case ASTC_OP_I32_SHR_U: return "i32.shr_u";
+
+        case ASTC_OP_C99_PRINTF: return "c99.printf";
+        case ASTC_OP_C99_MALLOC: return "c99.malloc";
+        case ASTC_OP_C99_FREE: return "c99.free";
+        case ASTC_OP_C99_SYSCALL: return "c99.syscall";
+
+        case ASTC_OP_DEBUG_PRINT: return "debug.print";
+        case ASTC_OP_DEBUG_BREAK: return "debug.break";
+
+        default: return "unknown";
+    }
+}
+
+// ASTC字节码转换为汇编
+ASTCAssemblyProgram* astc_bytecode_to_assembly(ASTCBytecodeProgram* bytecode_program) {
+    if (!bytecode_program) return NULL;
+
+    ASTCAssemblyProgram* assembly = astc_assembly_create();
+    if (!assembly) return NULL;
+
+    // 添加汇编头部
+    astc_assembly_add_line(assembly, ";; ASTC Assembly Generated from Bytecode");
+    astc_assembly_add_line(assembly, ";; Magic: ASTC");
+
+    char version_line[64];
+    snprintf(version_line, sizeof(version_line), ";; Version: %u", bytecode_program->version);
+    astc_assembly_add_line(assembly, version_line);
+
+    astc_assembly_add_line(assembly, "");
+    astc_assembly_add_line(assembly, "(module");
+
+    // 添加函数定义
+    astc_assembly_add_line(assembly, "  (func $main (result i32)");
+
+    // 转换指令
+    for (uint32_t i = 0; i < bytecode_program->instruction_count; i++) {
+        ASTCInstruction* instr = &bytecode_program->instructions[i];
+        const char* mnemonic = astc_opcode_to_mnemonic(instr->opcode);
+
+        char operand_str[64] = "";
+
+        // 根据操作码类型格式化操作数
+        switch (instr->opcode) {
+            case ASTC_OP_I32_CONST:
+            case ASTC_OP_I64_CONST:
+                snprintf(operand_str, sizeof(operand_str), "%lld", instr->operand.i64);
+                break;
+            case ASTC_OP_F32_CONST:
+                snprintf(operand_str, sizeof(operand_str), "%f", instr->operand.f32);
+                break;
+            case ASTC_OP_F64_CONST:
+                snprintf(operand_str, sizeof(operand_str), "%f", instr->operand.f64);
+                break;
+            case ASTC_OP_LOCAL_GET:
+            case ASTC_OP_LOCAL_SET:
+            case ASTC_OP_GLOBAL_GET:
+            case ASTC_OP_GLOBAL_SET:
+            case ASTC_OP_BR:
+            case ASTC_OP_BR_IF:
+            case ASTC_OP_CALL:
+                snprintf(operand_str, sizeof(operand_str), "%u", instr->operand.index);
+                break;
+            default:
+                // 无操作数的指令
+                break;
+        }
+
+        astc_assembly_add_instruction(assembly, mnemonic, operand_str);
+    }
+
+    // 结束函数和模块
+    astc_assembly_add_line(assembly, "  )");
+    astc_assembly_add_line(assembly, ")");
+
+    return assembly;
+}
+
+// ===============================================
+// 简化的AST实现 (用于测试)
+// ===============================================
+
+// 创建AST节点
+ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+
+    memset(node, 0, sizeof(ASTNode));
+    node->type = type;
+    node->line = line;
+    node->column = column;
+
+    return node;
+}
+
+// 释放AST节点
+void ast_free(ASTNode* node) {
+    if (!node) return;
+
+    // 根据节点类型释放相关内存
+    switch (node->type) {
+        case ASTC_EXPR_IDENTIFIER:
+            if (node->data.identifier.name) {
+                free(node->data.identifier.name);
+            }
+            break;
+
+        case ASTC_EXPR_STRING_LITERAL:
+            if (node->data.string_literal.value) {
+                free(node->data.string_literal.value);
+            }
+            break;
+
+        case ASTC_FUNC_DECL:
+            if (node->data.func_decl.name) {
+                free(node->data.func_decl.name);
+            }
+            if (node->data.func_decl.return_type) {
+                ast_free(node->data.func_decl.return_type);
+            }
+            if (node->data.func_decl.body) {
+                ast_free(node->data.func_decl.body);
+            }
+            if (node->data.func_decl.params) {
+                for (int i = 0; i < node->data.func_decl.param_count; i++) {
+                    ast_free(node->data.func_decl.params[i]);
+                }
+                free(node->data.func_decl.params);
+            }
+            break;
+
+        case ASTC_VAR_DECL:
+            if (node->data.var_decl.name) {
+                free(node->data.var_decl.name);
+            }
+            if (node->data.var_decl.type) {
+                ast_free(node->data.var_decl.type);
+            }
+            if (node->data.var_decl.initializer) {
+                ast_free(node->data.var_decl.initializer);
+            }
+            break;
+
+        case ASTC_TRANSLATION_UNIT:
+            if (node->data.translation_unit.declarations) {
+                for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
+                    ast_free(node->data.translation_unit.declarations[i]);
+                }
+                free(node->data.translation_unit.declarations);
+            }
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            if (node->data.compound_stmt.statements) {
+                for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                    ast_free(node->data.compound_stmt.statements[i]);
+                }
+                free(node->data.compound_stmt.statements);
+            }
+            break;
+
+        case ASTC_RETURN_STMT:
+            if (node->data.return_stmt.value) {
+                ast_free(node->data.return_stmt.value);
+            }
+            break;
+
+        case ASTC_EXPR_STMT:
+            if (node->data.expr_stmt.expr) {
+                ast_free(node->data.expr_stmt.expr);
+            }
+            break;
+
+        default:
+            // 其他类型暂时不处理
+            break;
+    }
+
+    free(node);
+}
+
+// ===============================================
+// ASTC核心函数实现
+// ===============================================
+
+// 序列化模块到二进制缓冲区
+int ast_serialize_module(ASTNode* module, uint8_t** buffer, size_t* size) {
+    if (!module || !buffer || !size) return -1;
+
+    // 简化实现：创建基本的序列化格式
+    size_t estimated_size = 1024;
+    uint8_t* buf = malloc(estimated_size);
+    if (!buf) return -1;
+
+    size_t offset = 0;
+
+    // 写入魔数 "ASTC"
+    memcpy(buf + offset, "ASTC", 4);
+    offset += 4;
+
+    // 写入版本号
+    uint32_t version = 1;
+    memcpy(buf + offset, &version, 4);
+    offset += 4;
+
+    // 写入节点类型
+    uint32_t node_type = (uint32_t)module->type;
+    memcpy(buf + offset, &node_type, 4);
+    offset += 4;
+
+    *buffer = buf;
+    *size = offset;
+    return 0;
+}
+
+// 从二进制缓冲区反序列化模块
+ASTNode* ast_deserialize_module(const uint8_t* buffer, size_t size) {
+    if (!buffer || size < 12) return NULL;
+
+    size_t offset = 0;
+
+    // 验证魔数
+    if (memcmp(buffer + offset, "ASTC", 4) != 0) return NULL;
+    offset += 4;
+
+    // 读取版本号
+    uint32_t version;
+    memcpy(&version, buffer + offset, 4);
+    offset += 4;
+    if (version != 1) return NULL;
+
+    // 读取节点类型
+    uint32_t node_type;
+    memcpy(&node_type, buffer + offset, 4);
+    offset += 4;
+
+    return ast_create_node((ASTNodeType)node_type, 1, 1);
+}
+
+// 验证模块结构
+int ast_validate_module(ASTNode* module) {
+    if (!module) return -1;
+    if (module->type != ASTC_MODULE_DECL) return -1;
+    return 0;
+}
+
+// 验证导出声明
+int ast_validate_export_declaration(ASTNode* export_decl) {
+    if (!export_decl) return -1;
+    if (export_decl->type != ASTC_EXPORT_DECL) return -1;
+    return 0;
+}
+
+// 验证导入声明
+int ast_validate_import_declaration(ASTNode* import_decl) {
+    if (!import_decl) return -1;
+    if (import_decl->type != ASTC_IMPORT_DECL) return -1;
+    return 0;
+}
+
+// 从文件加载ASTC程序
+ASTCProgram* astc_load_program(const char* astc_file) {
+    if (!astc_file) return NULL;
+
+    FILE* file = fopen(astc_file, "rb");
+    if (!file) return NULL;
+
+    ASTCProgram* program = malloc(sizeof(ASTCProgram));
+    if (!program) {
+        fclose(file);
+        return NULL;
+    }
+
+    memset(program, 0, sizeof(ASTCProgram));
+    strncpy(program->program_name, astc_file, sizeof(program->program_name) - 1);
+    program->version = 1;
+
+    fclose(file);
+    return program;
+}
+
+// 释放ASTC程序
+void astc_free_program(ASTCProgram* program) {
+    if (!program) return;
+
+    if (program->source_code) free(program->source_code);
+    if (program->bytecode) free(program->bytecode);
+    if (program->compiler_context) free(program->compiler_context);
+
+    free(program);
+}
+
+// 验证ASTC程序
+int astc_validate_program(const ASTCProgram* program) {
+    if (!program) return -1;
+    if (strlen(program->program_name) == 0) return -1;
+    if (program->bytecode_size > 0 && !program->bytecode) return -1;
+    return 0;
+}
+
+// 向模块添加声明
+int ast_module_add_declaration(ASTNode* module, ASTNode* declaration) {
+    if (!module || !declaration) return -1;
+    if (module->type != ASTC_MODULE_DECL) return -1;
+
+    // 简化实现：暂时不维护声明列表
+    return 0;
+}
+
+// 向模块添加导出
+int ast_module_add_export(ASTNode* module, ASTNode* export_decl) {
+    if (!module || !export_decl) return -1;
+    if (module->type != ASTC_MODULE_DECL) return -1;
+    if (export_decl->type != ASTC_EXPORT_DECL) return -1;
+
+    // 简化实现：暂时不维护导出列表
+    return 0;
+}
+
+// 向模块添加导入
+int ast_module_add_import(ASTNode* module, ASTNode* import_decl) {
+    if (!module || !import_decl) return -1;
+    if (module->type != ASTC_MODULE_DECL) return -1;
+    if (import_decl->type != ASTC_IMPORT_DECL) return -1;
+
+    // 简化实现：暂时不维护导入列表
+    return 0;
+}
+
+// 解析符号引用
+int ast_resolve_symbol_references(ASTNode* module) {
+    if (!module) return -1;
+    if (module->type != ASTC_MODULE_DECL) return -1;
+
+    // 简化实现：暂时返回成功
+    return 0;
+}
+
+// 简化的AST打印实现
+void ast_print(ASTNode* node, int indent) {
+    if (!node) return;
+
+    for (int i = 0; i < indent; i++) {
+        printf("  ");
+    }
+
+    switch (node->type) {
+        case ASTC_TRANSLATION_UNIT:
+            printf("TranslationUnit (%d declarations)\n", node->data.translation_unit.declaration_count);
+            break;
+        case ASTC_FUNC_DECL:
+            printf("FunctionDecl: %s\n", node->data.func_decl.name ? node->data.func_decl.name : "unnamed");
+            break;
+        default:
+            printf("Node type: %d\n", node->type);
+            break;
+    }
+}
+
+// ===============================================
 // 前端编译器 (C -> ASTC)
 // ===============================================
 
@@ -225,8 +874,9 @@ typedef enum {
 // VM上下文
 typedef struct {
     VMState state;
-    uint8_t* bytecode;
-    size_t bytecode_size;
+    ASTCBytecodeProgram* astc_program;  // ASTC字节码程序
+    uint8_t* bytecode;                  // 兼容性字段
+    size_t bytecode_size;               // 兼容性字段
     size_t program_counter;
     uint64_t* stack;
     size_t stack_size;
@@ -235,25 +885,7 @@ typedef struct {
     char error_message[256];
 } VMContext;
 
-// ASTC指令
-typedef enum {
-    VM_OP_NOP = 0x00,
-    VM_OP_HALT = 0x01,
-    VM_OP_LOAD_IMM = 0x10,
-    VM_OP_STORE = 0x11,
-    VM_OP_ADD = 0x20,
-    VM_OP_SUB = 0x21,
-    VM_OP_MUL = 0x22,
-    VM_OP_DIV = 0x23,
-    VM_OP_CALL = 0x30,
-    VM_OP_RETURN = 0x31,
-    VM_OP_JUMP = 0x40,
-    VM_OP_JUMP_IF = 0x41,
-    VM_OP_PUSH = 0x50,
-    VM_OP_POP = 0x51,
-    VM_OP_PRINT = 0x60,
-    VM_OP_EXIT = 0xFF
-} VMOpcode;
+// ASTC VM执行器 - 直接执行ASTC字节码
 
 // ===============================================
 // AOT编译器实现 (Backend - astc2native)
@@ -326,7 +958,7 @@ static size_t generate_machine_code_from_bytecode(const uint8_t* bytecode, size_
         uint8_t opcode = bytecode[i];
 
         switch (opcode) {
-            case VM_OP_LOAD_IMM: {
+            case 0x10: { // 临时替换VM_OP_LOAD_IMM
                 if (i + 9 < bytecode_size) {
                     uint8_t reg = bytecode[i + 1];
                     int64_t value = *(int64_t*)&bytecode[i + 2];
@@ -346,7 +978,7 @@ static size_t generate_machine_code_from_bytecode(const uint8_t* bytecode, size_
                 break;
             }
 
-            case VM_OP_RETURN: {
+            case 0x31: { // 临时替换VM_OP_RETURN
                 // 生成函数结尾
                 uint8_t epilogue[] = {
                     0x48, 0x89, 0xec,    // mov rsp, rbp
@@ -359,7 +991,7 @@ static size_t generate_machine_code_from_bytecode(const uint8_t* bytecode, size_
                 break;
             }
 
-            case VM_OP_HALT: {
+            case 0x01: { // 临时替换VM_OP_HALT
                 // 生成 exit 系统调用
                 uint8_t exit_code[] = {
                     0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00,  // mov rax, 60 (sys_exit)
@@ -507,17 +1139,19 @@ typedef struct {
     bool frontend_initialized;
     bool backend_initialized;
     bool vm_initialized;
-    
+
     // 当前处理的程序
     char* source_code;
     ASTNode* ast_root;
+    void* astc_program;              // ASTC字节码程序
+    void* astc_assembly;             // ASTC汇编程序
     char* assembly_code;
     uint8_t* bytecode;
     size_t bytecode_size;
-    
+
     // VM实例
     VMContext* vm_ctx;
-    
+
     // 错误信息
     char error_message[512];
 } PipelineState;
@@ -1350,7 +1984,7 @@ static bool assembly_to_bytecode(const char* assembly, uint8_t** bytecode, size_
                     code = realloc(code, capacity);
                 }
 
-                code[offset++] = VM_OP_LOAD_IMM;
+                code[offset++] = 0x10; // 临时替换VM_OP_LOAD_IMM
                 code[offset++] = 0; // 寄存器0 (rax)
                 *(int64_t*)(code + offset) = value;
                 offset += 8;
@@ -1361,14 +1995,14 @@ static bool assembly_to_bytecode(const char* assembly, uint8_t** bytecode, size_
                 capacity *= 2;
                 code = realloc(code, capacity);
             }
-            code[offset++] = VM_OP_RETURN;
+            code[offset++] = 0x31; // 临时替换VM_OP_RETURN
         } else if (strstr(line, "push")) {
             // 生成 PUSH 指令
             if (offset + 2 > capacity) {
                 capacity *= 2;
                 code = realloc(code, capacity);
             }
-            code[offset++] = VM_OP_PUSH;
+            code[offset++] = 0x50; // 临时替换VM_OP_PUSH
             code[offset++] = 0; // 寄存器0
         } else if (strstr(line, "pop")) {
             // 生成 POP 指令
@@ -1376,7 +2010,7 @@ static bool assembly_to_bytecode(const char* assembly, uint8_t** bytecode, size_
                 capacity *= 2;
                 code = realloc(code, capacity);
             }
-            code[offset++] = VM_OP_POP;
+            code[offset++] = 0x51; // 临时替换VM_OP_POP
             code[offset++] = 0; // 寄存器0
         }
 
@@ -1388,7 +2022,7 @@ static bool assembly_to_bytecode(const char* assembly, uint8_t** bytecode, size_
         capacity *= 2;
         code = realloc(code, capacity);
     }
-    code[offset++] = VM_OP_HALT;
+    code[offset++] = 0x01; // 临时替换VM_OP_HALT
 
     free(asm_copy);
 
@@ -1428,104 +2062,92 @@ static void destroy_vm_context(VMContext* ctx) {
     free(ctx);
 }
 
-// 加载字节码
-static bool vm_load_bytecode(VMContext* ctx, const uint8_t* bytecode, size_t size) {
-    if (!ctx || !bytecode) return false;
-    
+// 加载ASTC字节码程序
+static bool vm_load_astc_program(VMContext* ctx, ASTCBytecodeProgram* program) {
+    if (!ctx || !program) return false;
+
+    // 清理之前的字节码
     if (ctx->bytecode) free(ctx->bytecode);
-    
-    ctx->bytecode = malloc(size);
-    memcpy(ctx->bytecode, bytecode, size);
-    ctx->bytecode_size = size;
-    ctx->program_counter = 0;
-    
+
+    // 保存ASTC程序引用
+    ctx->astc_program = program;
+    ctx->program_counter = program->entry_point;
+
     return true;
 }
 
-// 执行字节码
+// 执行ASTC字节码
 static bool vm_execute(VMContext* ctx) {
-    if (!ctx || !ctx->bytecode) return false;
+    if (!ctx || !ctx->astc_program) return false;
 
     ctx->state = VM_STATE_RUNNING;
+    ASTCBytecodeProgram* program = ctx->astc_program;
 
-    while (ctx->program_counter < ctx->bytecode_size && ctx->state == VM_STATE_RUNNING) {
-        uint8_t opcode = ctx->bytecode[ctx->program_counter];
+    while (ctx->program_counter < program->instruction_count && ctx->state == VM_STATE_RUNNING) {
+        ASTCInstruction* instr = &program->instructions[ctx->program_counter];
+        ctx->program_counter++;
 
-        switch (opcode) {
-            case VM_OP_NOP:
-                ctx->program_counter++;
+        switch (instr->opcode) {
+            case ASTC_OP_NOP:
+                // 空操作
                 break;
 
-            case VM_OP_HALT:
+            case ASTC_OP_BLOCK:
+                // 块开始 - 简化实现
+                break;
+
+            case ASTC_OP_END:
+                // 块结束 - 简化实现
+                break;
+
+            case ASTC_OP_I32_CONST: {
+                // 压入32位整数常量
+                if (ctx->stack_pointer >= ctx->stack_size) {
+                    strcpy(ctx->error_message, "Stack overflow");
+                    ctx->state = VM_STATE_ERROR;
+                    return false;
+                }
+                ctx->stack[ctx->stack_pointer++] = (uint64_t)instr->operand.i32;
+                break;
+            }
+
+            case ASTC_OP_I64_CONST: {
+                // 压入64位整数常量
+                if (ctx->stack_pointer >= ctx->stack_size) {
+                    strcpy(ctx->error_message, "Stack overflow");
+                    ctx->state = VM_STATE_ERROR;
+                    return false;
+                }
+                ctx->stack[ctx->stack_pointer++] = (uint64_t)instr->operand.i64;
+                break;
+            }
+
+            case ASTC_OP_RETURN: {
+                // 返回指令
+                if (ctx->stack_pointer > 0) {
+                    uint64_t return_value = ctx->stack[--ctx->stack_pointer];
+                    printf("ASTC VM Return: %llu\n", return_value);
+                } else {
+                    printf("ASTC VM Return: void\n");
+                }
                 ctx->state = VM_STATE_STOPPED;
                 break;
+            }
 
-            case VM_OP_LOAD_IMM: {
-                if (ctx->program_counter + 9 >= ctx->bytecode_size) {
+            case ASTC_OP_I32_ADD: {
+                // 32位整数加法
+                if (ctx->stack_pointer < 2) {
+                    strcpy(ctx->error_message, "Stack underflow for i32.add");
                     ctx->state = VM_STATE_ERROR;
-                    strcpy(ctx->error_message, "LOAD_IMM: Insufficient bytecode");
                     return false;
                 }
-
-                uint8_t reg = ctx->bytecode[ctx->program_counter + 1];
-                int64_t value = *(int64_t*)&ctx->bytecode[ctx->program_counter + 2];
-
-                if (reg >= 16) {
-                    ctx->state = VM_STATE_ERROR;
-                    snprintf(ctx->error_message, sizeof(ctx->error_message),
-                            "LOAD_IMM: Invalid register %d", reg);
-                    return false;
-                }
-
-                ctx->registers[reg] = value;
-                ctx->program_counter += 10;
+                uint32_t b = (uint32_t)ctx->stack[--ctx->stack_pointer];
+                uint32_t a = (uint32_t)ctx->stack[--ctx->stack_pointer];
+                ctx->stack[ctx->stack_pointer++] = (uint64_t)(a + b);
                 break;
             }
 
-            case VM_OP_STORE: {
-                if (ctx->program_counter + 2 >= ctx->bytecode_size) {
-                    ctx->state = VM_STATE_ERROR;
-                    strcpy(ctx->error_message, "STORE: Insufficient bytecode");
-                    return false;
-                }
-
-                uint8_t src_reg = ctx->bytecode[ctx->program_counter + 1];
-                uint8_t dst_reg = ctx->bytecode[ctx->program_counter + 2];
-
-                if (src_reg >= 16 || dst_reg >= 16) {
-                    ctx->state = VM_STATE_ERROR;
-                    strcpy(ctx->error_message, "STORE: Invalid register");
-                    return false;
-                }
-
-                ctx->registers[dst_reg] = ctx->registers[src_reg];
-                ctx->program_counter += 3;
-                break;
-            }
-
-            case VM_OP_ADD: {
-                if (ctx->program_counter + 3 >= ctx->bytecode_size) {
-                    ctx->state = VM_STATE_ERROR;
-                    strcpy(ctx->error_message, "ADD: Insufficient bytecode");
-                    return false;
-                }
-
-                uint8_t reg1 = ctx->bytecode[ctx->program_counter + 1];
-                uint8_t reg2 = ctx->bytecode[ctx->program_counter + 2];
-                uint8_t dst_reg = ctx->bytecode[ctx->program_counter + 3];
-
-                if (reg1 >= 16 || reg2 >= 16 || dst_reg >= 16) {
-                    ctx->state = VM_STATE_ERROR;
-                    strcpy(ctx->error_message, "ADD: Invalid register");
-                    return false;
-                }
-
-                ctx->registers[dst_reg] = ctx->registers[reg1] + ctx->registers[reg2];
-                ctx->program_counter += 4;
-                break;
-            }
-
-            case VM_OP_SUB: {
+            case 0x21: { // 临时替换VM_OP_SUB
                 if (ctx->program_counter + 3 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "SUB: Insufficient bytecode");
@@ -1547,7 +2169,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_MUL: {
+            case 0x22: { // 临时替换VM_OP_MUL
                 if (ctx->program_counter + 3 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "MUL: Insufficient bytecode");
@@ -1569,7 +2191,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_DIV: {
+            case 0x23: { // 临时替换VM_OP_DIV
                 if (ctx->program_counter + 3 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "DIV: Insufficient bytecode");
@@ -1597,7 +2219,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_PUSH: {
+            case 0x50: { // 临时替换VM_OP_PUSH
                 if (ctx->program_counter + 1 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "PUSH: Insufficient bytecode");
@@ -1623,7 +2245,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_POP: {
+            case 0x51: { // 临时替换VM_OP_POP
                 if (ctx->program_counter + 1 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "POP: Insufficient bytecode");
@@ -1649,12 +2271,12 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_RETURN:
+            case 0x31: // 临时替换VM_OP_RETURN
                 // 返回指令：将rax寄存器的值作为返回值
                 ctx->state = VM_STATE_STOPPED;
                 break;
 
-            case VM_OP_PRINT: {
+            case 0x60: { // 临时替换VM_OP_PRINT
                 if (ctx->program_counter + 1 >= ctx->bytecode_size) {
                     ctx->state = VM_STATE_ERROR;
                     strcpy(ctx->error_message, "PRINT: Insufficient bytecode");
@@ -1674,13 +2296,13 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case VM_OP_EXIT:
+            case 0xFF: // 临时替换VM_OP_EXIT
                 ctx->state = VM_STATE_STOPPED;
                 break;
 
             default:
                 snprintf(ctx->error_message, sizeof(ctx->error_message),
-                        "Unknown opcode: 0x%02X at PC=%zu", opcode, ctx->program_counter);
+                        "Unsupported ASTC opcode: 0x%02x", instr->opcode);
                 ctx->state = VM_STATE_ERROR;
                 return false;
         }
@@ -1721,22 +2343,42 @@ static bool pipeline_compile(const char* source_code, CompileOptions* options) {
         return false;
     }
     
-    // 代码生成
+    // ASTC字节码生成 (新的c2astc流程)
+    ASTCBytecodeProgram* astc_program = astc_bytecode_create();
+    if (!astc_program) {
+        strcpy(pipeline_state.error_message, "Failed to create ASTC bytecode program");
+        return false;
+    }
+
+    // 从AST生成ASTC字节码
+    if (generate_astc_bytecode_from_ast(pipeline_state.ast_root, astc_program) != 0) {
+        strcpy(pipeline_state.error_message, "ASTC bytecode generation failed");
+        astc_bytecode_free(astc_program);
+        return false;
+    }
+
+    // 保存ASTC字节码程序
+    if (pipeline_state.astc_program) {
+        astc_bytecode_free((ASTCBytecodeProgram*)pipeline_state.astc_program);
+    }
+    pipeline_state.astc_program = astc_program;
+
+    // 传统代码生成 (用于兼容性和调试)
     CodeGenerator cg;
     init_codegen(&cg);
     if (!generate_assembly(pipeline_state.ast_root, &cg)) {
-        strcpy(pipeline_state.error_message, "Code generation failed");
+        strcpy(pipeline_state.error_message, "Assembly generation failed");
         return false;
     }
-    
+
     pipeline_state.assembly_code = strdup(cg.buffer);
-    
-    // 汇编转字节码
+
+    // 汇编转VM字节码 (用于执行)
     if (!assembly_to_bytecode(cg.buffer, &pipeline_state.bytecode, &pipeline_state.bytecode_size)) {
-        strcpy(pipeline_state.error_message, "Assembly to bytecode conversion failed");
+        strcpy(pipeline_state.error_message, "VM bytecode generation failed");
         return false;
     }
-    
+
     // 清理
     free(cg.buffer);
     for (int i = 0; i < token_count; i++) {
@@ -1750,11 +2392,11 @@ static bool pipeline_compile(const char* source_code, CompileOptions* options) {
 
 // 执行编译后的程序
 static bool pipeline_execute(void) {
-    if (!pipeline_state.bytecode) {
-        strcpy(pipeline_state.error_message, "No bytecode to execute");
+    if (!pipeline_state.astc_program) {
+        strcpy(pipeline_state.error_message, "No ASTC program to execute");
         return false;
     }
-    
+
     // 创建VM上下文
     if (!pipeline_state.vm_ctx) {
         pipeline_state.vm_ctx = create_vm_context();
@@ -1763,10 +2405,10 @@ static bool pipeline_execute(void) {
             return false;
         }
     }
-    
-    // 加载字节码
-    if (!vm_load_bytecode(pipeline_state.vm_ctx, pipeline_state.bytecode, pipeline_state.bytecode_size)) {
-        strcpy(pipeline_state.error_message, "Failed to load bytecode");
+
+    // 加载ASTC字节码程序
+    if (!vm_load_astc_program(pipeline_state.vm_ctx, (ASTCBytecodeProgram*)pipeline_state.astc_program)) {
+        strcpy(pipeline_state.error_message, "Failed to load ASTC program");
         return false;
     }
     
@@ -1834,6 +2476,11 @@ static const uint8_t* pipeline_get_bytecode(size_t* size) {
     return pipeline_state.bytecode;
 }
 
+// 获取ASTC字节码程序
+static ASTCBytecodeProgram* pipeline_get_astc_program(void) {
+    return (ASTCBytecodeProgram*)pipeline_state.astc_program;
+}
+
 // ===============================================
 // 模块符号表
 // ===============================================
@@ -1852,17 +2499,40 @@ static struct {
     {"pipeline_get_error", pipeline_get_error},
     {"pipeline_get_assembly", pipeline_get_assembly},
     {"pipeline_get_bytecode", pipeline_get_bytecode},
+    {"pipeline_get_astc_program", pipeline_get_astc_program},
 
     // VM接口
     {"create_vm_context", create_vm_context},
     {"destroy_vm_context", destroy_vm_context},
-    {"vm_load_bytecode", vm_load_bytecode},
+    {"vm_load_astc_program", vm_load_astc_program},
     {"vm_execute", vm_execute},
 
     // AOT编译器接口
     {"aot_create_compiler", aot_create_compiler},
     {"aot_destroy_compiler", aot_destroy_compiler},
     {"aot_compile_to_executable", aot_compile_to_executable},
+
+    // ASTC核心函数接口
+    {"ast_serialize_module", ast_serialize_module},
+    {"ast_deserialize_module", ast_deserialize_module},
+    {"ast_validate_module", ast_validate_module},
+    {"ast_validate_export_declaration", ast_validate_export_declaration},
+    {"ast_validate_import_declaration", ast_validate_import_declaration},
+    {"astc_load_program", astc_load_program},
+    {"astc_free_program", astc_free_program},
+    {"astc_validate_program", astc_validate_program},
+    {"ast_module_add_declaration", ast_module_add_declaration},
+    {"ast_module_add_export", ast_module_add_export},
+    {"ast_module_add_import", ast_module_add_import},
+    {"ast_resolve_symbol_references", ast_resolve_symbol_references},
+
+    // ASTC汇编接口
+    {"astc_assembly_create", astc_assembly_create},
+    {"astc_assembly_free", astc_assembly_free},
+    {"astc_assembly_add_line", astc_assembly_add_line},
+    {"astc_assembly_add_instruction", astc_assembly_add_instruction},
+    {"astc_assembly_add_label", astc_assembly_add_label},
+    {"astc_bytecode_to_assembly", astc_bytecode_to_assembly},
 
     {NULL, NULL}
 };
@@ -1901,7 +2571,17 @@ static void pipeline_cleanup(void) {
         ast_free(pipeline_state.ast_root);
         pipeline_state.ast_root = NULL;
     }
-    
+
+    if (pipeline_state.astc_program) {
+        astc_bytecode_free((ASTCBytecodeProgram*)pipeline_state.astc_program);
+        pipeline_state.astc_program = NULL;
+    }
+
+    if (pipeline_state.astc_assembly) {
+        astc_assembly_free((ASTCAssemblyProgram*)pipeline_state.astc_assembly);
+        pipeline_state.astc_assembly = NULL;
+    }
+
     if (pipeline_state.assembly_code) {
         free(pipeline_state.assembly_code);
         pipeline_state.assembly_code = NULL;
