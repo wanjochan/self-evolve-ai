@@ -37,7 +37,17 @@ layer-loader:
 layer-runtime:
 原生字节码模块,针对特定架构 arch+bits
 加载和执行ASTC字节码,转发参数和环境还有结果
-//重点核心模块主要是vm、astc、libc、std
+//重点核心模块架构 (tunecore重构后):
+  1. module_module    - 模块管理器 (智能加载+符号解析)
+  2. layer0_module    - 基础功能 (memory+utils+std+libdl)
+  3. pipeline_module  - 编译流水线:
+     ├── frontend: c2astc (C代码→ASTC字节码)
+     ├── backend: codegen (ASTC字节码→ASTC汇编) + astc2native (AOT编译)
+     └── execution: astc + vm (ASTC字节码执行)
+  4. compiler_module  - 编译器集成:
+     ├── jit (即时编译，ASTC字节码→原生机器码)
+     └── ffi (外部函数接口，类似libffi)
+  5. libc_module      - C99标准库 (独立模块)
 
 layer-program:
 用户程序的ASTC字节码表示
@@ -46,8 +56,13 @@ layer-program:
 
 ### 核心技术
 - **ASTC字节码**: 可扩展的计算表示 (astc.[h|c])
-- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (native.[h|c])
-- **多种转换工具**: c2astc,astc2native,c2native等
+- **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (module.[h|c])
+- **模块化架构**: 4个核心模块提供完整功能栈
+  - pipeline_module: c2astc, codegen, astc2native, vm执行
+  - compiler_module: jit编译, ffi接口
+  - layer0_module: 基础服务 (内存、工具、标准库、动态加载)
+  - libc_module: C99标准库支持
+- **按需加载**: Python风格的模块加载机制 load_module("./module")
 
 ## 5. 实现路线图
 stage 1
@@ -64,15 +79,6 @@ dev roadmap (by human master)
 - build loader2 with c99 (then start to be free from tinycc)
 ```
 
-下面是临时笔记请忽略：
-```
-这几个模块似乎应该合并成同一个模块
-
-src/core/modules/astc2native_module.c
-src/core/modules/c2astc_module.c
-src/core/modules/codegen_module.c
-
-```
 
 stage 2
 

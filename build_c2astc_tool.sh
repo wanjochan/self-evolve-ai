@@ -20,7 +20,7 @@ mkdir -p bin
 echo "使用 TinyCC 编译 simple_c2astc..."
 $CC -o bin/c2astc \
     src/tools/simple_c2astc.c \
-    src/core/module.c \
+    src/core/modules/module_module.c \
     -Isrc/core \
     -std=c99 \
     -O2 \

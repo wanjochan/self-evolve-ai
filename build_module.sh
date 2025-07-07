@@ -9,20 +9,20 @@ set -e
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 定义路径
-MODULE_C="$SCRIPT_DIR/src/core/module.c"
-NATIVE_MODULE_C="$SCRIPT_DIR/src/core/modules/native_module.c"
+# 定义路径 - 使用新的模块架构
+MODULE_C="$SCRIPT_DIR/src/core/modules/module_module.c"
+LAYER0_MODULE_C="$SCRIPT_DIR/src/core/modules/layer0_module.c"
 BUILD_NATIVE_MODULE_C="$SCRIPT_DIR/src/tools/build_native_module.c"
 OUTPUT_BIN="$SCRIPT_DIR/bin/build_native_module"
 
 # 检查文件是否存在
 if [ ! -f "$MODULE_C" ]; then
-    echo "错误: module.c 未找到: $MODULE_C"
+    echo "错误: module_module.c 未找到: $MODULE_C"
     exit 1
 fi
 
-if [ ! -f "$NATIVE_MODULE_C" ]; then
-    echo "错误: native_module.c 未找到: $NATIVE_MODULE_C"
+if [ ! -f "$LAYER0_MODULE_C" ]; then
+    echo "错误: layer0_module.c 未找到: $LAYER0_MODULE_C"
     exit 1
 fi
 
@@ -35,9 +35,9 @@ fi
 mkdir -p "$SCRIPT_DIR/bin"
 
 # 编译
-echo "编译 build_native_module..."
-echo "使用 ./cc.sh 编译 $MODULE_C $NATIVE_MODULE_C $BUILD_NATIVE_MODULE_C -o $OUTPUT_BIN"
-"$SCRIPT_DIR/cc.sh" -I"$SCRIPT_DIR/src" "$MODULE_C" "$NATIVE_MODULE_C" "$BUILD_NATIVE_MODULE_C" -o "$OUTPUT_BIN"
+echo "编译 build_native_module (使用新模块架构)..."
+echo "使用 ./cc.sh 编译 $MODULE_C $LAYER0_MODULE_C $BUILD_NATIVE_MODULE_C -o $OUTPUT_BIN"
+"$SCRIPT_DIR/cc.sh" -I"$SCRIPT_DIR/src" "$MODULE_C" "$LAYER0_MODULE_C" "$BUILD_NATIVE_MODULE_C" -o "$OUTPUT_BIN"
 
 # 检查退出状态
 exit_code=$?

@@ -659,5 +659,4 @@ Module module_jit = {
     .resolve = jit_resolve
 };
 
-// Register the module
-// REGISTER_MODULE(jit); 
+// 注意：不再需要REGISTER_MODULE，使用动态加载机制

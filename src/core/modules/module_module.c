@@ -130,6 +130,12 @@ static void clear_symbol_cache(void);
 // 注册依赖
 static int register_dependency(size_t module_index, const char* dep_name);
 
+// 按需加载相关函数
+static const char* detect_architecture_string(void);
+static int detect_architecture_bits(void);
+static void* module_sym_impl(Module* self, const char* symbol_name);
+static Module* load_native_file_direct(const char* file_path, const char* module_path);
+
 // ===============================================
 // 模块API实现
 // ===============================================
@@ -281,6 +287,7 @@ Module* module_load(const char* name) {
 
     // 初始化模块信息
     module->name = strdup(name);
+    module->path = strdup(name);  // 对于传统加载，path和name相同
     module->state = MODULE_READY;
     module->error = NULL;
     module->native_handle = mapped;
@@ -289,6 +296,7 @@ Module* module_load(const char* name) {
     module->init = NULL;      // 动态加载的模块不使用这些函数指针
     module->cleanup = NULL;
     module->resolve = NULL;
+    module->sym = module_sym_impl;  // 设置符号解析接口
 
     // 添加到缓存
     if (module_cache.count < MAX_MODULES) {
@@ -334,10 +342,14 @@ void module_unload(Module* module) {
     // 清除相关符号缓存
     clear_symbol_cache();
 
-    // 释放模块名称
+    // 释放模块名称和路径
     if (module->name) {
         free((void*)module->name);
         module->name = NULL;
+    }
+    if (module->path) {
+        free((void*)module->path);
+        module->path = NULL;
     }
 
     // 从缓存中移除
@@ -583,6 +595,202 @@ static int register_dependency(size_t module_index, const char* dep_name) {
 }
 
 // ===============================================
+// 按需加载功能实现
+// ===============================================
+
+/**
+ * 检测当前架构
+ */
+static const char* detect_architecture_string(void) {
+#if defined(__x86_64__) || defined(_M_X64)
+    return "x64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+/**
+ * 检测当前架构位数
+ */
+static int detect_architecture_bits(void) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
+    return 64;
+#else
+    return 32;
+#endif
+}
+
+/**
+ * 智能路径解析 - 自动添加架构后缀
+ */
+char* resolve_native_file(const char* module_path) {
+    if (!module_path) {
+        return NULL;
+    }
+
+    const char* arch = detect_architecture_string();
+    int bits = detect_architecture_bits();
+    
+    // 计算需要的内存大小
+    size_t path_len = strlen(module_path);
+    size_t arch_len = strlen(arch);
+    size_t suffix_len = 32; // 足够容纳 "_x64_64.native\0"
+    
+    char* resolved = malloc(path_len + arch_len + suffix_len);
+    if (!resolved) {
+        return NULL;
+    }
+    
+    // 构建完整路径: "./module" -> "./module_x64_64.native"
+    snprintf(resolved, path_len + arch_len + suffix_len, 
+             "%s_%s_%d.native", module_path, arch, bits);
+    
+    return resolved;
+}
+
+/**
+ * 模块符号解析接口实现
+ */
+static void* module_sym_impl(Module* self, const char* symbol_name) {
+    if (!self || !symbol_name) {
+        return NULL;
+    }
+    
+    return module_resolve(self, symbol_name);
+}
+
+/**
+ * 按需加载模块 - 优雅的加载接口
+ */
+Module* load_module(const char* path) {
+    if (!path) {
+        return NULL;
+    }
+    
+    // 解析完整的.native文件路径
+    char* native_file = resolve_native_file(path);
+    if (!native_file) {
+        return NULL;
+    }
+    
+    printf("Module: 按需加载 %s -> %s\n", path, native_file);
+    
+    // 检查是否已经加载过（基于路径）
+    Module* existing = NULL;
+    for (size_t i = 0; i < module_cache.count; i++) {
+        Module* module = module_cache.loaded_modules[i];
+        if (module && module->path && strcmp(module->path, path) == 0) {
+            existing = module;
+            break;
+        }
+    }
+    
+    if (existing && existing->state == MODULE_READY) {
+        printf("Module: 从缓存返回模块 %s\n", path);
+        free(native_file);
+        return existing;
+    }
+    
+    // 使用现有的module_load加载.native文件
+    // 但我们需要直接加载文件而不是通过name查找
+    Module* module = load_native_file_direct(native_file, path);
+    
+    free(native_file);
+    return module;
+}
+
+/**
+ * 直接加载.native文件（内部函数）
+ */
+static Module* load_native_file_direct(const char* file_path, const char* module_path) {
+    if (!file_path || !module_path) {
+        return NULL;
+    }
+    
+    // 必要时初始化
+    if (!module_cache.initialized) {
+        if (module_init() != 0) {
+            return NULL;
+        }
+    }
+    
+    printf("Module: 直接加载 %s\n", file_path);
+    
+    // 打开文件
+    int fd = open(file_path, O_RDONLY);
+    if (fd == -1) {
+        printf("Module: 警告: 无法打开模块文件 %s: %s\n", file_path, strerror(errno));
+        return NULL;
+    }
+    
+    // 获取文件大小
+    struct stat st;
+    if (fstat(fd, &st) == -1) {
+        printf("Module: 警告: 获取文件大小失败: %s\n", strerror(errno));
+        close(fd);
+        return NULL;
+    }
+    
+    size_t file_size = st.st_size;
+    
+    // 映射文件到内存
+    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    close(fd);
+    
+    if (mapped == MAP_FAILED) {
+        printf("Module: 警告: 内存映射失败: %s\n", strerror(errno));
+        return NULL;
+    }
+    
+    // 验证.native文件格式
+    NativeHeader* header = (NativeHeader*)mapped;
+    if (memcmp(header->magic, "NATV", 4) != 0) {
+        printf("Module: 警告: 无效的模块格式 (magic: %.4s)\n", header->magic);
+        munmap(mapped, file_size);
+        return NULL;
+    }
+    
+    printf("Module: 成功加载 %s, 导出函数数量: %d\n", module_path, header->export_count);
+    
+    // 创建模块对象
+    Module* module = malloc(sizeof(Module));
+    if (!module) {
+        munmap(mapped, file_size);
+        return NULL;
+    }
+    
+    // 初始化模块信息
+    module->name = strdup(module_path);
+    module->path = strdup(module_path);
+    module->state = MODULE_READY;
+    module->error = NULL;
+    module->native_handle = mapped;
+    module->base_addr = mapped;
+    module->file_size = file_size;
+    module->init = NULL;
+    module->cleanup = NULL;
+    module->resolve = NULL;
+    module->sym = module_sym_impl;  // 设置符号解析接口
+    
+    // 添加到缓存
+    if (module_cache.count < MAX_MODULES) {
+        module_cache.loaded_modules[module_cache.count] = module;
+        module_cache.count++;
+        printf("Module: 模块 %s 已缓存 (缓存数量: %zu)\n", module_path, module_cache.count);
+    } else {
+        printf("Module: 警告: 模块缓存已满，无法缓存模块 %s\n", module_path);
+    }
+    
+    return module;
+}
+
+// ===============================================
 // 对外暴露的符号表
 // ===============================================
 
@@ -598,6 +806,8 @@ static struct {
     {"module_get_state", module_get_state},
     {"module_is_loaded", module_is_loaded},
     {"module_get_error", module_get_error},
+    {"resolve_native_file", resolve_native_file},
+    {"load_module", load_module},
     {NULL, NULL}
 };
 
@@ -651,9 +861,14 @@ void module_system_cleanup(void) {
 // 模块管理器模块定义
 Module module_module = {
     .name = "module",
+    .path = "module",
     .state = MODULE_UNLOADED,
     .error = NULL,
+    .native_handle = NULL,
+    .base_addr = NULL,
+    .file_size = 0,
     .init = module_init,
     .cleanup = module_cleanup,
-    .resolve = module_module_resolve
+    .resolve = module_module_resolve,
+    .sym = module_sym_impl
 };

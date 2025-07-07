@@ -1,14 +1,14 @@
-# Self-Evolve AI 模块化设计文档
+# Self-Evolve AI 模块化设计文档 (重构版)
 
 ## 概述
 
-本文档描述了 Self-Evolve AI 项目的模块化设计架构。该系统基于三层架构（Layer 1 Loader、Layer 2 Runtime、Layer 3 Program）构建，其中模块系统是 Layer 2 Runtime 的核心组成部分。
+本文档描述了 Self-Evolve AI 项目经过 tunecore 工作包重构后的新模块化设计架构。原有的12个分散模块已整合为4个核心模块，实现了更优雅的按需加载机制。
 
 ## 设计理念
 
-- **极简主义**: 每个模块职责单一、接口清晰
-- **高度灵活性**: 模块间松耦合，支持动态加载/卸载
-- **自我进化能力**: 支持运行时模块替换和升级
+- **模块整合**: 将相关功能合并，减少模块间复杂依赖
+- **按需加载**: Python风格的优雅模块加载机制
+- **智能解析**: 自动架构检测和路径解析
 - **统一接口**: 所有模块遵循相同的接口规范
 
 ## 系统架构
@@ -16,34 +16,56 @@
 ```
 Layer 1: Loader (loader_{arch}_{bits}.exe)
     ↓ 加载
-Layer 2: Runtime (vm_{arch}_{bits}.native + 其他模块)
-    ├── 模块管理器 (module_module)
-    ├── 虚拟机模块 (vm_module)     //加载 astc 模块，在内存中转成原生字节并运行
-    ├── 内存管理模块 (memory_module)
-    ├── ASTC模块 (astc_module)  // astc bytecode data structure
-    ├── 编译器模块 (c2astc_module)  //convert c source code to astc bytecode
-    ├── 代码生成模块 (codegen_module)  // AST to ASM
-    ├── JIT编译模块 (jit_module)
-    ├── 原生模块系统 (native_module)
-    ├── 标准库模块 (std_module)
-    ├── LibC模块 (libc_module)
-    ├── 工具模块 (utils_module)
-    └── ASTC转换模块 (astc2native_module)  //ASTC bytecode to native bytecode, is aot!
+Layer 2: Runtime (5个核心模块)
+    1. module_module       - 增强的模块管理器 (智能加载+符号解析)
+    2. layer0_module       - 基础功能 (memory+utils+std+libdl)
+    3. pipeline_module     - 编译流水线:
+       ├── frontend: c2astc (C代码→ASTC字节码)
+       ├── backend: codegen (ASTC字节码→ASTC汇编) + astc2native (AOT编译)
+       └── execution: astc + vm (ASTC字节码执行)
+    4. compiler_module     - 编译器集成:
+       ├── jit (即时编译，ASTC字节码→原生机器码)
+       └── ffi (外部函数接口，类似libffi)
+    5. libc_module         - C99标准库 (保持独立)
     ↓ 执行
 Layer 3: Program ({program}.astc)
 ```
 
-注意，准备调整：
+### 功能分布说明
+
+**pipeline_module.c** (编译流水线):
+- ✅ frontend: c2astc (C代码转ASTC字节码)
+- ✅ backend: codegen (ASTC字节码转ASTC汇编)
+- ⚠️ backend: astc2native (AOT编译) - 当前在compiler_module中，应移到此处
+- ✅ execution: astc + vm (ASTC字节码执行)
+
+**compiler_module.c** (编译器集成):
+- ✅ jit (即时编译，ASTC字节码→原生机器码)
+- ⚠️ aot (预先编译) - 实际上就是astc2native，应移到pipeline_module
+- ✅ ffi (外部函数接口，类似libffi)
+
+## 按需加载机制
+
+### 智能路径解析
+```c
+// 自动解析: "./layer0" -> "./layer0_arm64_64.native"
+char* resolved = resolve_native_file("./layer0");
 ```
-1. module     - 模块管理器, for layer 1 loader
-2. layer0     - std + memory + utils, for layer 0 (see PRD.md)；add libdl later
-3. libc       - C标准库转发, for c99 (our replacement to cc)
-4. pipeline/   - for layer 2 runtime
-   ├── frontend           - c2astc
-   ├── backend            - codegen + astc2native
-   ├── compiler           - jit + aot + ffi
-   └── execution          - astc + vm
+
+### 优雅的模块加载
+```c
+// Python风格的模块加载
+Module* module = load_module("./layer0");
 ```
+
+### 符号解析接口
+```c
+// 优雅的符号解析和调用
+void* func = module->sym("function_name");
+int result = ((int(*)(int))func)(42);
+```
+
+
 ## 核心模块接口
 
 每个模块都实现以下统一接口：
@@ -60,41 +82,41 @@ typedef struct Module {
 } Module;
 ```
 
-## 模块详细介绍
+## 新模块详细介绍
 
-### 1. 模块管理器 (module_module.c)
+### 1. 增强的模块管理器 (module_module.c)
 
-**作用**: 系统的第一个模块，管理所有其他模块的生命周期。
+**作用**: 系统的核心模块，提供智能的模块加载和管理功能。
 
 **核心功能**:
-- 模块注册和发现
-- 依赖关系管理
-- 符号解析和缓存
-- 模块加载/卸载
-- 生命周期管理
+- **智能路径解析**: 自动添加架构后缀
+- **按需加载**: Python风格的模块加载
+- **符号解析**: 优雅的函数调用接口
+- **模块缓存**: 避免重复加载
+- **依赖管理**: 自动处理模块依赖
 
 **关键API**:
-- `module_register()` - 注册模块
-- `module_load()` - 加载模块
+- `resolve_native_file()` - 智能路径解析
+- `load_module()` - 按需加载模块
+- `module->sym()` - 符号解析接口
 - `module_resolve()` - 解析符号
-- `modules_init_all()` - 初始化所有模块
-- `modules_cleanup_all()` - 清理所有模块
+- `module_load()` - 传统加载接口
 
 **特点**: 
-- 作为"上帝模块"，自己管理自己
-- 支持最多64个模块
-- 提供符号缓存机制提高性能
-- 支持模块依赖关系管理
+- 支持自动架构检测 (arm64_64, x64_64等)
+- 提供Python风格的优雅接口
+- 集成.native文件格式验证
+- 支持模块生命周期管理
 
-### 2. 内存管理模块 (memory_module.c)
+### 2. Layer0基础模块 (layer0_module.c)
 
-**作用**: 提供统一的内存管理服务，支持多种内存池。
+**作用**: 提供系统基础服务，整合了memory+utils+std+libdl功能。
 
 **核心功能**:
-- 多内存池管理（通用、字节码、JIT、模块、临时、C99相关）
-- 内存分配/释放/重分配
-- 内存统计和监控
-- 内存泄漏检测
+- **内存管理**: 多内存池管理和统计
+- **工具函数**: 架构检测、文件操作、字符串处理
+- **标准库**: 基础C标准库函数
+- **动态加载**: dlopen/dlsym/dlclose/dlerror包装
 
 **内存池类型**:
 - `MEMORY_POOL_GENERAL` - 通用内存
@@ -107,285 +129,142 @@ typedef struct Module {
 **关键API**:
 - `memory_alloc()` - 分配内存
 - `memory_free()` - 释放内存
-- `memory_alloc_pool()` - 从指定池分配
-- `memory_get_stats()` - 获取统计信息
+- `detect_architecture()` - 检测架构
+- `dlopen_wrapper()` - 动态库加载
+- `safe_strncpy()` - 安全字符串操作
 
-### 3. ASTC模块 (astc_module.c)
+### 3. Pipeline编译流水线模块 (pipeline_module.c)
 
-**作用**: 提供抽象语法树编译器（ASTC）核心功能。
-
-**核心功能**:
-- AST节点创建和管理
-- AST遍历和操作
-- ASTC程序结构管理
-- 程序验证和序列化
-
-**支持的节点类型**:
-- 基本表达式（常量、标识符、二元/一元操作）
-- 控制结构（if、while、for）
-- 函数和变量声明
-- 复合语句
-- 模块系统节点
-
-**关键API**:
-- `ast_create_node()` - 创建AST节点
-- `ast_free()` - 释放AST
-- `ast_print()` - 打印AST
-- `astc_create_program()` - 创建ASTC程序
-- `astc_validate_program()` - 验证程序
-
-### 4. 虚拟机模块 (vm_module.c)
-
-**作用**: 提供ASTC字节码的执行环境。
+**作用**: 提供完整的编译执行流水线，整合了frontend+backend+execution功能。
 
 **核心功能**:
-- 虚拟机上下文管理
-- 字节码加载和执行
-- 指令集实现
-- 运行时状态管理
-- 调试和性能统计
+- **Frontend**: C源码词法分析和语法分析 (c2astc)
+- **Backend**: AST转汇编代码 (codegen) + AOT编译 (astc2native)
+- **Execution**: 虚拟机执行ASTC字节码 (astc + vm)
+- **统一接口**: 编译和执行的一站式服务
 
-**指令集**:
-- 算术运算（ADD、SUB、MUL、DIV）
-- 内存操作（LOAD、STORE）
-- 控制流（JUMP、CALL、RETURN）
-- 系统调用（LIBC_CALL）
-
-**关键API**:
-- `vm_create_context()` - 创建VM上下文
-- `vm_load_program()` - 加载程序
-- `vm_execute()` - 执行程序
-- `vm_step()` - 单步执行
-- `vm_get_stats()` - 获取统计信息
-
-### 5. C到ASTC编译器模块 (c2astc_module.c)
-
-**作用**: 将C语言源代码转换为ASTC字节码。
-
-**核心功能**:
-- C语言词法分析
-- 语法分析
-- AST构建
-- 字节码生成
+**支持的功能**:
+- Token识别和解析 (frontend)
+- AST构建和验证 (frontend)
+- 代码生成和优化 (backend)
+- ASTC字节码转原生代码 (backend - astc2native)
+- 虚拟机执行环境 (execution)
 - 错误处理和诊断
 
-**支持的C语言特性**:
-- 基本数据类型（int、float、char等）
-- 控制结构（if、while、for）
-- 函数定义和调用
-- 变量声明和赋值
-- 结构体和数组
-- 模块系统扩展
-
 **关键API**:
-- `c2astc_convert()` - 转换源代码
-- `c2astc_convert_file()` - 转换文件
-- `c2astc_default_options()` - 默认选项
+- `pipeline_compile()` - 编译C源码
+- `pipeline_execute()` - 执行字节码
+- `pipeline_compile_and_run()` - 编译并执行
+- `pipeline_get_assembly()` - 获取汇编代码
+- `pipeline_get_bytecode()` - 获取字节码
+- ⚠️ `pipeline_astc2native()` - AOT编译 (待从compiler_module移入)
 
-### 6. 代码生成模块 (codegen_module.c)
+### 4. Compiler编译器集成模块 (compiler_module.c)
 
-**作用**: 将AST转换为目标平台的汇编代码。
+**作用**: 提供特殊编译方式的集成，整合了jit+ffi功能。
 
 **核心功能**:
-- 多架构代码生成
-- 汇编代码输出
-- 寄存器分配
-- 指令选择
+- **JIT**: 运行时即时编译，支持x86-64机器码生成
+- **FFI**: 外部函数接口，支持动态库加载和函数调用
+- **统一接口**: 特殊编译模式的统一管理
 
-**支持的架构**:
-- x86_64
-- ARM64
-- x86_32
-- ARM32
+**支持的编译模式**:
+- 即时编译（JIT）- 运行时生成机器码
+- 外部函数接口（FFI）- 调用外部库
 
 **关键API**:
-- `codegen_create()` - 创建代码生成器
-- `codegen_generate_function()` - 生成函数代码
-- `codegen_get_assembly()` - 获取汇编代码
+- `compiler_jit_compile()` - JIT编译
+- `compiler_ffi_call()` - FFI调用
+- `compiler_create_context()` - 创建编译上下文
+- `compiler_set_optimization()` - 设置优化级别
+- ⚠️ `compiler_aot_compile()` - AOT编译 (应移到pipeline_module作为astc2native)
 
-### 7. JIT编译模块 (jit_module.c)
+### 5. LibC标准库模块 (libc_module.c) - 保持独立
 
-**作用**: 提供即时编译功能，将字节码编译为机器码。
+**作用**: 提供完整的C99标准库支持，为C99开发提供标准库替代。
 
 **核心功能**:
-- 运行时编译
-- 机器码生成
-- 优化处理
-- 可执行内存管理
+- **文件I/O**: 文件读写、流操作
+- **字符串处理**: 字符串操作、格式化
+- **数学函数**: 数学运算、三角函数
+- **内存管理**: malloc/free/realloc
+- **错误处理**: errno、错误信息
 
-**优化级别**:
-- `JIT_OPT_NONE` - 无优化
-- `JIT_OPT_BASIC` - 基础优化
-- `JIT_OPT_AGGRESSIVE` - 激进优化
-
-**关键API**:
-- `jit_init_compiler()` - 初始化编译器
-- `jit_compile_bytecode()` - 编译字节码
-- `jit_execute()` - 执行编译后代码
-- `jit_check_availability()` - 检查JIT可用性
-
-### 8. 原生模块系统 (native_module.c)
-
-**作用**: 管理.native格式的原生模块文件。
-
-**核心功能**:
-- .native文件格式处理
-- 模块加载和链接
-- 符号导出/导入
-- 重定位处理
-- 数字签名验证
-
-**.native文件格式**:
-- 魔数: "NATV" (0x5654414E)
-- 版本控制
-- 架构信息
-- 代码和数据段
-- 导出表
-- 元数据
+**支持的C99特性**:
+- 标准输入输出（stdio.h）
+- 字符串操作（string.h）
+- 数学函数（math.h）
+- 内存管理（stdlib.h）
+- 字符处理（ctype.h）
+- 时间处理（time.h）
 
 **关键API**:
-- `native_module_create()` - 创建模块
-- `native_module_write_file()` - 写入文件
-- `native_module_load_file()` - 加载文件
-- `native_module_add_export()` - 添加导出
+- `libc_printf()` - 格式化输出
+- `libc_malloc()` - 内存分配
+- `libc_fopen()` - 文件操作
+- `libc_strlen()` - 字符串长度
+- `libc_sin()` - 数学函数
 
-### 9. 标准库模块 (std_module.c)
+## 旧模块整合说明
 
-**作用**: 提供标准C库函数的实现。
+以下旧模块已被整合到新的四个核心模块中：
 
-**核心功能**:
-- 内存管理函数（malloc、free等）
-- 字符串处理函数（strlen、strcpy等）
-- 输入输出函数（printf、puts等）
-- 数学函数（sin、cos、sqrt等）
-- 类型转换函数（atoi、atof等）
+### 已整合的模块：
+- `memory_module.c` → `layer0_module.c` (内存管理)
+- `utils_module.c` → `layer0_module.c` (工具函数)
+- `std_module.c` → `layer0_module.c` (标准库基础)
+- `c2astc_module.c` → `pipeline_module.c` (前端编译)
+- `codegen_module.c` → `pipeline_module.c` (后端代码生成)
+- `astc2native_module.c` → `pipeline_module.c` (字节码转换)
+- `astc_module.c` → `pipeline_module.c` (AST处理)
+- `vm_module.c` → `pipeline_module.c` (虚拟机执行)
+- `jit_module.c` → `compiler_module.c` (即时编译)
+- `native_module.c` → `module_module.c` (原生模块管理)
 
-**关键API**:
-- `std_malloc()` - 内存分配
-- `std_printf()` - 格式化输出
-- `std_strlen()` - 字符串长度
-- `std_sin()` - 正弦函数
+### 保持独立的模块：
+- `libc_module.c` - 完整的C99标准库支持
 
-### 10. LibC模块 (libc_module.c)
-
-**作用**: 提供完整的C标准库转发功能。
-
-**核心功能**:
-- 系统调用转发
-- 文件I/O操作
-- 内存管理增强
-- 错误处理
-- 数学函数库
-- 字符串操作
-
-**增强特性**:
-- 内存使用统计
-- 错误跟踪
-- 安全检查
-- 性能监控
-
-**关键API**:
-- `libc_fopen()` - 文件打开
-- `libc_malloc_enhanced()` - 增强内存分配
-- `libc_get_memory_stats()` - 获取内存统计
-- `libc_strerror()` - 错误信息
-
-### 11. 工具模块 (utils_module.c)
-
-**作用**: 提供系统工具和辅助功能。
-
-**核心功能**:
-- 架构检测
-- 平台检测
-- 文件操作
-- 可执行内存分配
-- 时间和延时函数
-- 错误输出
-
-**架构支持**:
-- x86_64、x86_32
-- ARM64、ARM32
-- 自动检测当前架构
-
-**关键API**:
-- `detect_architecture()` - 检测架构
-- `allocate_executable_memory()` - 分配可执行内存
-- `read_file_to_buffer()` - 读取文件
-- `print_error()` - 错误输出
-
-### 12. ASTC转换模块 (astc2native_module.c)
-
-**作用**: 将ASTC字节码转换为原生机器码。
-
-**核心功能**:
-- 字节码解析
-- 指令翻译
-- 目标代码生成
-- 优化处理
-
-**支持的转换**:
-- ASTC → x86_64 机器码
-- ASTC → ARM64 机器码
-- ASTC → x86_32 机器码
-
-**关键API**:
-- `astc2native_convert()` - 转换字节码
-- `astc2native_optimize()` - 优化代码
-- `astc2native_write_native()` - 写入原生模块
-
-## 模块依赖关系
+## 新模块依赖关系
 
 ```
-module_module (核心，无依赖)
+module_module (核心管理器，无依赖)
     ↓
-memory_module (被所有模块依赖)
+layer0_module (基础服务层)
     ↓
-utils_module (基础工具)
+pipeline_module (编译流水线) ← 依赖 layer0
     ↓
-astc_module (依赖 memory)
+compiler_module (编译器集成) ← 依赖 layer0
     ↓
-c2astc_module (依赖 memory, astc, utils)
-    ↓
-codegen_module (依赖 memory, astc, utils)
-    ↓
-jit_module (依赖 memory, utils)
-    ↓
-vm_module (依赖 memory)
-    ↓
-native_module (依赖 memory)
-    ↓
-std_module (独立实现)
-    ↓
-libc_module (独立实现)
-    ↓
-astc2native_module (依赖 memory, astc, utils, c2astc)
-```
+libc_module (C99标准库，独立)
 
-## 模块注册和初始化
+## 新模块加载和初始化
 
-### 1. 自动注册
+### 1. 按需加载
 
-每个模块使用 `REGISTER_MODULE` 宏自动注册：
+使用新的按需加载机制：
 
 ```c
-// 在模块文件末尾
-REGISTER_MODULE(module_name);
+// 智能路径解析和加载
+Module* layer0 = load_module("./layer0");
+Module* pipeline = load_module("./pipeline");
+Module* compiler = load_module("./compiler");
 ```
 
 ### 2. 初始化顺序
 
 1. `module_module` 首先初始化（自举）
-2. `memory_module` 初始化（提供内存服务）
-3. 其他模块按依赖顺序初始化
-4. 调用 `modules_init_all()` 完成全部初始化
+2. `layer0_module` 初始化（提供基础服务）
+3. `pipeline_module` 和 `compiler_module` 并行初始化
+4. `libc_module` 独立初始化
 
 ### 3. 符号解析
 
-模块间通过符号名称进行通信：
+使用新的优雅接口：
 
 ```c
-// 获取其他模块的函数
-void* malloc_func = module_resolve(memory_module, "alloc");
+// 获取模块函数并调用
+void* malloc_func = layer0->sym("memory_alloc");
+void* ptr = ((void*(*)(size_t))malloc_func)(1024);
 ```
 
 ## 错误处理

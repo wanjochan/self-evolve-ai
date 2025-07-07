@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>  // for size_t
 
 /**
 以 WASM为蓝图，加入c99元素，设计ASTC数据结构

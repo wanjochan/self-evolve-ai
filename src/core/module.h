@@ -43,6 +43,7 @@ typedef enum {
 typedef struct Module {
     // 基本信息
     const char* name;           // 模块名称
+    const char* path;           // 模块路径
     ModuleState state;          // 当前状态
     const char* error;          // 最后错误信息
 
@@ -55,6 +56,9 @@ typedef struct Module {
     int (*init)(void);          // 初始化模块
     void (*cleanup)(void);      // 清理模块
     void* (*resolve)(const char* symbol);  // 解析符号
+    
+    // 按需加载接口 - 优雅的符号解析
+    void* (*sym)(struct Module* self, const char* symbol_name);  // 符号解析接口
 } Module;
 
 // 模块管理器模块 - 系统的第一个模块，类似上帝模块。是否一定要 extern，这里待讨论
@@ -63,6 +67,24 @@ extern Module module_module;
 // ===============================================
 // 动态模块加载系统
 // ===============================================
+
+/**
+ * 智能路径解析 - 自动添加架构后缀
+ * 将 "./module" 解析为 "./module_x64_64.native"
+ * 支持包路径："pipeline/frontend" -> "pipeline/frontend_x64_64.native"
+ * @param module_path 模块路径
+ * @return 解析后的完整文件路径，需要调用者释放内存
+ */
+extern char* resolve_native_file(const char* module_path);
+
+/**
+ * 按需加载模块 - 优雅的加载接口
+ * 支持路径形式：load_module("./module") 或 load_module("pipeline/frontend")
+ * 自动解析为对应的.native文件并加载
+ * @param path 模块路径
+ * @return 加载成功的模块指针，失败返回NULL
+ */
+extern Module* load_module(const char* path);
 
 /**
  * 动态加载.native模块文件 (类似Python的import)

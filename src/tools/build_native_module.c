@@ -11,8 +11,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// 直接包含native模块的头文件
-#include "../core/old/native.h"
+// 包含新的模块系统头文件
+#include "../core/module.h"
 
 // 定义架构和类型枚举（与native.h保持一致）
 typedef enum {

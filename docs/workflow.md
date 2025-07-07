@@ -10,39 +10,51 @@ flowchart TD
     TaskType -->|标准任务| CheckWorkId{确定work_id}
     TaskType -->|微任务| QuickMode[快速模式]
     TaskType -->|紧急任务| UrgentMode[紧急模式]
-    
+
     QuickMode --> SimpleExecute[直接执行]
     SimpleExecute --> QuickLog[简要记录结果]
     QuickLog --> End[结束会话]
-    
+
     UrgentMode --> UrgentExecute[优先执行关键步骤]
     UrgentExecute --> PostActionDoc[事后补充文档]
     PostActionDoc --> End
-    
+
     CheckWorkId --> |已知work_id| ReadDocs[强制重新阅读文档]
     CheckWorkId --> |新工作流| CreateWorkId[创建新work_id]
-    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md]
+    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow_template.md]
     ReadTemplates --> InitDocs[初始化工作流文档]
     InitDocs --> ReadDocs
-    
-    ReadDocs --> CheckInput{用户输入?}
-    
+
+    ReadDocs --> UpdateStatus[更新状态追踪<br/>cursor_running.md]
+    UpdateStatus --> CheckInput{用户输入?}
+
     CheckInput -->|有| EvaluateInput[评估用户输入]
     EvaluateInput --> UpdateNeeded{需要更新文档?}
     UpdateNeeded -->|是| UpdateDocs[更新工作文档]
     UpdateNeeded -->|否| ExecutePlan[执行当前计划]
-    
+
     CheckInput -->|无| CheckCompletion{工作计划已完成?}
     CheckCompletion -->|是| FinalUpdate[更新文档并结束]
     CheckCompletion -->|否| ExecutePlan[执行当前计划]
-    
+
     UpdateDocs --> ExecutePlan
-    ExecutePlan --> VerifyExecution[验证执行结果]
+    ExecutePlan --> CheckParallel{是否有并行任务?}
+    CheckParallel -->|是| SplitTasks[拆分并行任务]
+    SplitTasks --> ExecuteParallel[并行执行任务]
+    ExecuteParallel --> WaitComplete[等待所有任务完成]
+    WaitComplete --> MergeResults[合并执行结果]
+    MergeResults --> VerifyExecution[验证执行结果]
+
+    CheckParallel -->|否| NormalExecute[常规执行]
+    NormalExecute --> VerifyExecution
+
     VerifyExecution --> UpdateProgress[更新进度文档]
-    UpdateProgress --> NextCycle[结束当前回合]
+    UpdateProgress --> UpdateStatusTrack[更新状态追踪]
+    UpdateStatusTrack --> NextCycle[结束当前回合]
     NextCycle --> ReadDocs
-    
-    FinalUpdate --> End
+
+    FinalUpdate --> UpdateFinalStatus[更新最终状态<br/>cursor_running.md]
+    UpdateFinalStatus --> End
 ```
 
 ## 工作流程说明
@@ -71,11 +83,15 @@ flowchart TD
    - **阅读模板文档**（新工作流）：
      - 阅读 workplan_template.md（工作计划模板）
      - 阅读 worknotes_template.md（工作笔记模板）
+     - 阅读 workflow_template.md（工作流模板）
      - 确保新创建的文档遵循统一的格式和标准
    - **初始化工作流文档**：
      - 基于模板创建 workplan_[work_id].md
      - 基于模板创建 worknotes_[work_id].md
-     - 更新 cursor_running.md 添加新工作流
+     - 更新 cursor_running.md 添加新工作流，状态设为 `INIT`
+   - **更新状态追踪**：
+     - 每个主要阶段开始和结束时更新 cursor_running.md
+     - 记录当前状态、任务和进度
    - **阅读文档**：
      - 阅读 workflow_[work_id].md（工作流程文档）
      - 阅读 workplan_[work_id].md（任务非线性分解、动态规划、细节描述）
@@ -92,6 +108,8 @@ flowchart TD
      - 如工作计划未完成，直接执行当前计划
    - **执行计划**：
      - 根据 workplan_[work_id].md 执行下一步
+     - 检查是否有标记为 `[PARALLEL]` 的任务组
+     - 对并行任务进行拆分和同时执行
      - **重要**：脚本或代码创建后必须实际执行并验证结果
      - **禁止**：不允许仅创建脚本/代码就标记任务为完成
    - **验证执行结果**：
@@ -101,6 +119,7 @@ flowchart TD
    - **更新进度**：
      - 更新 workplan_[work_id].md 的进度（仅在验证成功后）
      - 更新 worknotes_[work_id].md 的上下文和经验
+     - 更新 cursor_running.md 的状态追踪
      - 记录遇到的问题和解决方案
    - **循环完成**：
      - 结束当前回合，返回阅读文档开始下一循环
@@ -117,4 +136,61 @@ flowchart TD
 
 不满足以上全部条件的任务必须标记为"进行中"而非"已完成"。
 
-此工作流确保任务持续推进，同时保持文档更新并适应用户输入。支持多工作流并行处理，通过唯一的work_id区分不同工作流的文档和状态。同时通过不同的任务模式，适应各种复杂度和紧急程度的工作场景。 
+此工作流确保任务持续推进，同时保持文档更新并适应用户输入。支持多工作流并行处理，通过唯一的work_id区分不同工作流的文档和状态。同时通过不同的任务模式，适应各种复杂度和紧急程度的工作场景。
+
+## 工作流状态追踪
+
+每个工作流的状态将在 `cursor_running.md` 中进行集中追踪：
+
+### 状态类型
+- `INIT` - 初始化阶段
+- `PLANNING` - 计划制定阶段
+- `EXECUTING` - 执行阶段
+- `VERIFYING` - 验证阶段
+- `COMPLETED` - 已完成
+- `PAUSED` - 已暂停
+- `FAILED` - 执行失败
+
+### 状态记录格式
+```
+[work_id] | [状态] | [当前任务] | [最后更新时间] | [进度百分比]
+```
+
+### 状态更新时机
+- 工作流初始化时
+- 每个主要阶段完成时
+- 任务状态变更时
+- 会话结束时
+
+## 并行任务处理
+
+对于复杂工作流，支持并行任务处理：
+
+### 任务并行化
+- 在 `workplan_[work_id].md` 中使用 `[PARALLEL]` 标记可并行执行的任务组
+- 示例：
+  ```
+  - T1 [50%] 核心功能开发 [PARALLEL]
+    - T1.1 [100%] 组件A开发
+    - T1.2 [75%] 组件B开发
+  ```
+
+### 并行执行流程
+```mermaid
+flowchart TD
+    ExecutePlan[执行当前计划] --> CheckParallel{是否有并行任务?}
+    CheckParallel -->|是| SplitTasks[拆分并行任务]
+    SplitTasks --> ExecuteParallel[并行执行任务]
+    ExecuteParallel --> WaitComplete[等待所有任务完成]
+    WaitComplete --> MergeResults[合并执行结果]
+    MergeResults --> VerifyExecution
+
+    CheckParallel -->|否| NormalExecute[常规执行]
+    NormalExecute --> VerifyExecution[验证执行结果]
+```
+
+### 并行任务管理
+- 每个并行任务应有明确的输入和预期输出
+- 并行任务之间应尽量减少依赖
+- 所有并行任务完成后进行统一验证
+- 在 `worknotes_[work_id].md` 中记录每个并行分支的执行情况

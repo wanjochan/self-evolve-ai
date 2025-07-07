@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     const char* output_file = argv[2];
     
     // 初始化模块系统（可选，这个工具可以独立工作）
-    if (module_init() == 0) {
+    if (module_system_init() == 0) {
         printf("simple_c2astc: 模块系统已初始化\n");
     } else {
         printf("simple_c2astc: 模块系统初始化失败，使用独立模式\n");
@@ -204,7 +204,7 @@ int main(int argc, char* argv[]) {
     int result = create_astc_file(input_file, output_file);
     
     // 清理模块系统
-    module_cleanup();
+    module_system_cleanup();
     
     return result;
 }
