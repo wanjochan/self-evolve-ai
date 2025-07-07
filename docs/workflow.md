@@ -6,54 +6,54 @@
 
 ```mermaid
 flowchart TD
-    Start[会话开始] --> TaskType{任务类型?}
-    TaskType -->|标准任务| CheckWorkId{确定work_id}
-    TaskType -->|微任务| QuickMode[快速模式]
-    TaskType -->|紧急任务| UrgentMode[紧急模式]
+    Start["会话开始"] --> TaskType{"任务类型?"}
+    TaskType -->|标准任务| CheckWorkId{"确定work_id"}
+    TaskType -->|微任务| QuickMode["快速模式"]
+    TaskType -->|紧急任务| UrgentMode["紧急模式"]
 
-    QuickMode --> SimpleExecute[直接执行]
-    SimpleExecute --> QuickLog[简要记录结果]
-    QuickLog --> End[结束会话]
+    QuickMode --> SimpleExecute["直接执行"]
+    SimpleExecute --> QuickLog["简要记录结果"]
+    QuickLog --> End["结束会话"]
 
-    UrgentMode --> UrgentExecute[优先执行关键步骤]
-    UrgentExecute --> PostActionDoc[事后补充文档]
+    UrgentMode --> UrgentExecute["优先执行关键步骤"]
+    UrgentExecute --> PostActionDoc["事后补充文档"]
     PostActionDoc --> End
 
-    CheckWorkId --> |已知work_id| ReadDocs[强制重新阅读文档]
-    CheckWorkId --> |新工作流| CreateWorkId[创建新work_id]
-    CreateWorkId --> ReadTemplates[强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow.md]
-    ReadTemplates --> InitDocs[初始化工作流文档]
+    CheckWorkId --> |已知work_id| ReadDocs["强制重新阅读文档"]
+    CheckWorkId --> |新工作流| CreateWorkId["创建新work_id"]
+    CreateWorkId --> ReadTemplates["强制阅读模板文档<br/>workplan_template.md<br/>worknotes_template.md<br/>workflow.md"]
+    ReadTemplates --> InitDocs["初始化工作流文档"]
     InitDocs --> ReadDocs
 
-    ReadDocs --> UpdateStatus[更新状态追踪]
-    UpdateStatus --> CheckInput{用户输入?}
+    ReadDocs --> UpdateStatus["更新状态追踪"]
+    UpdateStatus --> CheckInput{"用户输入?"}
 
-    CheckInput -->|有| EvaluateInput[评估用户输入]
-    EvaluateInput --> UpdateNeeded{需要更新文档?}
-    UpdateNeeded -->|是| UpdateDocs[更新工作文档]
-    UpdateNeeded -->|否| ExecutePlan[执行当前计划]
+    CheckInput -->|有| EvaluateInput["评估用户输入"]
+    EvaluateInput --> UpdateNeeded{"需要更新文档?"}
+    UpdateNeeded -->|是| UpdateDocs["更新工作文档"]
+    UpdateNeeded -->|否| ExecutePlan["执行当前计划"]
 
-    CheckInput -->|无| CheckCompletion{工作计划已完成?}
-    CheckCompletion -->|是| FinalUpdate[更新文档并结束]
-    CheckCompletion -->|否| UpdateNeeded{需要更新文档?}
+    CheckInput -->|无| CheckCompletion{"工作计划已完成?"}
+    CheckCompletion -->|是| FinalUpdate["更新文档并结束"]
+    CheckCompletion -->|否| UpdateNeeded
 
     UpdateDocs --> ExecutePlan
-    ExecutePlan --> CheckParallel{是否有并行任务?}
-    CheckParallel -->|是| SplitTasks[拆分并行任务]
-    SplitTasks --> ExecuteParallel[并行执行任务]
-    ExecuteParallel --> WaitComplete[等待所有任务完成]
-    WaitComplete --> MergeResults[合并执行结果]
-    MergeResults --> VerifyExecution[验证执行结果]
+    ExecutePlan --> CheckParallel{"是否有并行任务?"}
+    CheckParallel -->|是| SplitTasks["拆分并行任务"]
+    SplitTasks --> ExecuteParallel["并行执行任务"]
+    ExecuteParallel --> WaitComplete["等待所有任务完成"]
+    WaitComplete --> MergeResults["合并执行结果"]
+    MergeResults --> VerifyExecution["验证执行结果"]
 
-    CheckParallel -->|否| NormalExecute[常规执行]
+    CheckParallel -->|否| NormalExecute["常规执行"]
     NormalExecute --> VerifyExecution
 
-    VerifyExecution --> UpdateProgress[更新进度文档]
-    UpdateProgress --> UpdateStatusTrack[更新状态追踪]
-    UpdateStatusTrack --> NextCycle[结束当前回合]
+    VerifyExecution --> UpdateProgress["更新进度文档"]
+    UpdateProgress --> UpdateStatusTrack["更新状态追踪"]
+    UpdateStatusTrack --> NextCycle["结束当前回合"]
     NextCycle --> ReadDocs
 
-    FinalUpdate --> UpdateFinalStatus[更新最终状态]
+    FinalUpdate --> UpdateFinalStatus["更新最终状态"]
     UpdateFinalStatus --> End
 ```
 
@@ -178,15 +178,15 @@ flowchart TD
 ### 并行执行流程
 ```mermaid
 flowchart TD
-    ExecutePlan[执行当前计划] --> CheckParallel{是否有并行任务?}
-    CheckParallel -->|是| SplitTasks[拆分并行任务]
-    SplitTasks --> ExecuteParallel[并行执行任务]
-    ExecuteParallel --> WaitComplete[等待所有任务完成]
-    WaitComplete --> MergeResults[合并执行结果]
-    MergeResults --> VerifyExecution
+    ExecutePlan["执行当前计划"] --> CheckParallel{"是否有并行任务?"}
+    CheckParallel -->|是| SplitTasks["拆分并行任务"]
+    SplitTasks --> ExecuteParallel["并行执行任务"]
+    ExecuteParallel --> WaitComplete["等待所有任务完成"]
+    WaitComplete --> MergeResults["合并执行结果"]
+    MergeResults --> VerifyExecution["验证执行结果"]
 
-    CheckParallel -->|否| NormalExecute[常规执行]
-    NormalExecute --> VerifyExecution[验证执行结果]
+    CheckParallel -->|否| NormalExecute["常规执行"]
+    NormalExecute --> VerifyExecution
 ```
 
 ### 并行任务管理
