@@ -25,8 +25,7 @@ flowchart TD
     ReadTemplates --> InitDocs["初始化工作流文档"]
     InitDocs --> ReadDocs
 
-    ReadDocs --> UpdateStatus["更新状态追踪"]
-    UpdateStatus --> CheckInput{"用户输入?"}
+    ReadDocs --> CheckInput{"用户输入?"}
 
     CheckInput -->|有| EvaluateInput["评估用户输入"]
     EvaluateInput --> UpdateNeeded{"需要更新文档?"}
@@ -43,12 +42,10 @@ flowchart TD
     SplitTasks --> ExecuteParallel["并行执行任务"]
     ExecuteParallel --> WaitComplete["等待所有任务完成"]
     WaitComplete --> MergeResults["合并执行结果"]
-    MergeResults --> VerifyExecution["验证执行结果"]
+    MergeResults --> CheckSuccess{"验证是否成功?"}
 
-    CheckParallel -->|否| NormalExecute["常规执行"]
-    NormalExecute --> VerifyExecution
-
-    VerifyExecution --> CheckSuccess{"验证是否成功?"}
+    CheckParallel -->|否| NormalExecute["常规执行并验证"]
+    NormalExecute --> CheckSuccess
     CheckSuccess -->|成功| UpdateProgress["更新进度文档"]
     CheckSuccess -->|失败| HandleError["处理错误"]
     HandleError --> RetryDecision{"是否重试?"}
@@ -56,8 +53,7 @@ flowchart TD
     RetryDecision -->|否| UpdateFailedStatus["更新失败状态"]
     UpdateFailedStatus --> NextCycle["结束当前回合"]
     
-    UpdateProgress --> UpdateStatusTrack["更新状态追踪"]
-    UpdateStatusTrack --> NextCycle
+    UpdateProgress --> NextCycle
     NextCycle --> ReadDocs
 
     FinalUpdate --> UpdateFinalStatus["更新最终状态"]
@@ -93,12 +89,9 @@ flowchart TD
      - 阅读 workflow.md（工作流程说明）
      - 确保新创建的文档遵循统一的格式和标准
    - **初始化工作流文档**：
-     - 基于模板创建 workplan_{work_id}.md
-     - 基于模板创建 worknotes_{work_id}.md
-     - 添加新工作流，状态设为 `INIT`
-   - **更新状态追踪**：
-     - 每个主要阶段开始和结束时更新
-     - 记录当前状态、任务和进度
+    - 基于模板创建 workplan_{work_id}.md
+    - 基于模板创建 worknotes_{work_id}.md
+    - 添加新工作流，状态设为 `ACTIVE`
    - **阅读文档**：
      - 阅读 workflow.md（工作流程说明）
      - 阅读 workplan_{work_id}.md（任务非线性分解、动态规划、细节描述）
@@ -116,18 +109,13 @@ flowchart TD
      - 如工作计划未完成，直接执行当前计划
    - **执行计划**：
      - 根据 workplan_{work_id}.md 执行下一步
-     - 检查是否有标记为 `[PARALLEL]` 的任务组
-     - 对并行任务进行拆分和同时执行
+     - 检查是否有标记为 `[PARALLEL]` 的任务组（可选）
      - **重要**：脚本或代码创建后必须实际执行并验证结果
      - **禁止**：不允许仅创建脚本/代码就标记任务为完成
-   - **验证执行结果**：
-     - 确认所有执行的操作都产生了预期结果
-     - 如发现问题，立即修复并重新验证
-     - 只有验证通过后才能标记相关任务为完成
+
    - **更新进度**：
      - 更新 workplan_{work_id}.md 的进度（仅在验证成功后）
      - 更新 worknotes_{work_id}.md 的上下文和经验
-     - 更新状态追踪
      - 记录遇到的问题和解决方案
    - **循环完成**：
      - 结束当前回合，返回阅读文档开始下一循环
@@ -164,17 +152,14 @@ flowchart TD
 每个工作流的状态将在 `workplan_{work_id}.md` 中进行集中追踪：
 
 ### 状态类型
-- `INIT` - 初始化阶段
-- `PLANNING` - 计划制定阶段
-- `EXECUTING` - 执行阶段
-- `VERIFYING` - 验证阶段
-- `COMPLETED` - 已完成
+- `ACTIVE` - 活跃执行中
 - `PAUSED` - 已暂停
+- `COMPLETED` - 已完成
 - `FAILED` - 执行失败
 
 ### 状态记录格式
 ```
-{work_id} | [状态] | [当前任务] | [最后更新时间] | [进度百分比] | [预计完成时间] | [执行者]
+{work_id} | [状态] | [当前任务] | [进度百分比]
 ```
 
 ### 状态详情记录
@@ -190,9 +175,9 @@ flowchart TD
 - 任务状态变更时
 - 会话结束时
 
-## 并行任务处理
+## 并行任务处理（可选）
 
-对于复杂工作流，支持并行任务处理：
+对于需要并行处理的复杂任务：
 
 ### 任务并行化
 - 在 `workplan_{work_id}.md` 中使用 `[PARALLEL]` 标记可并行执行的任务组
@@ -203,42 +188,14 @@ flowchart TD
     - T1.2 [75%] 组件B开发
   ```
 
-### 并行执行流程
-```mermaid
-flowchart TD
-    ExecutePlan["执行当前计划"] --> CheckParallel{"是否有并行任务?"}
-    CheckParallel -->|是| SplitTasks["拆分并行任务"]
-    SplitTasks --> ExecuteParallel["并行执行任务"]
-    ExecuteParallel --> WaitComplete["等待所有任务完成"]
-    WaitComplete --> MergeResults["合并执行结果"]
-    MergeResults --> VerifyExecution["验证执行结果"]
-
-    CheckParallel -->|否| NormalExecute["常规执行"]
-    NormalExecute --> VerifyExecution
-```
-
 ### 并行任务管理
 - 每个并行任务应有明确的输入和预期输出
 - 并行任务之间应尽量减少依赖
-- 所有并行任务完成后进行统一验证
 - 在 `worknotes_{work_id}.md` 中记录每个并行分支的执行情况
 
-## 工作流健康检查
+## 工作流优化
 
-### 定期检查项
-- **文档一致性**：确保 workplan 和 worknotes 内容同步
-- **状态准确性**：验证记录的状态与实际执行情况一致
-- **依赖完整性**：检查任务依赖关系是否正确
-- **资源使用**：监控长期运行任务的资源消耗
-
-### 异常处理
-- **死锁检测**：识别循环依赖或无限循环
-- **超时处理**：对长时间无响应的任务进行干预
-- **资源清理**：及时释放不再需要的资源
-- **故障恢复**：从检查点恢复中断的工作流
-
-### 优化建议
+### 持续改进
 - **定期回顾**：分析工作流执行效率，识别改进点
 - **模板更新**：基于实际使用情况优化模板文档
 - **流程简化**：移除冗余步骤，优化关键路径
-- **自动化增强**：识别可自动化的重复性任务
