@@ -13,31 +13,35 @@
 ## 核心设计
 
 ```
-Layer 1 Loader: loader_{arch}_{bits}.exe  //执行入口，未来参考cosmopolitan等制作跨架构统一入口 loader.exe
-    //导入vm模块 f'vm_{arch}_{bits}.native' 转发参数和环境变量给程序f'{program}.astc'
-    return import(’vm',arch=None,bits=None).main(program,argv[],env[]) //示意伪代码
-Layer 2 Runtime: f'vm_{arch}_{bits}.native'  // .native原生字节码模块，其中最重要是vm模块用于加载astc运行
-    def main(astc_module_name,argv[],env[]):  
-        //vm 模块加载 astc 模块然后转发参数和环境变量
-        return vm_import(astc_module_name).main(argv[],env[])  //示意伪代码
-Layer 3 Program: {program}.astc //用户程序（比如c99、evolver{version}）ASTC字节码，以后兼容ASTC-ASM、ASTC-ES6等高级语言
+Layer 1 Loader: simple_loader  //执行入口，架构检测和模块加载
+    //使用模块系统加载pipeline模块执行ASTC程序
+    Module* pipeline = load_module("./pipeline");  // 自动解析为 pipeline_{arch}_{bits}.native
+    return pipeline->sym("pipeline_execute")(program.astc, argv[], env[]);  //示意伪代码
+
+Layer 2 Runtime: {module}_{arch}_{bits}.native  // .native原生字节码模块系统
+    - pipeline_{arch}_{bits}.native: 编译流水线 + VM执行 (核心运行时)
+    - layer0_{arch}_{bits}.native: 基础功能 (内存、工具、libdl)
+    - compiler_{arch}_{bits}.native: JIT编译 + FFI接口
+    - libc_{arch}_{bits}.native: C99标准库支持
+    
+Layer 3 Program: {program}.astc //用户程序ASTC字节码，架构无关中间表示
     c99:
         return c99_compile(c_file_name, argv[])
     evolver0:
-        return evolve() //基于c99他stage1开始进入stage2的开发,TODO
+        return evolve() //基于c99进入stage2的开发,TODO
 ```
 
 layer-loader:
 作为统一入口点,实现架构无关加载器
 自动检测当前硬件架构和操作系统
-动态选择和加载对应架构的VM模块
+动态选择和加载对应架构的模块
 转发命令行参数和环境变量还有结果
 未来可以参考cosmopolitan项目实现跨架构的统一loader
 
 layer-runtime:
-原生字节码模块,针对特定架构 arch+bits
+模块化原生字节码系统,针对特定架构 arch+bits
 加载和执行ASTC字节码,转发参数和环境还有结果
-//重点核心模块架构 (tunecore重构后):
+//重点核心模块架构 (当前实现):
   1. module_module    - 模块管理器 (智能加载+符号解析)
   2. layer0_module    - 基础功能 (memory+utils+std+libdl)
   3. pipeline_module  - 编译流水线:
@@ -57,11 +61,12 @@ layer-program:
 ### 核心技术
 - **ASTC字节码**: 可扩展的计算表示 (astc.[h|c])
 - **.native模块**: 原生字节码模块 {module}_{arch}_{bits}.native (module.[h|c])
-- **模块化架构**: 4个核心模块提供完整功能栈
-  - pipeline_module: c2astc, codegen, astc2native, vm执行
+- **模块化架构**: 5个核心模块提供完整功能栈
+  - pipeline_module: c2astc, codegen, astc2native, vm执行 (核心)
   - compiler_module: jit编译, ffi接口
   - layer0_module: 基础服务 (内存、工具、标准库、动态加载)
   - libc_module: C99标准库支持
+  - module_module: 模块管理器 (自举)
 - **按需加载**: Python风格的模块加载机制 load_module("./module")
 
 ## 4. 模块化设计详细说明
@@ -146,38 +151,15 @@ typedef struct Module {
 - **标准库**: 基础C标准库函数
 - **动态加载**: dlopen/dlsym/dlclose/dlerror包装
 
-**内存池类型**:
-- `MEMORY_POOL_GENERAL` - 通用内存
-- `MEMORY_POOL_BYTECODE` - 字节码存储
-- `MEMORY_POOL_JIT` - JIT编译代码
-- `MEMORY_POOL_MODULES` - 模块数据
-- `MEMORY_POOL_TEMP` - 临时数据
-- `MEMORY_POOL_C99_*` - C99编译器相关内存池
-
-**关键API**:
-- `memory_alloc()` - 分配内存
-- `memory_free()` - 释放内存
-- `detect_architecture()` - 检测架构
-- `dlopen_wrapper()` - 动态库加载
-- `safe_strncpy()` - 安全字符串操作
-
 #### 3. Pipeline编译流水线模块 (pipeline_module.c)
 
-**作用**: 提供完整的编译执行流水线，整合了frontend+backend+execution功能。
+**作用**: 系统的核心编译和执行模块，整合了完整的编译执行流水线。
 
 **核心功能**:
 - **Frontend**: C源码词法分析和语法分析 (c2astc)
 - **Backend**: AST转汇编代码 (codegen) + AOT编译 (astc2native)
 - **Execution**: 虚拟机执行ASTC字节码 (astc + vm)
 - **统一接口**: 编译和执行的一站式服务
-
-**支持的功能**:
-- Token识别和解析 (frontend)
-- AST构建和验证 (frontend)
-- 代码生成和优化 (backend)
-- ASTC字节码转原生代码 (backend - astc2native)
-- 虚拟机执行环境 (execution)
-- 错误处理和诊断
 
 **关键API**:
 - `pipeline_compile()` - 编译C源码
@@ -186,53 +168,27 @@ typedef struct Module {
 - `pipeline_get_assembly()` - 获取汇编代码
 - `pipeline_get_bytecode()` - 获取字节码
 - `pipeline_astc2native()` - AOT编译
-- `aot_create_compiler()` - 创建AOT编译器
-- `aot_compile_to_executable()` - 编译为可执行文件
 
 #### 4. Compiler编译器集成模块 (compiler_module.c)
 
 **作用**: 提供特殊编译方式的集成，整合了jit+ffi功能。
 
 **核心功能**:
-- **JIT**: 运行时即时编译，支持x86-64机器码生成
-- **FFI**: 外部函数接口，支持动态库加载和函数调用
-- **统一接口**: 特殊编译模式的统一管理
-
-**支持的编译模式**:
-- 即时编译（JIT）- 运行时生成机器码
-- 外部函数接口（FFI）- 调用外部库
-
-**关键API**:
-- `compiler_jit_compile()` - JIT编译
-- `compiler_ffi_call()` - FFI调用
-- `compiler_create_context()` - 创建编译上下文
-- `compiler_set_optimization()` - 设置优化级别
+- **JIT编译**: 即时编译ASTC字节码为原生机器码
+- **FFI接口**: 外部函数接口，类似libffi
+- **优化器**: 代码优化和性能调优
+- **调试支持**: 调试信息生成和管理
 
 #### 5. LibC标准库模块 (libc_module.c)
 
-**作用**: 提供完整的C99标准库支持，为C99开发提供标准库替代。
+**作用**: 提供C99标准库支持，独立的标准库实现。
 
 **核心功能**:
-- **文件I/O**: 文件读写、流操作
-- **字符串处理**: 字符串操作、格式化
-- **数学函数**: 数学运算、三角函数
-- **内存管理**: malloc/free/realloc
-- **错误处理**: errno、错误信息
-
-**支持的C99特性**:
-- 标准输入输出（stdio.h）
-- 字符串操作（string.h）
-- 数学函数（math.h）
-- 内存管理（stdlib.h）
-- 字符处理（ctype.h）
-- 时间处理（time.h）
-
-**关键API**:
-- `libc_printf()` - 格式化输出
-- `libc_malloc()` - 内存分配
-- `libc_fopen()` - 文件操作
-- `libc_strlen()` - 字符串长度
-- `libc_sin()` - 数学函数
+- **标准I/O**: printf, scanf, fopen等
+- **内存管理**: malloc, free, realloc等
+- **字符串处理**: strlen, strcpy, strcmp等
+- **数学函数**: sin, cos, sqrt等
+- **系统调用**: 操作系统接口封装
 
 ### 模块依赖关系
 
@@ -241,7 +197,7 @@ module_module (核心管理器，无依赖)
     ↓
 layer0_module (基础服务层)
     ↓
-pipeline_module (编译流水线) ← 依赖 layer0
+pipeline_module (编译流水线 + VM执行) ← 依赖 layer0
     ↓
 compiler_module (编译器集成) ← 依赖 layer0
     ↓
@@ -290,62 +246,9 @@ dev roadmap (by human master)
 - build loader2 with c99 (then start to be free from tinycc)
 ```
 
-
-stage 2
-
-stage 3
-
-stage 4
-
 ## 6. 技术经验总结
 
 - 不要乱建新文件，要尽量改源文件
-
-### TCC编译避免杀毒软件误报经验
-
-在实现PRD.md三层架构过程中，遇到了TCC编译的可执行文件被杀毒软件误报为病毒（HEUR/QVM202.0.68C9）的问题。经过研究和实践，找到了有效的解决方案：
-
-#### 成功的编译方案
-
-**最简单有效的方案**：
-```bash
-tcc.exe -o loader.exe source.c
-```
-
-**保守方案**（如果简单方案仍有问题）：
-```bash
-tcc.exe -g -O0 -DLEGITIMATE_SOFTWARE -o loader.exe source.c -luser32 -lkernel32 -ladvapi32
-```
-
----
-
-## ❌ 重要编译经验和教训 ❌
-
-### 严禁的错误做法：
-1. **不要生成.def文件** - 项目架构不使用.def文件
-2. **不要将.exe重命名为.native** - .native是自定义格式，不是重命名的可执行文件
-3. **不要使用传统共享库编译方式** - 我们有自己的native模块系统
-4. **❌❌❌ 绝对不要创建不必要的新文件 ❌❌❌** - 这是重复犯的严重错误！
-   - 不要创建 *_new.bat, *_clean.bat, *_simple.c 等文件
-   - 直接修改现有文件，不要创建副本
-   - 使用现有架构和工具，不要重复造轮子
-
-### ✅ 正确的.native模块创建方式：
-1. **使用src/core/native.c中的函数**：
-   - `native_module_create()` - 创建模块结构
-   - `native_module_set_code()` - 设置机器码
-   - `native_module_add_export()` - 添加导出函数
-   - `native_module_write_file()` - 写入真正的.native格式（NATV魔数）
-
-2. **遵循PRD.md第76行**：用 module 模块来加载其它模块
-3. **遵循PRD.md第84行**：src/utils.c实现libdl-alike, libffi-alike功能
-
-### 🎯 正确编译流程：
-```
-源码 → 编译为目标代码 → 使用native.c系统创建.native格式 → 输出真正的.native文件
-```
-
-**错误流程**：
-```
-源码 → 编译为.exe → 重命名为.native ❌
-```
+- VM功能已集成在pipeline_module中，不需要独立的vm_module
+- 三层架构：simple_loader -> pipeline_module.native -> program.astc
+- 使用模块系统的load_module()和sym()接口进行模块加载和符号解析
