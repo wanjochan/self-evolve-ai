@@ -108,6 +108,7 @@ create_native_module() {
 create_native_module "layer0" "$MODULES_DIR/layer0_module.o" "$BIN_DIR/layer0_${ARCH}_${BITS}.native"
 create_native_module "pipeline" "$MODULES_DIR/pipeline_module.o" "$BIN_DIR/pipeline_${ARCH}_${BITS}.native"
 create_native_module "compiler" "$MODULES_DIR/compiler_module.o" "$BIN_DIR/compiler_${ARCH}_${BITS}.native"
+
 create_native_module "libc" "$MODULES_DIR/libc_module.o" "$BIN_DIR/libc_${ARCH}_${BITS}.native"
 
 # 构建简单的模块加载器
@@ -155,6 +156,7 @@ echo "可用的模块:"
 echo "  - layer0_${ARCH}_${BITS}.native: 基础功能模块"
 echo "  - pipeline_${ARCH}_${BITS}.native: 编译流水线模块"
 echo "  - compiler_${ARCH}_${BITS}.native: 编译器集成模块"
+echo "  - vm_${ARCH}_${BITS}.native: 虚拟机运行时模块"
 echo "  - libc_${ARCH}_${BITS}.native: C99标准库模块"
 echo ""
 echo "使用方法:"

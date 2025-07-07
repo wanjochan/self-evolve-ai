@@ -236,8 +236,8 @@ stage 1
 ```
 dev roadmap (by human master)
 - src/core/                    # our modulized system core layer
-- layer 1 loader (windows exe)
-- layer 2 native module (vm, libc, std, astc, jit, utils, etc), will be loaded by mmap() 
+- layer 1 loader (simple_loader)
+- layer 2 native module (pipeline, layer0, compiler, libc), will be loaded by mmap() 
 - layer 3 program (c99 windows 64 x86)
 - build tcc with c99 // test c99 working good
 - layer 3 program c99 supports cross build
