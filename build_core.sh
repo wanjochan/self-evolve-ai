@@ -67,49 +67,38 @@ echo "所有模块编译完成"
 echo ""
 echo "2. 生成.native模块文件..."
 
-# 创建简单的.native文件生成器
+# 确保c2native工具存在 (直接构建，不依赖外部脚本)
+if [ ! -x "$BIN_DIR/c2native" ]; then
+    echo "构建 c2native 工具..."
+    "$SCRIPT_DIR/cc.sh" -o "$BIN_DIR/c2native" "tools/c2native.c" -std=c99 -O2 -Wall
+    if [ $? -ne 0 ]; then
+        echo "错误: 构建 c2native 工具失败"
+        exit 1
+    fi
+fi
+
+# 使用c2native工具生成.native文件
 create_native_module() {
     local module_name="$1"
-    local object_file="$2"
+    local source_file="$2"
     local output_file="$3"
-    
+
     echo "生成 $output_file..."
-    
-    # 创建简单的.native文件头
-    # 这是一个简化版本，实际实现应该包含完整的模块头部和导出表
-    {
-        # Magic: "NATV"
-        printf "NATV"
-        # Version: 1
-        printf "\x01\x00\x00\x00"
-        # Arch: 根据当前架构
-        if [[ "$ARCH" == "arm64" ]]; then
-            printf "\x04\x00\x00\x00"  # ARM64
-        else
-            printf "\x02\x00\x00\x00"  # x64
-        fi
-        # Module type: 1 (regular module)
-        printf "\x01\x00\x00\x00"
-        # Flags: 0
-        printf "\x00\x00\x00\x00"
-        # Header size: 64
-        printf "\x40\x00\x00\x00"
-        # 添加更多头部字段...
-        printf "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        printf "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        printf "\x00\x00\x00\x00\x00\x00\x00\x00"
-        
-        # 附加目标文件内容
-        cat "$object_file"
-    } > "$output_file"
+
+    # 使用c2native工具生成正确的.native文件
+    "$BIN_DIR/c2native" "$source_file" "$output_file"
+
+    if [ $? -ne 0 ]; then
+        echo "错误: 生成 $output_file 失败"
+        exit 1
+    fi
 }
 
 # 生成各个模块的.native文件
-create_native_module "layer0" "$MODULES_DIR/layer0_module.o" "$BIN_DIR/layer0_${ARCH}_${BITS}.native"
-create_native_module "pipeline" "$MODULES_DIR/pipeline_module.o" "$BIN_DIR/pipeline_${ARCH}_${BITS}.native"
-create_native_module "compiler" "$MODULES_DIR/compiler_module.o" "$BIN_DIR/compiler_${ARCH}_${BITS}.native"
-
-create_native_module "libc" "$MODULES_DIR/libc_module.o" "$BIN_DIR/libc_${ARCH}_${BITS}.native"
+create_native_module "layer0" "$MODULES_DIR/layer0_module.c" "$BIN_DIR/layer0_${ARCH}_${BITS}.native"
+create_native_module "pipeline" "$MODULES_DIR/pipeline_module.c" "$BIN_DIR/pipeline_${ARCH}_${BITS}.native"
+create_native_module "compiler" "$MODULES_DIR/compiler_module.c" "$BIN_DIR/compiler_${ARCH}_${BITS}.native"
+create_native_module "libc" "$MODULES_DIR/libc_module.c" "$BIN_DIR/libc_${ARCH}_${BITS}.native"
 
 # 构建简单的模块加载器
 echo ""
@@ -154,9 +143,8 @@ ls -la "$BIN_DIR"/*.native 2>/dev/null || echo "  (未找到.native文件)"
 echo ""
 echo "可用的模块:"
 echo "  - layer0_${ARCH}_${BITS}.native: 基础功能模块"
-echo "  - pipeline_${ARCH}_${BITS}.native: 编译流水线模块"
+echo "  - pipeline_${ARCH}_${BITS}.native: 编译流水线模块 + VM运行时"
 echo "  - compiler_${ARCH}_${BITS}.native: 编译器集成模块"
-echo "  - vm_${ARCH}_${BITS}.native: 虚拟机运行时模块"
 echo "  - libc_${ARCH}_${BITS}.native: C99标准库模块"
 echo ""
 echo "使用方法:"
