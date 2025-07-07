@@ -1,4 +1,6 @@
 #include "core_test_framework.h"
+#include "../src/core/astc.h"
+#include "../src/core/module.h"
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
