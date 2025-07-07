@@ -657,6 +657,137 @@ typedef struct C99CompilerContext {
     int warning_count;
 } C99CompilerContext;
 
+// ===============================================
+// ASTC字节码系统定义 (基于WASM设计)
+// ===============================================
+
+// ASTC操作码 (基于WASM指令集)
+typedef enum {
+    // 控制流指令
+    ASTC_OP_UNREACHABLE = 0x00,   // 不可达
+    ASTC_OP_NOP = 0x01,           // 空操作
+    ASTC_OP_BLOCK = 0x02,         // 块开始
+    ASTC_OP_LOOP = 0x03,          // 循环
+    ASTC_OP_IF = 0x04,            // 条件
+    ASTC_OP_ELSE = 0x05,          // 否则
+    ASTC_OP_END = 0x0B,           // 结束
+    ASTC_OP_BR = 0x0C,            // 分支
+    ASTC_OP_BR_IF = 0x0D,         // 条件分支
+    ASTC_OP_RETURN = 0x0F,        // 返回
+    ASTC_OP_CALL = 0x10,          // 调用
+
+    // 变量指令
+    ASTC_OP_LOCAL_GET = 0x20,     // 获取局部变量
+    ASTC_OP_LOCAL_SET = 0x21,     // 设置局部变量
+    ASTC_OP_LOCAL_TEE = 0x22,     // 设置并保留局部变量
+    ASTC_OP_GLOBAL_GET = 0x23,    // 获取全局变量
+    ASTC_OP_GLOBAL_SET = 0x24,    // 设置全局变量
+
+    // 内存指令
+    ASTC_OP_I32_LOAD = 0x28,      // i32 加载
+    ASTC_OP_I64_LOAD = 0x29,      // i64 加载
+    ASTC_OP_F32_LOAD = 0x2A,      // f32 加载
+    ASTC_OP_F64_LOAD = 0x2B,      // f64 加载
+    ASTC_OP_I32_STORE = 0x36,     // i32 存储
+    ASTC_OP_I64_STORE = 0x37,     // i64 存储
+    ASTC_OP_F32_STORE = 0x38,     // f32 存储
+    ASTC_OP_F64_STORE = 0x39,     // f64 存储
+
+    // 常量指令
+    ASTC_OP_I32_CONST = 0x41,     // i32 常量
+    ASTC_OP_I64_CONST = 0x42,     // i64 常量
+    ASTC_OP_F32_CONST = 0x43,     // f32 常量
+    ASTC_OP_F64_CONST = 0x44,     // f64 常量
+
+    // 比较运算
+    ASTC_OP_I32_EQZ = 0x45,       // i32 等于零
+    ASTC_OP_I32_EQ = 0x46,        // i32 等于
+    ASTC_OP_I32_NE = 0x47,        // i32 不等于
+    ASTC_OP_I32_LT_S = 0x48,      // i32 小于(有符号)
+    ASTC_OP_I32_LT_U = 0x49,      // i32 小于(无符号)
+    ASTC_OP_I32_GT_S = 0x4A,      // i32 大于(有符号)
+    ASTC_OP_I32_GT_U = 0x4B,      // i32 大于(无符号)
+    ASTC_OP_I32_LE_S = 0x4C,      // i32 小于等于(有符号)
+    ASTC_OP_I32_LE_U = 0x4D,      // i32 小于等于(无符号)
+    ASTC_OP_I32_GE_S = 0x4E,      // i32 大于等于(有符号)
+    ASTC_OP_I32_GE_U = 0x4F,      // i32 大于等于(无符号)
+
+    // 数值运算
+    ASTC_OP_I32_ADD = 0x6A,       // i32 加法
+    ASTC_OP_I32_SUB = 0x6B,       // i32 减法
+    ASTC_OP_I32_MUL = 0x6C,       // i32 乘法
+    ASTC_OP_I32_DIV_S = 0x6D,     // i32 有符号除法
+    ASTC_OP_I32_DIV_U = 0x6E,     // i32 无符号除法
+    ASTC_OP_I32_REM_S = 0x6F,     // i32 有符号取余
+    ASTC_OP_I32_REM_U = 0x70,     // i32 无符号取余
+    ASTC_OP_I32_AND = 0x71,       // i32 按位与
+    ASTC_OP_I32_OR = 0x72,        // i32 按位或
+    ASTC_OP_I32_XOR = 0x73,       // i32 按位异或
+    ASTC_OP_I32_SHL = 0x74,       // i32 左移
+    ASTC_OP_I32_SHR_S = 0x75,     // i32 有符号右移
+    ASTC_OP_I32_SHR_U = 0x76,     // i32 无符号右移
+
+    // C99扩展指令
+    ASTC_OP_PRINTF = 0xF0,        // printf调用
+    ASTC_OP_MALLOC = 0xF1,        // malloc调用
+    ASTC_OP_FREE = 0xF2,          // free调用
+    ASTC_OP_SYSCALL = 0xF3,       // 系统调用
+    ASTC_OP_C99_PRINTF = 0xF4,    // C99 printf
+    ASTC_OP_C99_MALLOC = 0xF5,    // C99 malloc
+    ASTC_OP_C99_FREE = 0xF6,      // C99 free
+    ASTC_OP_C99_SYSCALL = 0xF7,   // C99 syscall
+
+    // 调试指令
+    ASTC_OP_DEBUG_PRINT = 0xFE,   // 调试打印
+    ASTC_OP_DEBUG_BREAK = 0xFF    // 调试断点
+} ASTCOpcode;
+
+// ASTC指令操作数联合体
+typedef union {
+    int32_t i32;
+    int64_t i64;
+    float f32;
+    double f64;
+    uint32_t index;
+    struct {
+        uint32_t offset;
+        uint32_t align;
+    } memory;
+} ASTCOperand;
+
+// ASTC指令结构
+typedef struct {
+    ASTCOpcode opcode;
+    ASTCOperand operand;
+} ASTCInstruction;
+
+// ASTC字节码程序结构
+typedef struct {
+    char magic[4];                // "ASTC"
+    uint32_t version;             // 版本号
+    uint32_t flags;               // 标志位
+    uint32_t instruction_count;   // 指令数量
+    uint32_t code_size;           // 代码段大小
+    ASTCInstruction* instructions; // 指令数组
+    uint32_t data_size;           // 数据段大小
+    uint8_t* data;                // 数据段
+    uint32_t symbol_count;        // 符号表大小
+    char** symbol_names;          // 符号名称表
+    void** symbol_addresses;      // 符号地址表
+    uint32_t entry_point;         // 入口点
+} ASTCBytecodeProgram;
+
+// ASTC汇编程序结构
+typedef struct {
+    char* assembly_text;          // 汇编文本
+    size_t text_size;             // 文本大小
+    size_t text_capacity;         // 文本容量
+    char* module_name;            // 模块名称
+    uint32_t function_count;      // 函数数量
+    char** function_names;        // 函数名称表
+    void** function_addresses;    // 函数地址表
+} ASTCAssemblyProgram;
+
 /**
  * ASTC Program structure for runtime execution
  */
@@ -677,6 +808,23 @@ ASTCProgram* astc_load_program(const char* astc_file);
 void astc_free_program(ASTCProgram* program);
 int astc_validate_program(const ASTCProgram* program);
 
+// ===============================================
+// ASTC字节码系统函数声明
+// ===============================================
 
+// ASTC字节码程序管理
+ASTCBytecodeProgram* astc_bytecode_create(void);
+void astc_bytecode_free(ASTCBytecodeProgram* program);
+int astc_bytecode_add_instruction(ASTCBytecodeProgram* program, ASTCOpcode opcode, int64_t operand);
+
+// ASTC汇编程序管理
+ASTCAssemblyProgram* astc_assembly_create(void);
+void astc_assembly_free(ASTCAssemblyProgram* program);
+int astc_assembly_add_line(ASTCAssemblyProgram* program, const char* line);
+int astc_assembly_add_instruction(ASTCAssemblyProgram* program, const char* mnemonic, const char* operands);
+int astc_assembly_add_label(ASTCAssemblyProgram* program, const char* label);
+
+// ASTC转换函数
+ASTCAssemblyProgram* astc_bytecode_to_assembly(ASTCBytecodeProgram* bytecode_program);
 
 #endif // ASTC_H

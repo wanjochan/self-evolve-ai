@@ -7,6 +7,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// 包含核心模块头文件
+#include "../src/core/astc.h"
+#include "../src/core/module.h"
+
 // 测试框架全局状态
 typedef struct {
     int total_tests;

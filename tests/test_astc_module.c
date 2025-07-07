@@ -133,16 +133,20 @@ TEST_CASE(test_ast_serialize_module_null_inputs) {
 
 TEST_CASE(test_ast_deserialize_module_basic) {
     // 创建有效的序列化数据
+    uint32_t module_type = (uint32_t)ASTC_MODULE_DECL;
     uint8_t test_data[] = {
         'A', 'S', 'T', 'C',  // 魔数
         0x01, 0x00, 0x00, 0x00,  // 版本号 (小端)
-        0x01, 0x00, 0x00, 0x00   // 节点类型 (ASTC_MODULE_DECL)
+        (uint8_t)(module_type & 0xFF),
+        (uint8_t)((module_type >> 8) & 0xFF),
+        (uint8_t)((module_type >> 16) & 0xFF),
+        (uint8_t)((module_type >> 24) & 0xFF)   // 节点类型 (ASTC_MODULE_DECL)
     };
-    
+
     ASTNode* module = ast_deserialize_module(test_data, sizeof(test_data));
     ASSERT_NOT_NULL(module, "Deserialization failed");
     ASSERT_EQ(module->type, ASTC_MODULE_DECL, "Deserialized node type incorrect");
-    
+
     ast_free(module);
     TEST_PASS();
 }
@@ -256,11 +260,19 @@ TEST_CASE(test_ast_validate_import_declaration) {
 // ===============================================
 
 TEST_CASE(test_astc_program_lifecycle) {
+    // 创建一个临时测试文件
+    const char* test_file = "/tmp/test_program.astc";
+    FILE* f = fopen(test_file, "wb");
+    if (f) {
+        fwrite("ASTC", 4, 1, f);  // 写入一些测试数据
+        fclose(f);
+    }
+
     // 创建程序
-    ASTCProgram* program = astc_load_program("test_program");
+    ASTCProgram* program = astc_load_program(test_file);
     ASSERT_NOT_NULL(program, "Program creation failed");
     ASSERT_NOT_NULL(program->program_name, "Program name is null");
-    ASSERT_EQ(strcmp(program->program_name, "test_program"), 0, "Program name incorrect");
+    ASSERT_EQ(strcmp(program->program_name, test_file), 0, "Program name incorrect");
     
     // 验证程序
     int result = astc_validate_program(program);
@@ -268,6 +280,10 @@ TEST_CASE(test_astc_program_lifecycle) {
     
     // 释放程序
     astc_free_program(program);
+
+    // 清理临时文件
+    unlink(test_file);
+
     TEST_PASS();
 }
 
