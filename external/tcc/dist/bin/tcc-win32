@@ -1,0 +1,14 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Windows 32 位版本选择脚本
+# 优先使用 i386-win32 版本，如果没有则使用 x86_64 版本
+
+if [ -f "$SCRIPT_DIR/tcc-i386-win32" ]; then
+    exec "$SCRIPT_DIR/tcc-i386-win32" "$@"
+elif [ -f "$SCRIPT_DIR/tcc-x86_64-win32" ]; then
+    exec "$SCRIPT_DIR/tcc-x86_64-win32" "$@"
+else
+    echo "错误: 没有找到 Windows 版本的 TCC 编译器"
+    exit 1
+fi 
