@@ -76,7 +76,7 @@ void astc_bytecode_free(ASTCBytecodeProgram* program) {
 }
 
 // 添加ASTC指令
-int astc_bytecode_add_instruction(ASTCBytecodeProgram* program, ASTCOpcode opcode, int64_t operand) {
+int astc_bytecode_add_instruction(ASTCBytecodeProgram* program, ASTNodeType opcode, int64_t operand) {
     if (!program || !program->instructions) return -1;
 
     // 检查是否需要扩展指令数组
@@ -114,7 +114,7 @@ static int generate_astc_bytecode_from_ast(ASTNode* ast, ASTCBytecodeProgram* pr
             // 生成函数代码
             if (ast->data.func_decl.has_body && ast->data.func_decl.body) {
                 // 函数开始
-                astc_bytecode_add_instruction(program, ASTC_OP_BLOCK, 0);
+                astc_bytecode_add_instruction(program, AST_BLOCK, 0);
 
                 // 生成函数体
                 if (generate_astc_bytecode_from_ast(ast->data.func_decl.body, program) != 0) {
@@ -122,7 +122,7 @@ static int generate_astc_bytecode_from_ast(ASTNode* ast, ASTCBytecodeProgram* pr
                 }
 
                 // 函数结束
-                astc_bytecode_add_instruction(program, ASTC_OP_END, 0);
+                astc_bytecode_add_instruction(program, AST_END, 0);
             }
             break;
 
@@ -144,21 +144,21 @@ static int generate_astc_bytecode_from_ast(ASTNode* ast, ASTCBytecodeProgram* pr
                 }
             } else {
                 // 返回0
-                astc_bytecode_add_instruction(program, ASTC_OP_I32_CONST, 0);
+                astc_bytecode_add_instruction(program, AST_I32_CONST, 0);
             }
-            astc_bytecode_add_instruction(program, ASTC_OP_RETURN, 0);
+            astc_bytecode_add_instruction(program, AST_RETURN, 0);
             break;
 
         case ASTC_EXPR_CONSTANT:
             // 生成常量
             if (ast->data.constant.type == ASTC_TYPE_INT) {
-                astc_bytecode_add_instruction(program, ASTC_OP_I32_CONST, ast->data.constant.int_val);
+                astc_bytecode_add_instruction(program, AST_I32_CONST, ast->data.constant.int_val);
             }
             break;
 
         case ASTC_EXPR_IDENTIFIER:
             // 生成变量引用 (简化实现)
-            astc_bytecode_add_instruction(program, ASTC_OP_LOCAL_GET, 0);
+            astc_bytecode_add_instruction(program, AST_LOCAL_GET, 0);
             break;
 
         default:
@@ -260,73 +260,76 @@ int astc_assembly_add_label(ASTCAssemblyProgram* program, const char* label) {
 }
 
 // ASTC操作码到助记符的映射
-static const char* astc_opcode_to_mnemonic(ASTCOpcode opcode) {
+static const char* astc_opcode_to_mnemonic(ASTNodeType opcode) {
     switch (opcode) {
-        case ASTC_OP_UNREACHABLE: return "unreachable";
-        case ASTC_OP_NOP: return "nop";
-        case ASTC_OP_BLOCK: return "block";
-        case ASTC_OP_LOOP: return "loop";
-        case ASTC_OP_IF: return "if";
-        case ASTC_OP_ELSE: return "else";
-        case ASTC_OP_END: return "end";
-        case ASTC_OP_BR: return "br";
-        case ASTC_OP_BR_IF: return "br_if";
-        case ASTC_OP_RETURN: return "return";
-        case ASTC_OP_CALL: return "call";
+        case AST_UNREACHABLE: return "unreachable";
+        case AST_NOP: return "nop";
+        case AST_BLOCK: return "block";
+        case AST_LOOP: return "loop";
+        case AST_IF: return "if";
+        case AST_ELSE: return "else";
+        case AST_END: return "end";
+        case AST_BR: return "br";
+        case AST_BR_IF: return "br_if";
+        case AST_RETURN: return "return";
+        case AST_CALL: return "call";
 
-        case ASTC_OP_LOCAL_GET: return "local.get";
-        case ASTC_OP_LOCAL_SET: return "local.set";
-        case ASTC_OP_LOCAL_TEE: return "local.tee";
-        case ASTC_OP_GLOBAL_GET: return "global.get";
-        case ASTC_OP_GLOBAL_SET: return "global.set";
+        case AST_LOCAL_GET: return "local.get";
+        case AST_LOCAL_SET: return "local.set";
+        case AST_LOCAL_TEE: return "local.tee";
+        case AST_GLOBAL_GET: return "global.get";
+        case AST_GLOBAL_SET: return "global.set";
 
-        case ASTC_OP_I32_LOAD: return "i32.load";
-        case ASTC_OP_I64_LOAD: return "i64.load";
-        case ASTC_OP_F32_LOAD: return "f32.load";
-        case ASTC_OP_F64_LOAD: return "f64.load";
-        case ASTC_OP_I32_STORE: return "i32.store";
-        case ASTC_OP_I64_STORE: return "i64.store";
-        case ASTC_OP_F32_STORE: return "f32.store";
-        case ASTC_OP_F64_STORE: return "f64.store";
+        case AST_I32_LOAD: return "i32.load";
+        case AST_I64_LOAD: return "i64.load";
+        case AST_F32_LOAD: return "f32.load";
+        case AST_F64_LOAD: return "f64.load";
+        case AST_I32_STORE: return "i32.store";
+        case AST_I64_STORE: return "i64.store";
+        case AST_F32_STORE: return "f32.store";
+        case AST_F64_STORE: return "f64.store";
 
-        case ASTC_OP_I32_CONST: return "i32.const";
-        case ASTC_OP_I64_CONST: return "i64.const";
-        case ASTC_OP_F32_CONST: return "f32.const";
-        case ASTC_OP_F64_CONST: return "f64.const";
+        case AST_I32_CONST: return "i32.const";
+        case AST_I64_CONST: return "i64.const";
+        case AST_F32_CONST: return "f32.const";
+        case AST_F64_CONST: return "f64.const";
 
-        case ASTC_OP_I32_EQZ: return "i32.eqz";
-        case ASTC_OP_I32_EQ: return "i32.eq";
-        case ASTC_OP_I32_NE: return "i32.ne";
-        case ASTC_OP_I32_LT_S: return "i32.lt_s";
-        case ASTC_OP_I32_LT_U: return "i32.lt_u";
-        case ASTC_OP_I32_GT_S: return "i32.gt_s";
-        case ASTC_OP_I32_GT_U: return "i32.gt_u";
-        case ASTC_OP_I32_LE_S: return "i32.le_s";
-        case ASTC_OP_I32_LE_U: return "i32.le_u";
-        case ASTC_OP_I32_GE_S: return "i32.ge_s";
-        case ASTC_OP_I32_GE_U: return "i32.ge_u";
+        case AST_I32_EQZ: return "i32.eqz";
+        case AST_I32_EQ: return "i32.eq";
+        case AST_I32_NE: return "i32.ne";
+        case AST_I32_LT_S: return "i32.lt_s";
+        case AST_I32_LT_U: return "i32.lt_u";
+        case AST_I32_GT_S: return "i32.gt_s";
+        case AST_I32_GT_U: return "i32.gt_u";
+        case AST_I32_LE_S: return "i32.le_s";
+        case AST_I32_LE_U: return "i32.le_u";
+        case AST_I32_GE_S: return "i32.ge_s";
+        case AST_I32_GE_U: return "i32.ge_u";
 
-        case ASTC_OP_I32_ADD: return "i32.add";
-        case ASTC_OP_I32_SUB: return "i32.sub";
-        case ASTC_OP_I32_MUL: return "i32.mul";
-        case ASTC_OP_I32_DIV_S: return "i32.div_s";
-        case ASTC_OP_I32_DIV_U: return "i32.div_u";
-        case ASTC_OP_I32_REM_S: return "i32.rem_s";
-        case ASTC_OP_I32_REM_U: return "i32.rem_u";
-        case ASTC_OP_I32_AND: return "i32.and";
-        case ASTC_OP_I32_OR: return "i32.or";
-        case ASTC_OP_I32_XOR: return "i32.xor";
-        case ASTC_OP_I32_SHL: return "i32.shl";
-        case ASTC_OP_I32_SHR_S: return "i32.shr_s";
-        case ASTC_OP_I32_SHR_U: return "i32.shr_u";
+        case AST_I32_ADD: return "i32.add";
+        case AST_I32_SUB: return "i32.sub";
+        case AST_I32_MUL: return "i32.mul";
+        case AST_I32_DIV_S: return "i32.div_s";
+        case AST_I32_DIV_U: return "i32.div_u";
+        case AST_I32_REM_S: return "i32.rem_s";
+        case AST_I32_REM_U: return "i32.rem_u";
+        case AST_I32_AND: return "i32.and";
+        case AST_I32_OR: return "i32.or";
+        case AST_I32_XOR: return "i32.xor";
+        case AST_I32_SHL: return "i32.shl";
+        case AST_I32_SHR_S: return "i32.shr_s";
+        case AST_I32_SHR_U: return "i32.shr_u";
 
-        case ASTC_OP_C99_PRINTF: return "c99.printf";
-        case ASTC_OP_C99_MALLOC: return "c99.malloc";
-        case ASTC_OP_C99_FREE: return "c99.free";
-        case ASTC_OP_C99_SYSCALL: return "c99.syscall";
+        // C99扩展指令 - 使用ASTC特定的节点类型
+        case ASTC_C99_COMPILE: return "c99.compile";
+        case ASTC_C99_PARSE: return "c99.parse";
+        case ASTC_C99_CODEGEN: return "c99.codegen";
+        case ASTC_C99_OPTIMIZE: return "c99.optimize";
+        case ASTC_C99_LINK: return "c99.link";
 
-        case ASTC_OP_DEBUG_PRINT: return "debug.print";
-        case ASTC_OP_DEBUG_BREAK: return "debug.break";
+        // 调试指令 - 需要在ASTNodeType中添加对应项
+        // case AST_DEBUG_PRINT: return "debug.print";
+        // case AST_DEBUG_BREAK: return "debug.break";
 
         default: return "unknown";
     }
@@ -362,23 +365,23 @@ ASTCAssemblyProgram* astc_bytecode_to_assembly(ASTCBytecodeProgram* bytecode_pro
 
         // 根据操作码类型格式化操作数
         switch (instr->opcode) {
-            case ASTC_OP_I32_CONST:
-            case ASTC_OP_I64_CONST:
+            case AST_I32_CONST:
+            case AST_I64_CONST:
                 snprintf(operand_str, sizeof(operand_str), "%lld", instr->operand.i64);
                 break;
-            case ASTC_OP_F32_CONST:
+            case AST_F32_CONST:
                 snprintf(operand_str, sizeof(operand_str), "%f", instr->operand.f32);
                 break;
-            case ASTC_OP_F64_CONST:
+            case AST_F64_CONST:
                 snprintf(operand_str, sizeof(operand_str), "%f", instr->operand.f64);
                 break;
-            case ASTC_OP_LOCAL_GET:
-            case ASTC_OP_LOCAL_SET:
-            case ASTC_OP_GLOBAL_GET:
-            case ASTC_OP_GLOBAL_SET:
-            case ASTC_OP_BR:
-            case ASTC_OP_BR_IF:
-            case ASTC_OP_CALL:
+            case AST_LOCAL_GET:
+            case AST_LOCAL_SET:
+            case AST_GLOBAL_GET:
+            case AST_GLOBAL_SET:
+            case AST_BR:
+            case AST_BR_IF:
+            case AST_CALL:
                 snprintf(operand_str, sizeof(operand_str), "%u", instr->operand.index);
                 break;
             default:
@@ -2088,19 +2091,19 @@ static bool vm_execute(VMContext* ctx) {
         ctx->program_counter++;
 
         switch (instr->opcode) {
-            case ASTC_OP_NOP:
+            case AST_NOP:
                 // 空操作
                 break;
 
-            case ASTC_OP_BLOCK:
+            case AST_BLOCK:
                 // 块开始 - 简化实现
                 break;
 
-            case ASTC_OP_END:
+            case AST_END:
                 // 块结束 - 简化实现
                 break;
 
-            case ASTC_OP_I32_CONST: {
+            case AST_I32_CONST: {
                 // 压入32位整数常量
                 if (ctx->stack_pointer >= ctx->stack_size) {
                     strcpy(ctx->error_message, "Stack overflow");
@@ -2111,7 +2114,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case ASTC_OP_I64_CONST: {
+            case AST_I64_CONST: {
                 // 压入64位整数常量
                 if (ctx->stack_pointer >= ctx->stack_size) {
                     strcpy(ctx->error_message, "Stack overflow");
@@ -2122,7 +2125,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case ASTC_OP_RETURN: {
+            case AST_RETURN: {
                 // 返回指令
                 if (ctx->stack_pointer > 0) {
                     uint64_t return_value = ctx->stack[--ctx->stack_pointer];
@@ -2134,7 +2137,7 @@ static bool vm_execute(VMContext* ctx) {
                 break;
             }
 
-            case ASTC_OP_I32_ADD: {
+            case AST_I32_ADD: {
                 // 32位整数加法
                 if (ctx->stack_pointer < 2) {
                     strcpy(ctx->error_message, "Stack underflow for i32.add");
