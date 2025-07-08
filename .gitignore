@@ -23,3 +23,7 @@ helpers/maestro/self-evolve-ai_-_Visual_Studio_Code_screenshot.png
 hello
 test_module
 module_test
+bin/*_test
+hello_world
+bin/test_*
+c99_compiler

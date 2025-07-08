@@ -400,107 +400,11 @@ ASTCAssemblyProgram* astc_bytecode_to_assembly(ASTCBytecodeProgram* bytecode_pro
 }
 
 // ===============================================
-// 简化的AST实现 (用于测试)
+// AST函数引用 (使用 src/core/astc.c 中的实现)
 // ===============================================
 
-// 创建AST节点
-ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
-
-    memset(node, 0, sizeof(ASTNode));
-    node->type = type;
-    node->line = line;
-    node->column = column;
-
-    return node;
-}
-
-// 释放AST节点
-void ast_free(ASTNode* node) {
-    if (!node) return;
-
-    // 根据节点类型释放相关内存
-    switch (node->type) {
-        case ASTC_EXPR_IDENTIFIER:
-            if (node->data.identifier.name) {
-                free(node->data.identifier.name);
-            }
-            break;
-
-        case ASTC_EXPR_STRING_LITERAL:
-            if (node->data.string_literal.value) {
-                free(node->data.string_literal.value);
-            }
-            break;
-
-        case ASTC_FUNC_DECL:
-            if (node->data.func_decl.name) {
-                free(node->data.func_decl.name);
-            }
-            if (node->data.func_decl.return_type) {
-                ast_free(node->data.func_decl.return_type);
-            }
-            if (node->data.func_decl.body) {
-                ast_free(node->data.func_decl.body);
-            }
-            if (node->data.func_decl.params) {
-                for (int i = 0; i < node->data.func_decl.param_count; i++) {
-                    ast_free(node->data.func_decl.params[i]);
-                }
-                free(node->data.func_decl.params);
-            }
-            break;
-
-        case ASTC_VAR_DECL:
-            if (node->data.var_decl.name) {
-                free(node->data.var_decl.name);
-            }
-            if (node->data.var_decl.type) {
-                ast_free(node->data.var_decl.type);
-            }
-            if (node->data.var_decl.initializer) {
-                ast_free(node->data.var_decl.initializer);
-            }
-            break;
-
-        case ASTC_TRANSLATION_UNIT:
-            if (node->data.translation_unit.declarations) {
-                for (int i = 0; i < node->data.translation_unit.declaration_count; i++) {
-                    ast_free(node->data.translation_unit.declarations[i]);
-                }
-                free(node->data.translation_unit.declarations);
-            }
-            break;
-
-        case ASTC_COMPOUND_STMT:
-            if (node->data.compound_stmt.statements) {
-                for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
-                    ast_free(node->data.compound_stmt.statements[i]);
-                }
-                free(node->data.compound_stmt.statements);
-            }
-            break;
-
-        case ASTC_RETURN_STMT:
-            if (node->data.return_stmt.value) {
-                ast_free(node->data.return_stmt.value);
-            }
-            break;
-
-        case ASTC_EXPR_STMT:
-            if (node->data.expr_stmt.expr) {
-                ast_free(node->data.expr_stmt.expr);
-            }
-            break;
-
-        default:
-            // 其他类型暂时不处理
-            break;
-    }
-
-    free(node);
-}
+// 注意：ast_create_node, ast_free, ast_print 函数在 src/core/astc.c 中定义
+// 这里不再重复定义，直接使用 astc.h 中的声明
 
 // ===============================================
 // ASTC核心函数实现
@@ -659,26 +563,7 @@ int ast_resolve_symbol_references(ASTNode* module) {
     return 0;
 }
 
-// 简化的AST打印实现
-void ast_print(ASTNode* node, int indent) {
-    if (!node) return;
-
-    for (int i = 0; i < indent; i++) {
-        printf("  ");
-    }
-
-    switch (node->type) {
-        case ASTC_TRANSLATION_UNIT:
-            printf("TranslationUnit (%d declarations)\n", node->data.translation_unit.declaration_count);
-            break;
-        case ASTC_FUNC_DECL:
-            printf("FunctionDecl: %s\n", node->data.func_decl.name ? node->data.func_decl.name : "unnamed");
-            break;
-        default:
-            printf("Node type: %d\n", node->type);
-            break;
-    }
-}
+// 注意：ast_print 函数在 src/core/astc.c 中定义，这里不再重复定义
 
 // ===============================================
 // 前端编译器 (C -> ASTC)
