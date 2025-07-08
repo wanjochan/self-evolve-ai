@@ -7,6 +7,9 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static void error_info_free(ErrorInfo* error);
+
 // ===============================================
 // Error Type Names
 // ===============================================

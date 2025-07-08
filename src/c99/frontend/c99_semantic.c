@@ -7,6 +7,22 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static void symbol_free(Symbol* symbol);
+static Symbol* semantic_lookup_symbol_current_scope(SemanticContext* semantic, const char* name);
+static bool semantic_analyze_declaration(SemanticContext* semantic, struct ASTNode* decl);
+static void check_unused_symbols(SemanticContext* semantic, SymbolTable* scope);
+static struct Type* analyze_type(SemanticContext* semantic, struct ASTNode* type_node);
+static bool analyze_compound_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_if_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_while_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static struct Type* check_binary_operation(SemanticContext* semantic, int operator, struct Type* left, struct Type* right, struct ASTNode* expr);
+static struct Type* check_unary_operation(SemanticContext* semantic, int operator, struct Type* operand, struct ASTNode* expr);
+static bool check_function_call(SemanticContext* semantic, Symbol* func, struct ASTNode* call);
+static bool type_is_scalar(struct Type* type);
+static struct Type* type_arithmetic_conversion(struct Type* left, struct Type* right);
+
 // ===============================================
 // Hash Function for Symbol Table
 // ===============================================
@@ -226,8 +242,10 @@ bool semantic_analyze_translation_unit(SemanticContext* semantic, struct ASTNode
     printf("Semantic: Analyzing translation unit\n");
     
     // 遍历AST的所有顶层声明
-    struct ASTNode* current = ast->first_child;
-    while (current) {
+    for (int i = 0; i < ast->data.translation_unit.declaration_count; i++) {
+        struct ASTNode* current = ast->data.translation_unit.declarations[i];
+        if (!current) continue;
+
         if (current->type == ASTC_FUNC_DECL) {
             if (!semantic_analyze_function(semantic, current)) {
                 return false;
@@ -237,7 +255,6 @@ bool semantic_analyze_translation_unit(SemanticContext* semantic, struct ASTNode
                 return false;
             }
         }
-        current = current->next;
     }
     
     // 检查未使用的符号
@@ -257,25 +274,24 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
     semantic_enter_scope(semantic);
     
     // 分析返回类型
-    struct Type* return_type = analyze_type(semantic, func->return_type);
+    struct Type* return_type = analyze_type(semantic, func->data.func_decl.return_type);
     if (!return_type) {
         semantic_error(semantic, func, "Invalid return type");
         return false;
     }
-    
+
     // 分析参数
-    struct ASTNode* param = func->parameters;
-    while (param) {
-        if (!semantic_analyze_declaration(semantic, param)) {
+    for (int i = 0; i < func->data.func_decl.param_count; i++) {
+        struct ASTNode* param = func->data.func_decl.params[i];
+        if (param && !semantic_analyze_declaration(semantic, param)) {
             return false;
         }
-        param = param->next;
     }
-    
+
     // 分析函数体
-    if (func->body) {
+    if (func->data.func_decl.has_body && func->data.func_decl.body) {
         semantic->current_function_type = return_type;
-        if (!semantic_analyze_statement(semantic, func->body)) {
+        if (!semantic_analyze_statement(semantic, func->data.func_decl.body)) {
             return false;
         }
         semantic->current_function_type = NULL;
@@ -310,7 +326,7 @@ bool semantic_analyze_statement(SemanticContext* semantic, struct ASTNode* stmt)
             return analyze_return_statement(semantic, stmt);
             
         case ASTC_EXPR_STMT:
-            return semantic_analyze_expression(semantic, stmt->expression) != NULL;
+            return semantic_analyze_expression(semantic, stmt->data.expr_stmt.expr) != NULL;
             
         default:
             semantic_error(semantic, stmt, "Unsupported statement type");

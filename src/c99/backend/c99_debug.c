@@ -7,6 +7,10 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static void debug_free_function_info(FunctionInfo* func);
+static void debug_free_variable_info(VariableInfo* var);
+
 // ===============================================
 // Debug Context Management
 // ===============================================
