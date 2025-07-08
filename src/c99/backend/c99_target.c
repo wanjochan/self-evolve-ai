@@ -7,6 +7,9 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static void target_init_type_info(TargetInfo* info);
+
 // ===============================================
 // Target Information Tables
 // ===============================================

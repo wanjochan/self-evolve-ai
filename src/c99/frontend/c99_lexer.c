@@ -8,6 +8,13 @@
 #include <ctype.h>
 #include <stdio.h>
 
+// Forward declarations
+static Token* scan_identifier(LexerContext* lexer);
+static Token* scan_number(LexerContext* lexer);
+static Token* scan_string(LexerContext* lexer);
+static Token* scan_character(LexerContext* lexer);
+static Token* create_token(TokenType type, const char* value, size_t length, int line, int column);
+
 // ===============================================
 // Keyword Table
 // ===============================================
