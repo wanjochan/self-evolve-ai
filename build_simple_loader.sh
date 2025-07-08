@@ -136,42 +136,42 @@ TOTAL_COUNT=0
 
 case "$TARGET_ARCH" in
     "arm64")
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "arm64" "64" "aarch64" "-march=armv8-a"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         fi
         ;;
     "x64")
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "x64" "64" "x86_64" "-march=x86-64"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         fi
         ;;
     "x86")
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "x86" "32" "i686" "-march=i686 -m32"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         fi
         ;;
     "all")
         print_status "INFO" "构建所有支持的架构..."
 
         # ARM64
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "arm64" "64" "aarch64" "-march=armv8-a"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         fi
 
         # x64
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "x64" "64" "x86_64" "-march=x86-64"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         fi
 
         # x86 (may fail on some systems without 32-bit support)
-        ((TOTAL_COUNT++))
+        TOTAL_COUNT=$((TOTAL_COUNT + 1))
         if build_for_arch "x86" "32" "i686" "-march=i686 -m32"; then
-            ((SUCCESS_COUNT++))
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         else
             print_status "WARN" "x86_32 构建失败 (可能缺少32位支持库)"
         fi
