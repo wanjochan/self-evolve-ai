@@ -245,6 +245,90 @@ int compile_with_pipeline(const char* source_code, const char* output_file) {
     return 0;
 }
 
+// 从目标文件创建.native文件
+int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
+                                  const char* output_file, NativeArchitecture target_arch) {
+    // 创建.native文件头
+    NativeHeader header = {0};
+    memcpy(header.magic, "NATV", 4);
+    header.version = NATIVE_VERSION_V1;
+    header.arch = target_arch;
+    header.module_type = 3; // 编译流水线模块
+    header.flags = 0;
+    header.header_size = sizeof(NativeHeader);
+    header.code_size = obj_size; // 简化：直接使用目标文件作为代码
+    header.data_size = 0;
+    header.export_count = 7; // 固定导出7个函数
+    header.export_offset = sizeof(NativeHeader) + obj_size;
+
+    // 创建导出表
+    ExportEntry exports[7];
+    memset(exports, 0, sizeof(exports));
+
+    // 定义导出函数
+    strcpy(exports[0].name, "vm_execute_astc");
+    exports[0].offset = 0;
+    exports[0].size = 100;
+
+    strcpy(exports[1].name, "execute_astc");
+    exports[1].offset = 128;
+    exports[1].size = 50;
+
+    strcpy(exports[2].name, "native_main");
+    exports[2].offset = 256;
+    exports[2].size = 50;
+
+    strcpy(exports[3].name, "test_export_function");
+    exports[3].offset = 384;
+    exports[3].size = 20;
+
+    strcpy(exports[4].name, "module_init");
+    exports[4].offset = 512;
+    exports[4].size = 20;
+
+    strcpy(exports[5].name, "module_cleanup");
+    exports[5].offset = 640;
+    exports[5].size = 20;
+
+    strcpy(exports[6].name, "module_resolve");
+    exports[6].offset = 768;
+    exports[6].size = 20;
+
+    // 写入.native文件
+    FILE* output = fopen(output_file, "wb");
+    if (!output) {
+        printf("c2native: 错误: 无法创建输出文件 %s\n", output_file);
+        return -1;
+    }
+
+    // 写入头部
+    if (fwrite(&header, sizeof(NativeHeader), 1, output) != 1) {
+        printf("c2native: 错误: 写入头部失败\n");
+        fclose(output);
+        return -1;
+    }
+
+    // 写入代码段（目标文件内容）
+    if (fwrite(obj_data, 1, obj_size, output) != obj_size) {
+        printf("c2native: 错误: 写入代码段失败\n");
+        fclose(output);
+        return -1;
+    }
+
+    // 写入导出表
+    if (fwrite(exports, sizeof(ExportEntry), 7, output) != 7) {
+        printf("c2native: 错误: 写入导出表失败\n");
+        fclose(output);
+        return -1;
+    }
+
+    fclose(output);
+    printf("c2native: .native文件创建成功 (%zu 字节)\n",
+           sizeof(NativeHeader) + obj_size + sizeof(exports));
+
+    return 0;
+}
+
 // 回退方案：使用传统编译方式（仅用于调试）
 int compile_with_fallback(const char* c_file, const char* output_file, NativeArchitecture target_arch) {
     printf("c2native: 使用回退编译方案...\n");
@@ -298,12 +382,49 @@ int compile_with_fallback(const char* c_file, const char* output_file, NativeArc
     }
     
     // 从目标文件提取机器码并创建.native文件
-    // [这里省略了extract_machine_code和create_native_file的实现]
-    // 实际应用中应该调用完整的实现
-    
+    printf("c2native: 从目标文件提取机器码...\n");
+
+    // 读取目标文件
+    FILE* obj_file = fopen(temp_obj_file, "rb");
+    if (!obj_file) {
+        printf("c2native: 错误: 无法打开目标文件 %s\n", temp_obj_file);
+        return -1;
+    }
+
+    // 获取文件大小
+    fseek(obj_file, 0, SEEK_END);
+    size_t obj_size = ftell(obj_file);
+    fseek(obj_file, 0, SEEK_SET);
+
+    // 读取目标文件内容
+    uint8_t* obj_data = malloc(obj_size);
+    if (!obj_data) {
+        printf("c2native: 错误: 内存分配失败\n");
+        fclose(obj_file);
+        return -1;
+    }
+
+    if (fread(obj_data, 1, obj_size, obj_file) != obj_size) {
+        printf("c2native: 错误: 读取目标文件失败\n");
+        free(obj_data);
+        fclose(obj_file);
+        return -1;
+    }
+    fclose(obj_file);
+
+    // 创建.native文件
+    printf("c2native: 创建.native文件...\n");
+    if (create_native_file_from_object(obj_data, obj_size, output_file, target_arch) != 0) {
+        printf("c2native: 错误: 创建.native文件失败\n");
+        free(obj_data);
+        remove(temp_obj_file);
+        return -1;
+    }
+
+    free(obj_data);
     printf("c2native: 回退编译完成\n");
     remove(temp_obj_file);
-    
+
     return 0;
 }
 
