@@ -8,6 +8,11 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static struct ASTNode* parser_parse_variable_declaration(ParserContext* parser);
+static struct ASTNode* parser_parse_assignment_expression(ParserContext* parser);
+static struct ASTNode* parser_parse_primary_expression(ParserContext* parser);
+
 // ===============================================
 // Parser Context Management
 // ===============================================
@@ -181,8 +186,9 @@ struct ASTNode* parser_parse_translation_unit(ParserContext* parser) {
 
 struct ASTNode* parser_parse_external_declaration(ParserContext* parser) {
     if (!parser || !parser->current_token) return NULL;
-    
-    // For now, assume all external declarations are function definitions
+
+    // For simplicity, assume all external declarations are function definitions for now
+    // TODO: Add proper lookahead to distinguish between function and variable declarations
     return parser_parse_function_definition(parser);
 }
 
@@ -207,11 +213,16 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
            (parser->current_token->type == TOKEN_INT ||
             parser->current_token->type == TOKEN_VOID ||
             parser->current_token->type == TOKEN_CHAR)) {
+        printf("Parser: Skipping type specifier '%s'\n", parser->current_token->value);
         parser_advance(parser);
     }
 
+    printf("Parser: Current token after type specifiers: %s '%s'\n",
+           token_type_name(parser->current_token->type),
+           parser->current_token->value);
+
     // Parse function name
-    if (parser_match(parser, TOKEN_IDENTIFIER)) {
+    if (parser->current_token && parser->current_token->type == TOKEN_IDENTIFIER) {
         func_decl->data.func_decl.name = strdup(parser->current_token->value);
         printf("Parser: Found function '%s'\n", func_decl->data.func_decl.name);
         parser_advance(parser);
@@ -234,13 +245,19 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
         }
     }
 
-    // Parse function body
+    // Check if this is a function declaration or definition
     if (parser_match(parser, TOKEN_LBRACE)) {
+        // Function definition with body
         func_decl->data.func_decl.body = parser_parse_compound_statement(parser);
         func_decl->data.func_decl.has_body = 1;
         return func_decl;
+    } else if (parser_match(parser, TOKEN_SEMICOLON)) {
+        // Function declaration without body
+        func_decl->data.func_decl.has_body = 0;
+        func_decl->data.func_decl.body = NULL;
+        return func_decl;
     } else {
-        parser_error(parser, "Expected function body");
+        parser_error(parser, "Expected function body or semicolon");
         return NULL;
     }
 }
@@ -252,7 +269,7 @@ struct ASTNode* parser_parse_compound_statement(ParserContext* parser) {
         return NULL;
     }
     
-    struct ASTNode* compound = parser_create_ast_node(parser, 2); // ASTC_COMPOUND_STMT
+    struct ASTNode* compound = parser_create_ast_node(parser, ASTC_COMPOUND_STMT);
     if (!compound) return NULL;
     
     parser->scope_depth++;
@@ -293,7 +310,7 @@ struct ASTNode* parser_parse_statement(ParserContext* parser) {
 struct ASTNode* parser_parse_expression_statement(ParserContext* parser) {
     if (!parser) return NULL;
     
-    struct ASTNode* expr_stmt = parser_create_ast_node(parser, 3); // ASTC_EXPR_STMT
+    struct ASTNode* expr_stmt = parser_create_ast_node(parser, ASTC_EXPR_STMT);
     if (!expr_stmt) return NULL;
     
     // Parse expression (simplified)
@@ -306,11 +323,64 @@ struct ASTNode* parser_parse_expression_statement(ParserContext* parser) {
     return expr_stmt;
 }
 
+struct ASTNode* parser_parse_variable_declaration(ParserContext* parser) {
+    if (!parser) return NULL;
+
+    struct ASTNode* var_decl = parser_create_ast_node(parser, ASTC_VAR_DECL);
+    if (!var_decl) return NULL;
+
+    // Initialize variable declaration data
+    var_decl->data.var_decl.name = NULL;
+    var_decl->data.var_decl.type = NULL;
+    var_decl->data.var_decl.initializer = NULL;
+
+    // Parse storage class specifiers (skip for now, as they're not in the AST structure)
+    while (parser->current_token &&
+           (parser->current_token->type == TOKEN_STATIC ||
+            parser->current_token->type == TOKEN_EXTERN)) {
+        // TODO: Store storage class information somewhere
+        parser_advance(parser);
+    }
+
+    // Parse type specifiers (simplified)
+    while (parser->current_token &&
+           (parser->current_token->type == TOKEN_INT ||
+            parser->current_token->type == TOKEN_VOID ||
+            parser->current_token->type == TOKEN_CHAR ||
+            parser->current_token->type == TOKEN_FLOAT ||
+            parser->current_token->type == TOKEN_DOUBLE)) {
+        parser_advance(parser);
+    }
+
+    // Parse variable name
+    if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        var_decl->data.var_decl.name = strdup(parser->current_token->value);
+        parser_advance(parser);
+    } else {
+        parser_error(parser, "Expected variable name");
+        return NULL;
+    }
+
+    // Check for initializer
+    if (parser_match(parser, TOKEN_ASSIGN)) {
+        parser_advance(parser);
+        var_decl->data.var_decl.initializer = parser_parse_expression(parser);
+    }
+
+    // Expect semicolon
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        parser_error(parser, "Expected semicolon after variable declaration");
+        return NULL;
+    }
+
+    return var_decl;
+}
+
 struct ASTNode* parser_parse_jump_statement(ParserContext* parser) {
     if (!parser || !parser->current_token) return NULL;
     
     if (parser->current_token->type == TOKEN_RETURN) {
-        struct ASTNode* return_stmt = parser_create_ast_node(parser, 4); // ASTC_RETURN_STMT
+        struct ASTNode* return_stmt = parser_create_ast_node(parser, ASTC_RETURN_STMT);
         parser_advance(parser); // consume 'return'
         
         // Parse optional return value
@@ -327,21 +397,9 @@ struct ASTNode* parser_parse_jump_statement(ParserContext* parser) {
 }
 
 struct ASTNode* parser_parse_expression(ParserContext* parser) {
-    if (!parser || !parser->current_token) return NULL;
-    
-    // Simplified expression parsing
-    if (parser->current_token->type == TOKEN_IDENTIFIER) {
-        printf("Parser: Found identifier '%s'\n", parser->current_token->value);
-        parser_advance(parser);
-    } else if (parser->current_token->type == TOKEN_INTEGER_LITERAL) {
-        printf("Parser: Found integer '%s'\n", parser->current_token->value);
-        parser_advance(parser);
-    } else {
-        // Skip unknown tokens
-        parser_advance(parser);
-    }
-    
-    return parser_create_ast_node(parser, 5); // ASTC_EXPR
+    if (!parser) return NULL;
+
+    return parser_parse_assignment_expression(parser);
 }
 
 // ===============================================
@@ -358,10 +416,85 @@ const char* parser_get_error(ParserContext* parser) {
 
 void parser_print_stats(ParserContext* parser) {
     if (!parser) return;
-    
+
     printf("Parser Statistics:\n");
     printf("  AST Nodes Created: %zu\n", parser->ast_node_count);
     printf("  Errors: %d\n", parser->error_count);
     printf("  Warnings: %d\n", parser->warning_count);
     printf("  Scope Depth: %d\n", parser->scope_depth);
+}
+
+// ===============================================
+// Enhanced Expression Parsing Functions
+// ===============================================
+
+struct ASTNode* parser_parse_assignment_expression(ParserContext* parser) {
+    if (!parser) return NULL;
+
+    struct ASTNode* left = parser_parse_primary_expression(parser);
+    if (!left) return NULL;
+
+    // Check for assignment operators
+    if (parser->current_token &&
+        (parser->current_token->type == TOKEN_ASSIGN ||
+         parser->current_token->type == TOKEN_PLUS_ASSIGN ||
+         parser->current_token->type == TOKEN_MINUS_ASSIGN)) {
+
+        struct ASTNode* assign_expr = parser_create_ast_node(parser, ASTC_BINARY_OP);
+        if (!assign_expr) return NULL;
+
+        assign_expr->data.binary_op.left = left;
+        assign_expr->data.binary_op.op = parser->current_token->type;
+        parser_advance(parser);
+
+        assign_expr->data.binary_op.right = parser_parse_assignment_expression(parser);
+        if (!assign_expr->data.binary_op.right) return NULL;
+
+        return assign_expr;
+    }
+
+    return left;
+}
+
+struct ASTNode* parser_parse_primary_expression(ParserContext* parser) {
+    if (!parser || !parser->current_token) return NULL;
+
+    switch (parser->current_token->type) {
+        case TOKEN_IDENTIFIER: {
+            struct ASTNode* id_expr = parser_create_ast_node(parser, ASTC_EXPR_IDENTIFIER);
+            if (!id_expr) return NULL;
+
+            id_expr->data.identifier.name = strdup(parser->current_token->value);
+            printf("Parser: Found identifier '%s'\n", parser->current_token->value);
+            parser_advance(parser);
+            return id_expr;
+        }
+
+        case TOKEN_INTEGER_LITERAL: {
+            struct ASTNode* const_expr = parser_create_ast_node(parser, ASTC_EXPR_CONSTANT);
+            if (!const_expr) return NULL;
+
+            const_expr->data.constant.type = ASTC_EXPR_CONSTANT;
+            const_expr->data.constant.int_val = atoi(parser->current_token->value);
+            printf("Parser: Found integer '%s'\n", parser->current_token->value);
+            parser_advance(parser);
+            return const_expr;
+        }
+
+        case TOKEN_LPAREN: {
+            parser_advance(parser); // consume '('
+            struct ASTNode* expr = parser_parse_expression(parser);
+            if (!expr) return NULL;
+
+            if (!parser_expect(parser, TOKEN_RPAREN)) {
+                parser_error(parser, "Expected ')' after expression");
+                return NULL;
+            }
+            return expr;
+        }
+
+        default:
+            parser_error(parser, "Expected primary expression");
+            return NULL;
+    }
 }

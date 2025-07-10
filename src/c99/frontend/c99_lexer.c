@@ -253,7 +253,26 @@ Token* lexer_next_token(LexerContext* lexer) {
             
         case '/':
             advance_char(lexer);
-            if (peek_char(lexer, 0) == '=') {
+            if (peek_char(lexer, 0) == '/') {
+                // Single-line comment
+                advance_char(lexer); // skip second '/'
+                while (peek_char(lexer, 0) != '\n' && peek_char(lexer, 0) != '\0') {
+                    advance_char(lexer);
+                }
+                return lexer_next_token(lexer); // Skip this token and get the next one
+            } else if (peek_char(lexer, 0) == '*') {
+                // Multi-line comment
+                advance_char(lexer); // skip '*'
+                while (peek_char(lexer, 0) != '\0') {
+                    if (peek_char(lexer, 0) == '*' && peek_char(lexer, 1) == '/') {
+                        advance_char(lexer); // skip '*'
+                        advance_char(lexer); // skip '/'
+                        break;
+                    }
+                    advance_char(lexer);
+                }
+                return lexer_next_token(lexer); // Skip this token and get the next one
+            } else if (peek_char(lexer, 0) == '=') {
                 advance_char(lexer);
                 return create_token(TOKEN_DIV_ASSIGN, "/=", 2, start_line, start_column);
             }
@@ -282,7 +301,14 @@ Token* lexer_next_token(LexerContext* lexer) {
         case ',':
             advance_char(lexer);
             return create_token(TOKEN_COMMA, ",", 1, start_line, start_column);
-            
+
+        case '#':
+            // Skip preprocessor directives for now
+            while (peek_char(lexer, 0) != '\n' && peek_char(lexer, 0) != '\0') {
+                advance_char(lexer);
+            }
+            return lexer_next_token(lexer); // Skip this token and get the next one
+
         default:
             advance_char(lexer);
             set_error(lexer, "Unexpected character");
@@ -297,13 +323,92 @@ const char* token_type_name(TokenType type) {
         case TOKEN_IDENTIFIER: return "IDENTIFIER";
         case TOKEN_INTEGER_LITERAL: return "INTEGER";
         case TOKEN_FLOAT_LITERAL: return "FLOAT";
-        case TOKEN_IF: return "IF";
+        case TOKEN_CHAR_LITERAL: return "CHAR";
+        case TOKEN_STRING_LITERAL: return "STRING";
+
+        // Keywords
+        case TOKEN_AUTO: return "AUTO";
+        case TOKEN_BREAK: return "BREAK";
+        case TOKEN_CASE: return "CASE";
+        case TOKEN_CHAR: return "CHAR";
+        case TOKEN_CONST: return "CONST";
+        case TOKEN_CONTINUE: return "CONTINUE";
+        case TOKEN_DEFAULT: return "DEFAULT";
+        case TOKEN_DO: return "DO";
+        case TOKEN_DOUBLE: return "DOUBLE";
         case TOKEN_ELSE: return "ELSE";
+        case TOKEN_ENUM: return "ENUM";
+        case TOKEN_EXTERN: return "EXTERN";
+        case TOKEN_FLOAT: return "FLOAT";
+        case TOKEN_FOR: return "FOR";
+        case TOKEN_GOTO: return "GOTO";
+        case TOKEN_IF: return "IF";
+        case TOKEN_INLINE: return "INLINE";
+        case TOKEN_INT: return "INT";
+        case TOKEN_LONG: return "LONG";
+        case TOKEN_REGISTER: return "REGISTER";
+        case TOKEN_RESTRICT: return "RESTRICT";
+        case TOKEN_RETURN: return "RETURN";
+        case TOKEN_SHORT: return "SHORT";
+        case TOKEN_SIGNED: return "SIGNED";
+        case TOKEN_SIZEOF: return "SIZEOF";
+        case TOKEN_STATIC: return "STATIC";
+        case TOKEN_STRUCT: return "STRUCT";
+        case TOKEN_SWITCH: return "SWITCH";
+        case TOKEN_TYPEDEF: return "TYPEDEF";
+        case TOKEN_UNION: return "UNION";
+        case TOKEN_UNSIGNED: return "UNSIGNED";
+        case TOKEN_VOID: return "VOID";
+        case TOKEN_VOLATILE: return "VOLATILE";
         case TOKEN_WHILE: return "WHILE";
+        case TOKEN_BOOL: return "_BOOL";
+        case TOKEN_COMPLEX: return "_COMPLEX";
+        case TOKEN_IMAGINARY: return "_IMAGINARY";
+
+        // Operators
         case TOKEN_PLUS: return "PLUS";
         case TOKEN_MINUS: return "MINUS";
+        case TOKEN_MULTIPLY: return "MULTIPLY";
+        case TOKEN_DIVIDE: return "DIVIDE";
+        case TOKEN_MODULO: return "MODULO";
+        case TOKEN_ASSIGN: return "ASSIGN";
+        case TOKEN_PLUS_ASSIGN: return "PLUS_ASSIGN";
+        case TOKEN_MINUS_ASSIGN: return "MINUS_ASSIGN";
+        case TOKEN_MUL_ASSIGN: return "MUL_ASSIGN";
+        case TOKEN_DIV_ASSIGN: return "DIV_ASSIGN";
+        case TOKEN_MOD_ASSIGN: return "MOD_ASSIGN";
+        case TOKEN_INCREMENT: return "INCREMENT";
+        case TOKEN_DECREMENT: return "DECREMENT";
+        case TOKEN_EQUAL: return "EQUAL";
+        case TOKEN_NOT_EQUAL: return "NOT_EQUAL";
+        case TOKEN_LESS: return "LESS";
+        case TOKEN_GREATER: return "GREATER";
+        case TOKEN_LESS_EQUAL: return "LESS_EQUAL";
+        case TOKEN_GREATER_EQUAL: return "GREATER_EQUAL";
+        case TOKEN_LOGICAL_AND: return "LOGICAL_AND";
+        case TOKEN_LOGICAL_OR: return "LOGICAL_OR";
+        case TOKEN_LOGICAL_NOT: return "LOGICAL_NOT";
+        case TOKEN_BITWISE_AND: return "BITWISE_AND";
+        case TOKEN_BITWISE_OR: return "BITWISE_OR";
+        case TOKEN_BITWISE_XOR: return "BITWISE_XOR";
+        case TOKEN_BITWISE_NOT: return "BITWISE_NOT";
+        case TOKEN_LEFT_SHIFT: return "LEFT_SHIFT";
+        case TOKEN_RIGHT_SHIFT: return "RIGHT_SHIFT";
+        case TOKEN_ARROW: return "ARROW";
+        case TOKEN_DOT: return "DOT";
+
+        // Punctuation
         case TOKEN_LPAREN: return "LPAREN";
         case TOKEN_RPAREN: return "RPAREN";
+        case TOKEN_LBRACE: return "LBRACE";
+        case TOKEN_RBRACE: return "RBRACE";
+        case TOKEN_LBRACKET: return "LBRACKET";
+        case TOKEN_RBRACKET: return "RBRACKET";
+        case TOKEN_SEMICOLON: return "SEMICOLON";
+        case TOKEN_COMMA: return "COMMA";
+        case TOKEN_QUESTION: return "QUESTION";
+        case TOKEN_COLON: return "COLON";
+
         default: return "UNKNOWN";
     }
 }
