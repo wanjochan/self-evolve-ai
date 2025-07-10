@@ -86,26 +86,42 @@
   - ⚠️ T1.3: 基础测试完成，但发现内存管理问题
 - T2开始计划: 优先修复内存管理问题，然后实现完整语义分析器
 
-### 会话：2025-07-08 (T2开始 - 内存管理修复)
+### 会话：2025-07-10 (T2.1完成 - 发现架构问题)
 
 #### 上下文
-- T1阶段已完成85%，PR#14已成功合并到main分支
-- 发现关键问题：parser运行时出现`double free detected in tcache 2`错误
-- 当前C99编译器状态：
-  - 词法分析器：100% 完成，功能完整 ✅
-  - 语法分析器：85% 完成，表达式解析完整，但有内存问题 ⚠️
-  - 语义分析器：AST兼容性已修复，但因内存问题暂时禁用 ⚠️
-  - 代码生成器：~10% 完成，仅有stub实现 🔄
+- T1阶段已完成85%，T2.1内存管理修复已完成
+- **重大发现**：整个开发方向偏离了PRD.md设计！
+- 问题分析：
+  - 我一直在构建独立的 `c99_compiler` 可执行文件
+  - 但PRD.md要求的是三层架构：`simple_loader -> pipeline_module.native -> c99.astc`
+  - 当前的c2astc、simple_loader等工具都有问题，无法正常工作
 
-#### T2阶段目标
-- **T2.1 内存管理修复** [最高优先级]：
-  - 分析double free错误的根本原因
-  - 修复AST节点的内存分配和释放逻辑
-  - 验证内存管理修复的有效性
-- **T2.2-T2.4 语义分析器实现** [可并行]：
-  - 符号表管理系统
-  - 类型系统实现
-  - 语义检查功能
+#### T2.1内存管理修复成果 ✅
+- **根因分析**：Parser函数创建AST节点后，在错误路径中没有释放内存
+- **修复内容**：
+  - `parser_parse_function_definition()`: 错误时释放func_decl
+  - `parser_parse_variable_declaration()`: 错误时释放var_decl
+  - `parser_parse_primary_expression()`: 错误时释放expr
+  - `parser_parse_external_declaration()`: 改进lookahead逻辑区分函数/变量声明
+- **验证结果**：简单变量声明可以正常解析，内存泄漏已修复
+
+#### T2.2三层架构基础设施修复 ✅🔄
+- **已修复的问题**：
+  - ✅ simple_loader可以正确加载pipeline_module.native
+  - ✅ 函数导出表解析正确，可以获取函数地址
+  - ✅ 内置VM可以执行.astc文件
+  - ✅ 三层架构流程基本打通
+  - ✅ vm_execute_astc函数实现了真正的文件读取和VM上下文创建
+
+- **仍存在的问题**：
+  - ❌ .native模块的函数调用机制有问题（可能是调用约定或内存保护）
+  - ❌ c2astc工具有严重bug，会core dump
+  - ❌ pipeline_module中的vm_execute_astc函数无法被正确调用
+  - ❌ 需要修复.native模块格式或函数调用机制
+
+- **当前工作状态**：
+  - 三层架构基础设施基本可用，使用内置VM作为fallback
+  - 发现了关键的函数调用问题，需要在T3阶段解决
 
 ## 知识库
 

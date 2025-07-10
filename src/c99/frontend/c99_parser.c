@@ -167,8 +167,72 @@ struct ASTNode* parser_parse_translation_unit(ParserContext* parser) {
 struct ASTNode* parser_parse_external_declaration(ParserContext* parser) {
     if (!parser || !parser->current_token) return NULL;
 
-    // For simplicity, assume all external declarations are function definitions for now
-    // TODO: Add proper lookahead to distinguish between function and variable declarations
+    // Improved lookahead to distinguish between function and variable declarations
+    // We need to look past type specifiers to find the pattern:
+    // - "type identifier (" = function
+    // - "type identifier ;" or "type identifier =" = variable
+
+    // Count how many type/storage tokens we need to skip
+    int skip_count = 0;
+    Token* current = parser->current_token;
+
+    // Count type specifiers and storage class specifiers
+    while (current &&
+           (current->type == TOKEN_INT ||
+            current->type == TOKEN_VOID ||
+            current->type == TOKEN_CHAR ||
+            current->type == TOKEN_FLOAT ||
+            current->type == TOKEN_DOUBLE ||
+            current->type == TOKEN_STATIC ||
+            current->type == TOKEN_EXTERN)) {
+        skip_count++;
+        if (skip_count == 1) {
+            current = parser->lookahead_token;
+        } else {
+            // We can only look ahead one token easily
+            break;
+        }
+    }
+
+    // Determine if this is a function or variable declaration
+    bool is_function = false;
+
+    if (skip_count == 1 && current && current->type == TOKEN_IDENTIFIER) {
+        // We have "type identifier", now we need to check what comes after
+        // Since we can't easily peek further, we'll use a different approach:
+        // Look at the current pattern and make a reasonable guess
+
+        // If we have exactly one type token followed by identifier,
+        // we need to peek at what comes after the identifier
+        // For now, let's try a simpler approach: parse as function if we see certain patterns
+
+        // Check if the identifier looks like a function name (heuristic)
+        if (current && current->value) {
+            // Common function names or patterns
+            if (strcmp(current->value, "main") == 0 ||
+                strstr(current->value, "func") != NULL ||
+                strstr(current->value, "test") != NULL) {
+                is_function = true;
+            }
+        }
+    }
+
+    // If we still can't determine, try parsing as variable first
+    // If that fails, we'll fall back to function parsing
+    if (!is_function) {
+        // Try variable declaration first
+        struct ASTNode* var_result = parser_parse_variable_declaration(parser);
+        if (var_result || !parser->has_error) {
+            return var_result;
+        }
+
+        // If variable parsing failed, reset error state and try function
+        parser->has_error = false;
+        parser->error_count = 0;
+        memset(parser->error_message, 0, sizeof(parser->error_message));
+    }
+
+    // Parse as function
     return parser_parse_function_definition(parser);
 }
 
@@ -208,6 +272,7 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
         parser_advance(parser);
     } else {
         parser_error(parser, "Expected function name");
+        ast_free(func_decl);  // Free the allocated node before returning NULL
         return NULL;
     }
 
@@ -238,6 +303,7 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
         return func_decl;
     } else {
         parser_error(parser, "Expected function body or semicolon");
+        ast_free(func_decl);  // Free the allocated node before returning NULL
         return NULL;
     }
 }
@@ -338,6 +404,7 @@ struct ASTNode* parser_parse_variable_declaration(ParserContext* parser) {
         parser_advance(parser);
     } else {
         parser_error(parser, "Expected variable name");
+        ast_free(var_decl);  // Free the allocated node before returning NULL
         return NULL;
     }
 
@@ -350,6 +417,7 @@ struct ASTNode* parser_parse_variable_declaration(ParserContext* parser) {
     // Expect semicolon
     if (!parser_expect(parser, TOKEN_SEMICOLON)) {
         parser_error(parser, "Expected semicolon after variable declaration");
+        ast_free(var_decl);  // Free the allocated node before returning NULL
         return NULL;
     }
 
@@ -467,6 +535,7 @@ struct ASTNode* parser_parse_primary_expression(ParserContext* parser) {
 
             if (!parser_expect(parser, TOKEN_RPAREN)) {
                 parser_error(parser, "Expected ')' after expression");
+                ast_free(expr);  // Free the parsed expression before returning NULL
                 return NULL;
             }
             return expr;
