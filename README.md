@@ -6,10 +6,8 @@
 
 ## 重要文档
 
-- docs/PRD.md  产品文档
-- docs/plan.md 主力工作智能工作文档
-- docs/cursor_running.md 任务执行状态跟踪
-- docs/{agentName}.md 其它智能助理评估文档
+- docs/PRD.md       产品
+- docs/workflow.md  工作流
 
 ## VibeTeam 智能助理团队：
 
