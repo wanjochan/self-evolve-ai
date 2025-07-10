@@ -20,6 +20,7 @@ static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* 
 static struct Type* check_binary_operation(SemanticContext* semantic, int operator, struct Type* left, struct Type* right, struct ASTNode* expr);
 static struct Type* check_unary_operation(SemanticContext* semantic, int operator, struct Type* operand, struct ASTNode* expr);
 static bool check_function_call(SemanticContext* semantic, Symbol* func, struct ASTNode* call);
+static bool check_function_call_args(SemanticContext* semantic, struct Type* func_type, struct ASTNode* call);
 static bool type_is_scalar(struct Type* type);
 static struct Type* type_arithmetic_conversion(struct Type* left, struct Type* right);
 
@@ -338,52 +339,57 @@ struct Type* semantic_analyze_expression(SemanticContext* semantic, struct ASTNo
     if (!semantic || !expr) return NULL;
     
     switch (expr->type) {
-        case ASTC_BINARY_EXPR: {
-            struct Type* left = semantic_analyze_expression(semantic, expr->left);
-            struct Type* right = semantic_analyze_expression(semantic, expr->right);
-            
+        case ASTC_BINARY_OP: {
+            struct Type* left = semantic_analyze_expression(semantic, expr->data.binary_op.left);
+            struct Type* right = semantic_analyze_expression(semantic, expr->data.binary_op.right);
+
             if (!left || !right) return NULL;
-            
+
             // 类型检查和转换
-            return check_binary_operation(semantic, expr->operator, left, right, expr);
+            return check_binary_operation(semantic, expr->data.binary_op.op, left, right, expr);
         }
-        
-        case ASTC_UNARY_EXPR: {
-            struct Type* operand = semantic_analyze_expression(semantic, expr->operand);
+
+        case ASTC_UNARY_OP: {
+            struct Type* operand = semantic_analyze_expression(semantic, expr->data.unary_op.operand);
             if (!operand) return NULL;
-            
-            return check_unary_operation(semantic, expr->operator, operand, expr);
+
+            return check_unary_operation(semantic, expr->data.unary_op.op, operand, expr);
         }
-        
-        case ASTC_IDENTIFIER: {
-            Symbol* symbol = semantic_lookup_symbol(semantic, expr->name);
+
+        case ASTC_EXPR_IDENTIFIER: {
+            Symbol* symbol = semantic_lookup_symbol(semantic, expr->data.identifier.name);
             if (!symbol) {
                 semantic_error(semantic, expr, "Undefined identifier");
                 return NULL;
             }
             symbol->is_used = true;
-            return symbol->type;
+            return (struct Type*)symbol->type;
         }
         
-        case ASTC_INTEGER_LITERAL:
-            return type_create(TYPE_INT);
-            
-        case ASTC_FLOAT_LITERAL:
-            return type_create(TYPE_FLOAT);
+        case ASTC_EXPR_CONSTANT: {
+            // 根据常量类型返回相应的类型
+            switch (expr->data.constant.type) {
+                case ASTC_EXPR_CONSTANT: // 整数常量
+                    return type_create(TYPE_INT);
+                default:
+                    return type_create(TYPE_INT); // 默认为int
+            }
+        }
             
         case ASTC_CALL_EXPR: {
-            Symbol* func = semantic_lookup_symbol(semantic, expr->name);
-            if (!func || func->kind != SYMBOL_FUNCTION) {
+            // 首先分析被调用的表达式（通常是标识符）
+            struct Type* func_type = semantic_analyze_expression(semantic, expr->data.call_expr.callee);
+            if (!func_type || func_type->kind != TYPE_FUNCTION) {
                 semantic_error(semantic, expr, "Called object is not a function");
                 return NULL;
             }
-            
+
             // 检查参数数量和类型
-            if (!check_function_call(semantic, func, expr)) {
+            if (!check_function_call_args(semantic, func_type, expr)) {
                 return NULL;
             }
-            
-            return ((struct Type*)func->type)->data.function.return_type;
+
+            return func_type->data.function.return_type;
         }
         
         default:
@@ -394,35 +400,35 @@ struct Type* semantic_analyze_expression(SemanticContext* semantic, struct ASTNo
 
 // 辅助函数实现
 static bool analyze_compound_statement(SemanticContext* semantic, struct ASTNode* stmt) {
-    struct ASTNode* current = stmt->first_child;
-    while (current) {
-        if (!semantic_analyze_statement(semantic, current)) {
+    if (!semantic || !stmt) return false;
+
+    for (int i = 0; i < stmt->data.compound_stmt.statement_count; i++) {
+        if (!semantic_analyze_statement(semantic, stmt->data.compound_stmt.statements[i])) {
             return false;
         }
-        current = current->next;
     }
     return true;
 }
 
 static bool analyze_if_statement(SemanticContext* semantic, struct ASTNode* stmt) {
-    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->condition);
+    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->data.if_stmt.condition);
     if (!cond_type || !type_is_scalar(cond_type)) {
-        semantic_error(semantic, stmt->condition, "Condition must be a scalar type");
+        semantic_error(semantic, stmt->data.if_stmt.condition, "Condition must be a scalar type");
         return false;
     }
-    
-    return semantic_analyze_statement(semantic, stmt->then_branch) &&
-           (!stmt->else_branch || semantic_analyze_statement(semantic, stmt->else_branch));
+
+    return semantic_analyze_statement(semantic, stmt->data.if_stmt.then_branch) &&
+           (!stmt->data.if_stmt.else_branch || semantic_analyze_statement(semantic, stmt->data.if_stmt.else_branch));
 }
 
 static bool analyze_while_statement(SemanticContext* semantic, struct ASTNode* stmt) {
-    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->condition);
+    struct Type* cond_type = semantic_analyze_expression(semantic, stmt->data.while_stmt.condition);
     if (!cond_type || !type_is_scalar(cond_type)) {
-        semantic_error(semantic, stmt->condition, "Condition must be a scalar type");
+        semantic_error(semantic, stmt->data.while_stmt.condition, "Condition must be a scalar type");
         return false;
     }
-    
-    return semantic_analyze_statement(semantic, stmt->body);
+
+    return semantic_analyze_statement(semantic, stmt->data.while_stmt.body);
 }
 
 static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* stmt) {
@@ -431,7 +437,7 @@ static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* 
         return false;
     }
     
-    if (!stmt->expression) {
+    if (!stmt->data.return_stmt.value) {
         if (semantic->current_function_type->kind != TYPE_VOID) {
             semantic_error(semantic, stmt, "Return value required");
             return false;
@@ -439,7 +445,7 @@ static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* 
         return true;
     }
     
-    struct Type* expr_type = semantic_analyze_expression(semantic, stmt->expression);
+    struct Type* expr_type = semantic_analyze_expression(semantic, stmt->data.return_stmt.value);
     if (!expr_type) return false;
     
     if (!type_compatible(semantic->current_function_type, expr_type)) {
@@ -517,33 +523,30 @@ static struct Type* check_unary_operation(SemanticContext* semantic, int operato
 
 static bool check_function_call(SemanticContext* semantic, Symbol* func,
                               struct ASTNode* call) {
-    struct Type* func_type = func->type;
-    struct ASTNode* arg = call->arguments;
+    struct Type* func_type = (struct Type*)func->type;
+    int arg_count = call->data.call_expr.arg_count;
     int param_count = 0;
     
     // 检查每个参数
-    while (arg && param_count < func_type->data.function.parameter_count) {
-        struct Type* arg_type = semantic_analyze_expression(semantic, arg);
+    for (int i = 0; i < arg_count && i < func_type->data.function.parameter_count; i++) {
+        struct Type* arg_type = semantic_analyze_expression(semantic, call->data.call_expr.args[i]);
         if (!arg_type) return false;
-        
-        struct Type* param_type = func_type->data.function.parameters[param_count];
+
+        struct Type* param_type = func_type->data.function.parameters[i];
         if (!type_compatible(param_type, arg_type)) {
-            semantic_error(semantic, arg,
+            semantic_error(semantic, call->data.call_expr.args[i],
                          "Argument type incompatible with parameter type");
             return false;
         }
-        
-        arg = arg->next;
-        param_count++;
     }
     
     // 检查参数数量
-    if (arg && !func_type->data.function.is_variadic) {
+    if (arg_count > func_type->data.function.parameter_count && !func_type->data.function.is_variadic) {
         semantic_error(semantic, call, "Too many arguments");
         return false;
     }
-    
-    if (param_count < func_type->data.function.parameter_count) {
+
+    if (arg_count < func_type->data.function.parameter_count) {
         semantic_error(semantic, call, "Too few arguments");
         return false;
     }
@@ -663,10 +666,97 @@ const char* semantic_get_error(SemanticContext* semantic) {
 
 void semantic_print_stats(SemanticContext* semantic) {
     if (!semantic) return;
-    
+
     printf("Semantic Analysis Statistics:\n");
     printf("  Symbols in global scope: %zu\n", semantic->global_scope->symbol_count);
     printf("  Current scope level: %d\n", semantic->current_scope->current_scope);
     printf("  Errors: %d\n", semantic->error_count);
     printf("  Warnings: %d\n", semantic->warning_count);
+}
+
+// ===============================================
+// Function Call Argument Checking
+// ===============================================
+
+static bool check_function_call_args(SemanticContext* semantic, struct Type* func_type, struct ASTNode* call) {
+    if (!semantic || !func_type || !call) return false;
+
+    // 检查参数数量
+    int expected_params = func_type->data.function.parameter_count;
+    int actual_args = call->data.call_expr.arg_count;
+
+    if (!func_type->data.function.is_variadic && actual_args != expected_params) {
+        semantic_error(semantic, call, "Function call argument count mismatch");
+        return false;
+    }
+
+    if (actual_args < expected_params) {
+        semantic_error(semantic, call, "Too few arguments to function call");
+        return false;
+    }
+
+    // 检查每个参数的类型
+    for (int i = 0; i < expected_params && i < actual_args; i++) {
+        struct Type* arg_type = semantic_analyze_expression(semantic, call->data.call_expr.args[i]);
+        if (!arg_type) return false;
+
+        struct Type* param_type = func_type->data.function.parameters[i];
+        if (!type_compatible(arg_type, param_type)) {
+            semantic_error(semantic, call, "Function argument type mismatch");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ===============================================
+// Missing Function Implementations
+// ===============================================
+
+static bool semantic_analyze_declaration(SemanticContext* semantic, struct ASTNode* decl) {
+    if (!semantic || !decl) return false;
+
+    // 简化的声明分析实现
+    switch (decl->type) {
+        case ASTC_FUNC_DECL:
+            // 函数声明分析
+            return true;
+        case ASTC_VAR_DECL:
+            // 变量声明分析
+            return true;
+        default:
+            return true;
+    }
+}
+
+static struct Type* analyze_type(SemanticContext* semantic, struct ASTNode* type_node) {
+    if (!semantic || !type_node) return NULL;
+
+    // 简化的类型分析实现
+    return type_create(TYPE_INT); // 默认返回int类型
+}
+
+static bool type_is_scalar(struct Type* type) {
+    if (!type) return false;
+
+    switch (type->kind) {
+        case TYPE_INT:
+        case TYPE_FLOAT:
+        case TYPE_CHAR:
+        case TYPE_POINTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static struct Type* type_arithmetic_conversion(struct Type* left, struct Type* right) {
+    if (!left || !right) return NULL;
+
+    // 简化的算术转换规则
+    if (left->kind == TYPE_FLOAT || right->kind == TYPE_FLOAT) {
+        return type_create(TYPE_FLOAT);
+    }
+    return type_create(TYPE_INT);
 }

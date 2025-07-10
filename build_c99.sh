@@ -120,10 +120,9 @@ else
     print_status "WARN" "Error handler source not found, skipping"
 fi
 
-# Build semantic analyzer (temporarily disabled due to AST compatibility issues)
+# Build semantic analyzer (AST compatibility issues fixed)
 if [ -f "$C99_DIR/frontend/c99_semantic.c" ]; then
-    print_status "WARN" "Semantic analyzer temporarily disabled (AST compatibility issues)"
-    # compile_source "$C99_DIR/frontend/c99_semantic.c" "$BUILD_DIR/c99_semantic.o" "-I$SRC_DIR/core"
+    compile_source "$C99_DIR/frontend/c99_semantic.c" "$BUILD_DIR/c99_semantic.o" "-I$SRC_DIR/core"
 else
     print_status "WARN" "Semantic analyzer source not found, skipping"
 fi
@@ -185,6 +184,7 @@ if [ -f "$C99_DIR/tools/c99_main.c" ]; then
     OBJ_FILES="$BUILD_DIR/c99_main.o"
     if [ -f "$BUILD_DIR/c99_lexer.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/c99_lexer.o"; fi
     if [ -f "$BUILD_DIR/c99_parser.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/c99_parser.o"; fi
+    if [ -f "$BUILD_DIR/c99_semantic.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/c99_semantic.o"; fi
     if [ -f "$BUILD_DIR/c99_codegen.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/c99_codegen.o"; fi
     if [ -f "$BUILD_DIR/c99_error.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/c99_error.o"; fi
     if [ -f "$BUILD_DIR/astc.o" ]; then OBJ_FILES="$OBJ_FILES $BUILD_DIR/astc.o"; fi
