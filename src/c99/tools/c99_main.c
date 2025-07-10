@@ -269,30 +269,30 @@ bool compile_file(void) {
         return false;
     }
 
-    // Phase 3: Semantic Analysis (temporarily disabled for debugging)
+    // Phase 3: Semantic Analysis
     if (g_options.verbose) {
-        printf("Phase 3: Semantic analysis... (SKIPPED)\n");
+        printf("Phase 3: Semantic analysis...\n");
     }
 
-    // SemanticContext* semantic = semantic_create();
-    // if (!semantic) {
-    //     fprintf(stderr, "Error: Failed to create semantic analyzer\n");
-    //     ast_free(ast);
-    //     parser_destroy(parser);
-    //     lexer_destroy(lexer);
-    //     free(source);
-    //     return false;
-    // }
-    //
-    // if (!semantic_analyze(semantic, ast)) {
-    //     fprintf(stderr, "Error: Semantic analysis failed: %s\n", semantic_get_error(semantic));
-    //     semantic_destroy(semantic);
-    //     ast_free(ast);
-    //     parser_destroy(parser);
-    //     lexer_destroy(lexer);
-    //     free(source);
-    //     return false;
-    // }
+    SemanticContext* semantic = semantic_create();
+    if (!semantic) {
+        fprintf(stderr, "Error: Failed to create semantic analyzer\n");
+        ast_free(ast);
+        parser_destroy(parser);
+        lexer_destroy(lexer);
+        free(source);
+        return false;
+    }
+
+    if (!semantic_analyze(semantic, ast)) {
+        fprintf(stderr, "Error: Semantic analysis failed: %s\n", semantic_get_error(semantic));
+        semantic_destroy(semantic);
+        ast_free(ast);
+        parser_destroy(parser);
+        lexer_destroy(lexer);
+        free(source);
+        return false;
+    }
 
     printf("C99 Compiler: Compilation completed successfully\n");
     printf("Generated output file: %s\n", g_options.output_file);
@@ -303,12 +303,12 @@ bool compile_file(void) {
         fprintf(output, "# ASTC Bytecode\n");
         fprintf(output, "# Generated from: %s\n", g_options.input_file);
         fprintf(output, "# Optimization level: %d\n", g_options.optimization_level);
-        fprintf(output, "# Compilation phases: Lexical + Syntax (Semantic disabled)\n");
+        fprintf(output, "# Compilation phases: Lexical + Syntax + Semantic\n");
         fclose(output);
     }
 
     // Cleanup
-    // semantic_destroy(semantic);
+    semantic_destroy(semantic);
     ast_free(ast);
     parser_destroy(parser);
     

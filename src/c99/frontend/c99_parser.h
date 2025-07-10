@@ -37,10 +37,8 @@ typedef struct {
     bool in_loop;               // Currently in loop (for break/continue)
     bool in_switch;             // Currently in switch (for case/default)
     
-    // Memory management
-    struct ASTNode** ast_nodes; // All allocated AST nodes
-    size_t ast_node_count;      // Number of allocated nodes
-    size_t ast_node_capacity;   // Capacity of ast_nodes array
+    // Note: AST nodes are managed by the caller through the tree structure
+    // No need to track individual nodes in the parser
 } ParserContext;
 
 // ===============================================
