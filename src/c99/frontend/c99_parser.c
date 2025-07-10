@@ -25,13 +25,6 @@ ParserContext* parser_create(LexerContext* lexer) {
     
     memset(parser, 0, sizeof(ParserContext));
     parser->lexer = lexer;
-    parser->ast_node_capacity = 1024;
-    parser->ast_nodes = malloc(sizeof(struct ASTNode*) * parser->ast_node_capacity);
-    
-    if (!parser->ast_nodes) {
-        free(parser);
-        return NULL;
-    }
     
     // Get first token
     parser->current_token = lexer_next_token(lexer);
@@ -43,15 +36,9 @@ ParserContext* parser_create(LexerContext* lexer) {
 void parser_destroy(ParserContext* parser) {
     if (!parser) return;
     
-    // Free all AST nodes
-    for (size_t i = 0; i < parser->ast_node_count; i++) {
-        if (parser->ast_nodes[i]) {
-            // ast_free(parser->ast_nodes[i]); // TODO: Implement ast_free
-            free(parser->ast_nodes[i]);
-        }
-    }
-    
-    free(parser->ast_nodes);
+    // Note: AST nodes are owned by the caller and should not be freed here
+    // The caller is responsible for calling ast_free() on the root node
+    // which will recursively free all child nodes
     
     if (parser->current_token) {
         token_free(parser->current_token);
@@ -130,16 +117,9 @@ struct ASTNode* parser_create_ast_node(ParserContext* parser, ASTNodeType type) 
 
     // Use the proper ast_create_node function
     struct ASTNode* node = ast_create_node(type, line, column);
-    if (node) {
-        // Register node for cleanup
-        if (parser->ast_node_count >= parser->ast_node_capacity) {
-            parser->ast_node_capacity *= 2;
-            parser->ast_nodes = realloc(parser->ast_nodes,
-                                       sizeof(struct ASTNode*) * parser->ast_node_capacity);
-        }
 
-        parser->ast_nodes[parser->ast_node_count++] = node;
-    }
+    // Note: We don't track individual nodes anymore since they form a tree
+    // The caller is responsible for managing the root node
 
     return node;
 }
@@ -418,7 +398,6 @@ void parser_print_stats(ParserContext* parser) {
     if (!parser) return;
 
     printf("Parser Statistics:\n");
-    printf("  AST Nodes Created: %zu\n", parser->ast_node_count);
     printf("  Errors: %d\n", parser->error_count);
     printf("  Warnings: %d\n", parser->warning_count);
     printf("  Scope Depth: %d\n", parser->scope_depth);

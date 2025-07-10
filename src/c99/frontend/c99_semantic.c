@@ -275,10 +275,16 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
     semantic_enter_scope(semantic);
     
     // 分析返回类型
-    struct Type* return_type = analyze_type(semantic, func->data.func_decl.return_type);
-    if (!return_type) {
-        semantic_error(semantic, func, "Invalid return type");
-        return false;
+    struct Type* return_type;
+    if (func->data.func_decl.return_type) {
+        return_type = analyze_type(semantic, func->data.func_decl.return_type);
+        if (!return_type) {
+            semantic_error(semantic, func, "Invalid return type");
+            return false;
+        }
+    } else {
+        // 如果没有显式返回类型，默认为int (C99标准)
+        return_type = type_create(TYPE_INT);
     }
 
     // 分析参数
