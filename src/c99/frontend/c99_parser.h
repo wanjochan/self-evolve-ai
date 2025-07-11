@@ -86,6 +86,36 @@ struct ASTNode* parser_parse_statement(ParserContext* parser);
 struct ASTNode* parser_parse_expression(ParserContext* parser);
 
 /**
+ * Parse assignment expression
+ */
+struct ASTNode* parser_parse_assignment_expression(ParserContext* parser);
+
+/**
+ * Parse unary expression
+ */
+struct ASTNode* parser_parse_unary_expression(ParserContext* parser);
+
+/**
+ * Parse postfix expression
+ */
+struct ASTNode* parser_parse_postfix_expression(ParserContext* parser);
+
+/**
+ * Parse primary expression
+ */
+struct ASTNode* parser_parse_primary_expression(ParserContext* parser);
+
+/**
+ * Try to parse cast expression
+ */
+struct ASTNode* parser_try_parse_cast_expression(ParserContext* parser);
+
+/**
+ * Try to parse type specifier
+ */
+struct ASTNode* parser_try_parse_type_specifier(ParserContext* parser);
+
+/**
  * Parse compound statement
  */
 struct ASTNode* parser_parse_compound_statement(ParserContext* parser);

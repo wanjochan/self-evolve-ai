@@ -1,0 +1,4 @@
+# ASTC Bytecode
+# Generated from: test_global_var.c
+# Optimization level: 0
+# Compilation phases: Lexical + Syntax + Semantic

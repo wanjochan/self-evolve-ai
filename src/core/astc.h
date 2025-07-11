@@ -534,6 +534,12 @@ typedef struct ASTNode {
             int expression_count;          // 表达式数量
         } compound_literal;
 
+        // 类型转换表达式
+        struct {
+            struct ASTNode *target_type;   // 目标类型
+            struct ASTNode *expression;    // 被转换的表达式
+        } cast_expr;
+
         // ===============================================
         // 模块系统节点 (Module System Nodes)
         // ===============================================

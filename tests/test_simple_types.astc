@@ -1,0 +1,4 @@
+# ASTC Bytecode
+# Generated from: test_simple_types.c
+# Optimization level: 0
+# Compilation phases: Lexical + Syntax + Semantic
