@@ -293,14 +293,124 @@ Token* lexer_next_token(LexerContext* lexer) {
         case '}':
             advance_char(lexer);
             return create_token(TOKEN_RBRACE, "}", 1, start_line, start_column);
-            
+
+        case '[':
+            advance_char(lexer);
+            return create_token(TOKEN_LBRACKET, "[", 1, start_line, start_column);
+
+        case ']':
+            advance_char(lexer);
+            return create_token(TOKEN_RBRACKET, "]", 1, start_line, start_column);
+
         case ';':
             advance_char(lexer);
             return create_token(TOKEN_SEMICOLON, ";", 1, start_line, start_column);
-            
+
         case ',':
             advance_char(lexer);
             return create_token(TOKEN_COMMA, ",", 1, start_line, start_column);
+
+        case '=':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_EQUAL, "==", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_ASSIGN, "=", 1, start_line, start_column);
+
+        case '!':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_NOT_EQUAL, "!=", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_LOGICAL_NOT, "!", 1, start_line, start_column);
+
+        case '<':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_LESS_EQUAL, "<=", 2, start_line, start_column);
+            } else if (peek_char(lexer, 0) == '<') {
+                advance_char(lexer);
+                if (peek_char(lexer, 0) == '=') {
+                    advance_char(lexer);
+                    return create_token(TOKEN_LSHIFT_ASSIGN, "<<=", 3, start_line, start_column);
+                }
+                return create_token(TOKEN_LEFT_SHIFT, "<<", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_LESS, "<", 1, start_line, start_column);
+
+        case '>':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_GREATER_EQUAL, ">=", 2, start_line, start_column);
+            } else if (peek_char(lexer, 0) == '>') {
+                advance_char(lexer);
+                if (peek_char(lexer, 0) == '=') {
+                    advance_char(lexer);
+                    return create_token(TOKEN_RSHIFT_ASSIGN, ">>=", 3, start_line, start_column);
+                }
+                return create_token(TOKEN_RIGHT_SHIFT, ">>", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_GREATER, ">", 1, start_line, start_column);
+
+        case '%':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_MOD_ASSIGN, "%=", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_MODULO, "%", 1, start_line, start_column);
+
+        case '&':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '&') {
+                advance_char(lexer);
+                return create_token(TOKEN_LOGICAL_AND, "&&", 2, start_line, start_column);
+            } else if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_AND_ASSIGN, "&=", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_BITWISE_AND, "&", 1, start_line, start_column);
+
+        case '|':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '|') {
+                advance_char(lexer);
+                return create_token(TOKEN_LOGICAL_OR, "||", 2, start_line, start_column);
+            } else if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_OR_ASSIGN, "|=", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_BITWISE_OR, "|", 1, start_line, start_column);
+
+        case '^':
+            advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return create_token(TOKEN_XOR_ASSIGN, "^=", 2, start_line, start_column);
+            }
+            return create_token(TOKEN_BITWISE_XOR, "^", 1, start_line, start_column);
+
+        case '~':
+            advance_char(lexer);
+            return create_token(TOKEN_BITWISE_NOT, "~", 1, start_line, start_column);
+
+        case '.':
+            // 检查是否是浮点数（.123）
+            if (is_digit(peek_char(lexer, 1))) {
+                return scan_number(lexer);
+            }
+            advance_char(lexer);
+            return create_token(TOKEN_DOT, ".", 1, start_line, start_column);
+
+        case '"':
+            return scan_string(lexer);
+
+        case '\'':
+            return scan_character(lexer);
 
         case '#':
             // Skip preprocessor directives for now
@@ -377,6 +487,11 @@ const char* token_type_name(TokenType type) {
         case TOKEN_MUL_ASSIGN: return "MUL_ASSIGN";
         case TOKEN_DIV_ASSIGN: return "DIV_ASSIGN";
         case TOKEN_MOD_ASSIGN: return "MOD_ASSIGN";
+        case TOKEN_AND_ASSIGN: return "AND_ASSIGN";
+        case TOKEN_OR_ASSIGN: return "OR_ASSIGN";
+        case TOKEN_XOR_ASSIGN: return "XOR_ASSIGN";
+        case TOKEN_LSHIFT_ASSIGN: return "LSHIFT_ASSIGN";
+        case TOKEN_RSHIFT_ASSIGN: return "RSHIFT_ASSIGN";
         case TOKEN_INCREMENT: return "INCREMENT";
         case TOKEN_DECREMENT: return "DECREMENT";
         case TOKEN_EQUAL: return "EQUAL";
@@ -461,11 +576,97 @@ static Token* scan_number(LexerContext* lexer) {
     size_t start = lexer->position;
     int start_line = lexer->line;
     int start_column = lexer->column;
-    
+    bool is_float = false;
+
+    // 扫描整数部分
     while (is_digit(peek_char(lexer, 0))) {
         advance_char(lexer);
     }
-    
-    return create_token(TOKEN_INTEGER_LITERAL, lexer->source + start, 
+
+    // 检查小数点
+    if (peek_char(lexer, 0) == '.' && is_digit(peek_char(lexer, 1))) {
+        is_float = true;
+        advance_char(lexer); // consume '.'
+
+        // 扫描小数部分
+        while (is_digit(peek_char(lexer, 0))) {
+            advance_char(lexer);
+        }
+    }
+
+    // 检查指数部分 (e/E)
+    if (peek_char(lexer, 0) == 'e' || peek_char(lexer, 0) == 'E') {
+        is_float = true;
+        advance_char(lexer); // consume 'e' or 'E'
+
+        // 可选的符号
+        if (peek_char(lexer, 0) == '+' || peek_char(lexer, 0) == '-') {
+            advance_char(lexer);
+        }
+
+        // 指数数字
+        while (is_digit(peek_char(lexer, 0))) {
+            advance_char(lexer);
+        }
+    }
+
+    TokenType token_type = is_float ? TOKEN_FLOAT_LITERAL : TOKEN_INTEGER_LITERAL;
+    return create_token(token_type, lexer->source + start,
+                       lexer->position - start, start_line, start_column);
+}
+
+static Token* scan_string(LexerContext* lexer) {
+    size_t start = lexer->position;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+
+    advance_char(lexer); // consume opening quote
+
+    while (peek_char(lexer, 0) != '"' && peek_char(lexer, 0) != '\0') {
+        if (peek_char(lexer, 0) == '\\') {
+            advance_char(lexer); // consume backslash
+            if (peek_char(lexer, 0) != '\0') {
+                advance_char(lexer); // consume escaped character
+            }
+        } else {
+            advance_char(lexer);
+        }
+    }
+
+    if (peek_char(lexer, 0) != '"') {
+        set_error(lexer, "Unterminated string literal");
+        return NULL;
+    }
+
+    advance_char(lexer); // consume closing quote
+
+    return create_token(TOKEN_STRING_LITERAL, lexer->source + start,
+                       lexer->position - start, start_line, start_column);
+}
+
+static Token* scan_character(LexerContext* lexer) {
+    size_t start = lexer->position;
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+
+    advance_char(lexer); // consume opening quote
+
+    if (peek_char(lexer, 0) == '\\') {
+        advance_char(lexer); // consume backslash
+        if (peek_char(lexer, 0) != '\0') {
+            advance_char(lexer); // consume escaped character
+        }
+    } else if (peek_char(lexer, 0) != '\0') {
+        advance_char(lexer); // consume character
+    }
+
+    if (peek_char(lexer, 0) != '\'') {
+        set_error(lexer, "Unterminated character literal");
+        return NULL;
+    }
+
+    advance_char(lexer); // consume closing quote
+
+    return create_token(TOKEN_CHAR_LITERAL, lexer->source + start,
                        lexer->position - start, start_line, start_column);
 }

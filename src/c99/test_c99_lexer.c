@@ -66,27 +66,52 @@ void test_keywords() {
 
 void test_operators() {
     printf("Testing operators...\n");
-    
+
     const char* source = "+ - * / % ++ -- += -= *= /= == != <= >= && || << >> <<=";
     C99Lexer lexer;
     c99_lexer_init(&lexer, source, strlen(source));
-    
+
     Token* token;
     int token_count = 0;
-    
+
     while ((token = c99_lexer_next_token(&lexer)) && token->type != TOKEN_EOF) {
-        printf("Token %d: %s = '%s'\n", 
-               token_count++, 
+        printf("Token %d: %s = '%s'\n",
+               token_count++,
                c99_token_type_name(token->type),
                token->value ? token->value : "(null)");
         c99_token_free(token);
     }
-    
+
     if (token) {
         c99_token_free(token);
     }
-    
+
     printf("Operators test completed.\n\n");
+}
+
+void test_assignment_operators() {
+    printf("Testing assignment operators...\n");
+
+    const char* source = "= += -= *= /= %= &= |= ^= <<= >>=";
+    C99Lexer lexer;
+    c99_lexer_init(&lexer, source, strlen(source));
+
+    Token* token;
+    int token_count = 0;
+
+    while ((token = c99_lexer_next_token(&lexer)) && token->type != TOKEN_EOF) {
+        printf("Token %d: %s = '%s'\n",
+               token_count++,
+               c99_token_type_name(token->type),
+               token->value ? token->value : "(null)");
+        c99_token_free(token);
+    }
+
+    if (token) {
+        c99_token_free(token);
+    }
+
+    printf("Assignment operators test completed.\n\n");
 }
 
 void test_numbers() {
@@ -160,13 +185,14 @@ void test_comments() {
 int main() {
     printf("C99 Lexer Test Suite\n");
     printf("====================\n\n");
-    
+
     test_basic_tokens();
     test_keywords();
     test_operators();
+    test_assignment_operators();
     test_numbers();
     test_comments();
-    
+
     printf("All tests completed!\n");
     return 0;
 }

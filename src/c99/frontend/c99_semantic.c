@@ -23,6 +23,13 @@ static bool check_function_call(SemanticContext* semantic, Symbol* func, struct 
 static bool check_function_call_args(SemanticContext* semantic, struct Type* func_type, struct ASTNode* call);
 static bool type_is_scalar(struct Type* type);
 static struct Type* type_arithmetic_conversion(struct Type* left, struct Type* right);
+static struct Type* type_implicit_conversion(struct Type* from, struct Type* to);
+static bool type_can_cast(struct Type* from, struct Type* to);
+static size_t type_get_alignment(struct Type* type);
+static bool is_builtin_function(const char* name);
+static struct Type* handle_builtin_function_call(SemanticContext* semantic, struct ASTNode* call, const char* func_name);
+static uint16_t get_libc_function_id(const char* func_name);
+static struct Type* type_create_pointer(struct Type* pointee);
 
 // ===============================================
 // Hash Function for Symbol Table
@@ -383,21 +390,178 @@ struct Type* semantic_analyze_expression(SemanticContext* semantic, struct ASTNo
         }
             
         case ASTC_CALL_EXPR: {
-            // 首先分析被调用的表达式（通常是标识符）
-            struct Type* func_type = semantic_analyze_expression(semantic, expr->data.call_expr.callee);
-            if (!func_type || func_type->kind != TYPE_FUNCTION) {
-                semantic_error(semantic, expr, "Called object is not a function");
-                return NULL;
-            }
+            printf("Semantic: Analyzing function call\n");
 
-            // 检查参数数量和类型
-            if (!check_function_call_args(semantic, func_type, expr)) {
-                return NULL;
-            }
+            // 分析被调用的表达式（通常是标识符）
+            if (expr->data.call_expr.callee->type == ASTC_EXPR_IDENTIFIER) {
+                const char* func_name = expr->data.call_expr.callee->data.identifier.name;
+                printf("Semantic: Function call to '%s'\n", func_name);
 
-            return func_type->data.function.return_type;
+                // 查找函数符号
+                Symbol* func_symbol = semantic_lookup_symbol(semantic, func_name);
+                if (!func_symbol) {
+                    // 检查是否为内置函数
+                    if (is_builtin_function(func_name)) {
+                        printf("Semantic: Found builtin function '%s'\n", func_name);
+                        return handle_builtin_function_call(semantic, expr, func_name);
+                    }
+
+                    semantic_error(semantic, expr, "Undeclared function");
+                    return NULL;
+                }
+
+                if (func_symbol->kind != SYMBOL_FUNCTION) {
+                    semantic_error(semantic, expr, "Called object is not a function");
+                    return NULL;
+                }
+
+                // 检查函数调用参数
+                if (!check_function_call(semantic, func_symbol, expr)) {
+                    return NULL;
+                }
+
+                // 返回函数的返回类型
+                struct Type* func_type = (struct Type*)func_symbol->type;
+                return func_type->data.function.return_type;
+            } else {
+                // 函数指针调用等复杂情况
+                struct Type* func_type = semantic_analyze_expression(semantic, expr->data.call_expr.callee);
+                if (!func_type) return NULL;
+
+                if (func_type->kind == TYPE_POINTER &&
+                    func_type->data.pointer.pointee->kind == TYPE_FUNCTION) {
+                    func_type = func_type->data.pointer.pointee;
+                } else if (func_type->kind != TYPE_FUNCTION) {
+                    semantic_error(semantic, expr, "Called object is not a function");
+                    return NULL;
+                }
+
+                // 检查参数数量和类型
+                if (!check_function_call_args(semantic, func_type, expr)) {
+                    return NULL;
+                }
+
+                return func_type->data.function.return_type;
+            }
         }
-        
+
+        case ASTC_EXPR_MEMBER_ACCESS: {
+            // 结构体/联合体成员访问 (obj.member)
+            struct Type* obj_type = semantic_analyze_expression(semantic, expr->data.member_access.object);
+            if (!obj_type) return NULL;
+
+            if (obj_type->kind != TYPE_STRUCT && obj_type->kind != TYPE_UNION) {
+                semantic_error(semantic, expr, "Member access requires struct or union type");
+                return NULL;
+            }
+
+            // 查找成员
+            const char* member_name = expr->data.member_access.member;
+            if (!member_name) {
+                semantic_error(semantic, expr, "Invalid member name");
+                return NULL;
+            }
+
+            if (obj_type->data.composite.is_complete && obj_type->data.composite.members) {
+                for (size_t i = 0; i < obj_type->data.composite.member_count; i++) {
+                    Symbol* member = obj_type->data.composite.members[i];
+                    if (member && member->name && strcmp(member->name, member_name) == 0) {
+                        return (struct Type*)member->type;
+                    }
+                }
+            }
+
+            semantic_error(semantic, expr, "No such member in struct/union");
+            return NULL;
+        }
+
+        case ASTC_EXPR_PTR_MEMBER_ACCESS: {
+            // 指针成员访问 (ptr->member)
+            struct Type* ptr_type = semantic_analyze_expression(semantic, expr->data.member_access.object);
+            if (!ptr_type) return NULL;
+
+            if (ptr_type->kind != TYPE_POINTER) {
+                semantic_error(semantic, expr, "Pointer access requires pointer type");
+                return NULL;
+            }
+
+            struct Type* pointee_type = ptr_type->data.pointer.pointee;
+            if (!pointee_type || (pointee_type->kind != TYPE_STRUCT && pointee_type->kind != TYPE_UNION)) {
+                semantic_error(semantic, expr, "Pointer must point to struct or union");
+                return NULL;
+            }
+
+            // 查找成员
+            const char* member_name = expr->data.member_access.member;
+            if (!member_name) {
+                semantic_error(semantic, expr, "Invalid member name");
+                return NULL;
+            }
+
+            if (pointee_type->data.composite.is_complete && pointee_type->data.composite.members) {
+                for (size_t i = 0; i < pointee_type->data.composite.member_count; i++) {
+                    Symbol* member = pointee_type->data.composite.members[i];
+                    if (member && member->name && strcmp(member->name, member_name) == 0) {
+                        return (struct Type*)member->type;
+                    }
+                }
+            }
+
+            semantic_error(semantic, expr, "No such member in struct/union");
+            return NULL;
+        }
+
+        case ASTC_EXPR_ARRAY_SUBSCRIPT: {
+            // 数组访问 (arr[index])
+            struct Type* array_type = semantic_analyze_expression(semantic, expr->data.array_subscript.array);
+            struct Type* index_type = semantic_analyze_expression(semantic, expr->data.array_subscript.index);
+
+            if (!array_type || !index_type) return NULL;
+
+            // 检查数组类型
+            if (array_type->kind != TYPE_ARRAY && array_type->kind != TYPE_POINTER) {
+                semantic_error(semantic, expr, "Array access requires array or pointer type");
+                return NULL;
+            }
+
+            // 检查索引类型
+            if (!type_is_integral(index_type)) {
+                semantic_error(semantic, expr, "Array index must be integral type");
+                return NULL;
+            }
+
+            // 返回元素类型
+            if (array_type->kind == TYPE_ARRAY) {
+                return array_type->data.array.element;
+            } else {
+                return array_type->data.pointer.pointee;
+            }
+        }
+
+        case ASTC_EXPR_STRING_LITERAL: {
+            printf("Semantic: Analyzing string literal\n");
+            // 字符串字面量的类型是 char*
+            return type_create_pointer(type_create(TYPE_CHAR));
+        }
+
+        case ASTC_EXPR_CAST_EXPR: {
+            // 类型转换表达式
+            struct Type* source_type = semantic_analyze_expression(semantic, expr->data.cast_expr.expression);
+            if (!source_type) return NULL;
+
+            struct Type* target_type = analyze_type(semantic, expr->data.cast_expr.target_type);
+            if (!target_type) return NULL;
+
+            // 检查是否可以进行类型转换
+            if (!type_can_cast(source_type, target_type)) {
+                semantic_error(semantic, expr, "Invalid type cast");
+                return NULL;
+            }
+
+            printf("Semantic: Cast from type %d to type %d\n", source_type->kind, target_type->kind);
+            return target_type;
+        }
+
         default:
             semantic_error(semantic, expr, "Unsupported expression type");
             return NULL;
@@ -465,35 +629,127 @@ static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* 
 static struct Type* check_binary_operation(SemanticContext* semantic, int operator,
                                          struct Type* left, struct Type* right,
                                          struct ASTNode* expr) {
-    // 算术运算符
-    if (operator >= TOKEN_PLUS && operator <= TOKEN_MODULO) {
-        if (!type_is_arithmetic(left) || !type_is_arithmetic(right)) {
-            semantic_error(semantic, expr, "Operands must be arithmetic types");
+    switch (operator) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+            // 指针算术：pointer + integer 或 integer + pointer
+            if (left->kind == TYPE_POINTER && type_is_integral(right)) {
+                return left; // 返回指针类型
+            }
+            if (type_is_integral(left) && right->kind == TYPE_POINTER) {
+                return right; // 返回指针类型
+            }
+            // 指针减法：pointer - pointer
+            if (operator == TOKEN_MINUS && left->kind == TYPE_POINTER && right->kind == TYPE_POINTER) {
+                if (!type_compatible(left->data.pointer.pointee, right->data.pointer.pointee)) {
+                    semantic_error(semantic, expr, "Pointer subtraction requires compatible pointer types");
+                    return NULL;
+                }
+                return type_create(TYPE_INT); // 指针差值为整数
+            }
+            // 普通算术运算
+            if (type_is_arithmetic(left) && type_is_arithmetic(right)) {
+                return type_arithmetic_conversion(left, right);
+            }
+            semantic_error(semantic, expr, "Invalid operands for addition/subtraction");
             return NULL;
-        }
-        return type_arithmetic_conversion(left, right);
-    }
-    
-    // 比较运算符
-    if (operator >= TOKEN_EQUAL && operator <= TOKEN_GREATER_EQUAL) {
-        if (!type_compatible(left, right)) {
+
+        case TOKEN_MULTIPLY:
+        case TOKEN_DIVIDE:
+        case TOKEN_MODULO:
+            // 乘除模运算只支持算术类型
+            if (!type_is_arithmetic(left) || !type_is_arithmetic(right)) {
+                semantic_error(semantic, expr, "Operands must be arithmetic types");
+                return NULL;
+            }
+            return type_arithmetic_conversion(left, right);
+
+        case TOKEN_ASSIGN:
+            // 赋值运算符：检查隐式转换
+            if (!type_implicit_conversion(right, left)) {
+                semantic_error(semantic, expr, "Cannot convert type in assignment");
+                return NULL;
+            }
+            return left; // 赋值表达式的类型是左操作数的类型
+
+        case TOKEN_PLUS_ASSIGN:
+        case TOKEN_MINUS_ASSIGN:
+            // 复合赋值运算符（指针算术）
+            if (left->kind == TYPE_POINTER && type_is_integral(right)) {
+                return left;
+            }
+            if (type_is_arithmetic(left) && type_is_arithmetic(right)) {
+                return left;
+            }
+            semantic_error(semantic, expr, "Invalid operands for compound assignment");
+            return NULL;
+
+        case TOKEN_MUL_ASSIGN:
+        case TOKEN_DIV_ASSIGN:
+        case TOKEN_MOD_ASSIGN:
+        case TOKEN_AND_ASSIGN:
+        case TOKEN_OR_ASSIGN:
+        case TOKEN_XOR_ASSIGN:
+        case TOKEN_LSHIFT_ASSIGN:
+        case TOKEN_RSHIFT_ASSIGN:
+            // 其他复合赋值运算符
+            if (!type_is_arithmetic(left) || !type_is_arithmetic(right)) {
+                semantic_error(semantic, expr, "Operands must be arithmetic types");
+                return NULL;
+            }
+            return left;
+
+        case TOKEN_EQUAL:
+        case TOKEN_NOT_EQUAL:
+            // 相等比较
+            if (type_compatible(left, right) ||
+                (left->kind == TYPE_POINTER && right->kind == TYPE_POINTER)) {
+                return type_create(TYPE_INT);
+            }
             semantic_error(semantic, expr, "Incompatible operand types for comparison");
             return NULL;
-        }
-        return type_create(TYPE_INT); // 比较运算返回int
-    }
-    
-    // 逻辑运算符
-    if (operator == TOKEN_LOGICAL_AND || operator == TOKEN_LOGICAL_OR) {
-        if (!type_is_scalar(left) || !type_is_scalar(right)) {
-            semantic_error(semantic, expr, "Operands must be scalar types");
+
+        case TOKEN_LESS:
+        case TOKEN_LESS_EQUAL:
+        case TOKEN_GREATER:
+        case TOKEN_GREATER_EQUAL:
+            // 关系比较
+            if (type_compatible(left, right)) {
+                return type_create(TYPE_INT);
+            }
+            // 指针比较
+            if (left->kind == TYPE_POINTER && right->kind == TYPE_POINTER &&
+                type_compatible(left->data.pointer.pointee, right->data.pointer.pointee)) {
+                return type_create(TYPE_INT);
+            }
+            semantic_error(semantic, expr, "Incompatible operand types for comparison");
             return NULL;
-        }
-        return type_create(TYPE_INT); // 逻辑运算返回int
+
+        case TOKEN_LOGICAL_AND:
+        case TOKEN_LOGICAL_OR:
+            // 逻辑运算符
+            if (!type_is_scalar(left) || !type_is_scalar(right)) {
+                semantic_error(semantic, expr, "Operands must be scalar types");
+                return NULL;
+            }
+            return type_create(TYPE_INT);
+
+        case TOKEN_BITWISE_AND:
+        case TOKEN_BITWISE_OR:
+        case TOKEN_BITWISE_XOR:
+        case TOKEN_LEFT_SHIFT:
+        case TOKEN_RIGHT_SHIFT:
+            // 位运算符
+            if (!type_is_integral(left) || !type_is_integral(right)) {
+                semantic_error(semantic, expr, "Operands must be integral types");
+                return NULL;
+            }
+            return type_arithmetic_conversion(left, right);
+
+        default:
+            semantic_error(semantic, expr, "Unsupported binary operator");
+            return NULL;
     }
-    
-    semantic_error(semantic, expr, "Unsupported binary operator");
-    return NULL;
 }
 
 static struct Type* check_unary_operation(SemanticContext* semantic, int operator,
@@ -520,7 +776,33 @@ static struct Type* check_unary_operation(SemanticContext* semantic, int operato
                 return NULL;
             }
             return operand;
-            
+
+        case TOKEN_MULTIPLY: // 指针解引用 *ptr
+            if (operand->kind != TYPE_POINTER) {
+                semantic_error(semantic, expr, "Dereference requires pointer type");
+                return NULL;
+            }
+            return operand->data.pointer.pointee;
+
+        case TOKEN_BITWISE_AND: // 取地址 &var
+            // 创建指向操作数类型的指针类型
+            struct Type* pointer_type = type_create(TYPE_POINTER);
+            if (!pointer_type) return NULL;
+            pointer_type->data.pointer.pointee = operand;
+            return pointer_type;
+
+        case TOKEN_INCREMENT: // 前缀递增 ++var
+        case TOKEN_DECREMENT: // 前缀递减 --var
+            if (!type_is_scalar(operand)) {
+                semantic_error(semantic, expr, "Increment/decrement requires scalar type");
+                return NULL;
+            }
+            return operand;
+
+        case TOKEN_SIZEOF: // sizeof运算符
+            // sizeof返回size_t类型，这里简化为int
+            return type_create(TYPE_INT);
+
         default:
             semantic_error(semantic, expr, "Unsupported unary operator");
             return NULL;
@@ -601,35 +883,202 @@ void type_destroy(struct Type* type) {
 
 bool type_compatible(struct Type* type1, struct Type* type2) {
     if (!type1 || !type2) return false;
-    
-    // Simplified compatibility check
-    return type1->kind == type2->kind;
+
+    // 基本类型兼容性检查
+    if (type1->kind != type2->kind) return false;
+
+    switch (type1->kind) {
+        case TYPE_VOID:
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_INT:
+        case TYPE_LONG:
+        case TYPE_LONG_LONG:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_LONG_DOUBLE:
+        case TYPE_BOOL:
+            // 基本类型：相同类型即兼容
+            return true;
+
+        case TYPE_POINTER:
+            // 指针类型：指向的类型必须兼容
+            return type_compatible(type1->data.pointer.pointee, type2->data.pointer.pointee);
+
+        case TYPE_ARRAY:
+            // 数组类型：元素类型必须兼容，大小可以不同
+            return type_compatible(type1->data.array.element, type2->data.array.element);
+
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            // 结构体/联合体：标签名必须相同
+            if (!type1->data.composite.tag || !type2->data.composite.tag) {
+                return false; // 匿名结构体/联合体不兼容
+            }
+            return strcmp(type1->data.composite.tag, type2->data.composite.tag) == 0;
+
+        case TYPE_FUNCTION:
+            // 函数类型：返回类型和参数类型都必须兼容
+            if (!type_compatible(type1->data.function.return_type, type2->data.function.return_type)) {
+                return false;
+            }
+            if (type1->data.function.parameter_count != type2->data.function.parameter_count) {
+                return false;
+            }
+            for (size_t i = 0; i < type1->data.function.parameter_count; i++) {
+                if (!type_compatible(type1->data.function.parameters[i], type2->data.function.parameters[i])) {
+                    return false;
+                }
+            }
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 size_t type_get_size(struct Type* type) {
     if (!type) return 0;
-    
+
     switch (type->kind) {
+        case TYPE_VOID: return 0;
         case TYPE_CHAR: return 1;
         case TYPE_SHORT: return 2;
         case TYPE_INT: return 4;
         case TYPE_LONG: return 8;
+        case TYPE_LONG_LONG: return 8;
         case TYPE_FLOAT: return 4;
         case TYPE_DOUBLE: return 8;
-        default: return 0;
+        case TYPE_LONG_DOUBLE: return 16;
+        case TYPE_BOOL: return 1;
+
+        case TYPE_POINTER:
+            // 指针大小通常是8字节（64位系统）
+            return 8;
+
+        case TYPE_ARRAY:
+            // 数组大小 = 元素大小 * 元素数量
+            if (type->data.array.element && type->data.array.size > 0) {
+                return type_get_size(type->data.array.element) * type->data.array.size;
+            }
+            return 0; // 不完整数组或VLA
+
+        case TYPE_STRUCT: {
+            // 结构体大小 = 所有成员大小之和（考虑对齐）
+            size_t total_size = 0;
+            size_t max_align = 1;
+
+            if (type->data.composite.is_complete && type->data.composite.members) {
+                for (size_t i = 0; i < type->data.composite.member_count; i++) {
+                    Symbol* member = type->data.composite.members[i];
+                    if (member && member->type) {
+                        struct Type* member_type = (struct Type*)member->type;
+                        size_t member_size = type_get_size(member_type);
+                        size_t member_align = type_get_alignment(member_type);
+
+                        // 对齐当前偏移
+                        total_size = (total_size + member_align - 1) & ~(member_align - 1);
+                        total_size += member_size;
+
+                        if (member_align > max_align) {
+                            max_align = member_align;
+                        }
+                    }
+                }
+
+                // 结构体总大小需要对齐到最大成员的对齐要求
+                total_size = (total_size + max_align - 1) & ~(max_align - 1);
+            }
+
+            return total_size;
+        }
+
+        case TYPE_UNION: {
+            // 联合体大小 = 最大成员的大小
+            size_t max_size = 0;
+
+            if (type->data.composite.is_complete && type->data.composite.members) {
+                for (size_t i = 0; i < type->data.composite.member_count; i++) {
+                    Symbol* member = type->data.composite.members[i];
+                    if (member && member->type) {
+                        struct Type* member_type = (struct Type*)member->type;
+                        size_t member_size = type_get_size(member_type);
+                        if (member_size > max_size) {
+                            max_size = member_size;
+                        }
+                    }
+                }
+            }
+
+            return max_size;
+        }
+
+        case TYPE_FUNCTION:
+            // 函数类型没有大小
+            return 0;
+
+        default:
+            return 0;
     }
 }
 
 bool type_is_arithmetic(struct Type* type) {
     if (!type) return false;
-    
-    return type->kind >= TYPE_CHAR && type->kind <= TYPE_IMAGINARY;
+
+    return (type->kind >= TYPE_CHAR && type->kind <= TYPE_LONG_LONG) ||
+           (type->kind >= TYPE_FLOAT && type->kind <= TYPE_LONG_DOUBLE) ||
+           (type->kind == TYPE_BOOL);
 }
 
 bool type_is_integral(struct Type* type) {
     if (!type) return false;
-    
+
     return type->kind >= TYPE_CHAR && type->kind <= TYPE_LONG_LONG;
+}
+
+static size_t type_get_alignment(struct Type* type) {
+    if (!type) return 1;
+
+    switch (type->kind) {
+        case TYPE_CHAR: return 1;
+        case TYPE_SHORT: return 2;
+        case TYPE_INT: return 4;
+        case TYPE_LONG: return 8;
+        case TYPE_LONG_LONG: return 8;
+        case TYPE_FLOAT: return 4;
+        case TYPE_DOUBLE: return 8;
+        case TYPE_LONG_DOUBLE: return 16;
+        case TYPE_BOOL: return 1;
+        case TYPE_POINTER: return 8;
+
+        case TYPE_ARRAY:
+            // 数组的对齐要求与元素类型相同
+            return type->data.array.element ? type_get_alignment(type->data.array.element) : 1;
+
+        case TYPE_STRUCT:
+        case TYPE_UNION: {
+            // 结构体/联合体的对齐要求是最大成员的对齐要求
+            size_t max_align = 1;
+
+            if (type->data.composite.is_complete && type->data.composite.members) {
+                for (size_t i = 0; i < type->data.composite.member_count; i++) {
+                    Symbol* member = type->data.composite.members[i];
+                    if (member && member->type) {
+                        struct Type* member_type = (struct Type*)member->type;
+                        size_t member_align = type_get_alignment(member_type);
+                        if (member_align > max_align) {
+                            max_align = member_align;
+                        }
+                    }
+                }
+            }
+
+            return max_align;
+        }
+
+        default:
+            return 1;
+    }
 }
 
 // ===============================================
@@ -723,15 +1172,105 @@ static bool check_function_call_args(SemanticContext* semantic, struct Type* fun
 static bool semantic_analyze_declaration(SemanticContext* semantic, struct ASTNode* decl) {
     if (!semantic || !decl) return false;
 
-    // 简化的声明分析实现
     switch (decl->type) {
-        case ASTC_FUNC_DECL:
+        case ASTC_FUNC_DECL: {
             // 函数声明分析
+            printf("Semantic: Analyzing function declaration\n");
+
+            // 分析返回类型
+            struct Type* return_type = NULL;
+            if (decl->data.func_decl.return_type) {
+                return_type = analyze_type(semantic, decl->data.func_decl.return_type);
+            } else {
+                return_type = type_create(TYPE_INT); // 默认返回int
+            }
+
+            // 创建函数符号
+            if (decl->data.func_decl.name) {
+                Symbol* func_symbol = semantic_declare_symbol(semantic,
+                    decl->data.func_decl.name, SYMBOL_FUNCTION, return_type);
+                if (func_symbol) {
+                    // 注意：这里需要根据实际的Symbol结构来设置参数
+                    // func_symbol->data.function.parameters = decl->data.func_decl.params;
+                    func_symbol->data.function.body = decl->data.func_decl.body;
+                }
+            }
+
             return true;
-        case ASTC_VAR_DECL:
+        }
+
+        case ASTC_VAR_DECL: {
             // 变量声明分析
+            printf("Semantic: Analyzing variable declaration\n");
+
+            // 分析变量类型
+            struct Type* var_type = NULL;
+            if (decl->data.var_decl.type) {
+                var_type = analyze_type(semantic, decl->data.var_decl.type);
+            } else {
+                var_type = type_create(TYPE_INT); // 默认为int
+            }
+
+            // 创建变量符号
+            if (decl->data.var_decl.name) {
+                Symbol* var_symbol = semantic_declare_symbol(semantic,
+                    decl->data.var_decl.name, SYMBOL_VARIABLE, var_type);
+                if (var_symbol) {
+                    var_symbol->data.variable.initializer = decl->data.var_decl.initializer;
+
+                    // 如果有初始化器，检查类型兼容性
+                    if (decl->data.var_decl.initializer) {
+                        struct Type* init_type = semantic_analyze_expression(semantic,
+                            decl->data.var_decl.initializer);
+                        if (init_type && !type_compatible(var_type, init_type)) {
+                            semantic_warning(semantic, decl,
+                                "Initializer type incompatible with variable type");
+                        }
+                    }
+                }
+            }
+
             return true;
+        }
+
+        case ASTC_STRUCT_DECL: {
+            // 结构体声明分析
+            printf("Semantic: Analyzing struct declaration\n");
+
+            struct Type* struct_type = analyze_type(semantic, decl);
+
+            // 如果有标签名，将结构体类型添加到符号表
+            if (decl->data.struct_decl.name) {
+                Symbol* struct_symbol = semantic_declare_symbol(semantic,
+                    decl->data.struct_decl.name, SYMBOL_TYPE, struct_type);
+                if (struct_symbol) {
+                    printf("Semantic: Declared struct type '%s'\n", decl->data.struct_decl.name);
+                }
+            }
+
+            return true;
+        }
+
+        case ASTC_UNION_DECL: {
+            // 联合体声明分析
+            printf("Semantic: Analyzing union declaration\n");
+
+            struct Type* union_type = analyze_type(semantic, decl);
+
+            // 如果有标签名，将联合体类型添加到符号表
+            if (decl->data.union_decl.name) {
+                Symbol* union_symbol = semantic_declare_symbol(semantic,
+                    decl->data.union_decl.name, SYMBOL_TYPE, union_type);
+                if (union_symbol) {
+                    printf("Semantic: Declared union type '%s'\n", decl->data.union_decl.name);
+                }
+            }
+
+            return true;
+        }
+
         default:
+            printf("Semantic: Unknown declaration type %d\n", decl->type);
             return true;
     }
 }
@@ -739,30 +1278,445 @@ static bool semantic_analyze_declaration(SemanticContext* semantic, struct ASTNo
 static struct Type* analyze_type(SemanticContext* semantic, struct ASTNode* type_node) {
     if (!semantic || !type_node) return NULL;
 
-    // 简化的类型分析实现
-    return type_create(TYPE_INT); // 默认返回int类型
+    switch (type_node->type) {
+        case ASTC_TYPE_SPECIFIER: {
+            // 基本类型
+            switch (type_node->data.type_specifier.type) {
+                case TOKEN_VOID: return type_create(TYPE_VOID);
+                case TOKEN_CHAR: return type_create(TYPE_CHAR);
+                case TOKEN_SHORT: return type_create(TYPE_SHORT);
+                case TOKEN_INT: return type_create(TYPE_INT);
+                case TOKEN_LONG: return type_create(TYPE_LONG);
+                case TOKEN_FLOAT: return type_create(TYPE_FLOAT);
+                case TOKEN_DOUBLE: return type_create(TYPE_DOUBLE);
+                case TOKEN_BOOL: return type_create(TYPE_BOOL);
+                default: return type_create(TYPE_INT);
+            }
+        }
+
+        case ASTC_STRUCT_DECL: {
+            // 结构体类型
+            struct Type* struct_type = type_create(TYPE_STRUCT);
+            if (!struct_type) return NULL;
+
+            struct_type->data.composite.tag = type_node->data.struct_decl.name ?
+                strdup(type_node->data.struct_decl.name) : NULL;
+            struct_type->data.composite.member_count = type_node->data.struct_decl.member_count;
+            struct_type->data.composite.is_complete = (type_node->data.struct_decl.members != NULL);
+
+            // 分析成员类型
+            if (struct_type->data.composite.is_complete) {
+                struct_type->data.composite.members = malloc(
+                    sizeof(Symbol*) * struct_type->data.composite.member_count);
+
+                for (size_t i = 0; i < struct_type->data.composite.member_count; i++) {
+                    struct ASTNode* member = type_node->data.struct_decl.members[i];
+                    if (member && member->type == ASTC_VAR_DECL) {
+                        Symbol* member_symbol = malloc(sizeof(Symbol));
+                        if (member_symbol) {
+                            memset(member_symbol, 0, sizeof(Symbol));
+                            member_symbol->name = member->data.var_decl.name ?
+                                strdup(member->data.var_decl.name) : NULL;
+                            member_symbol->kind = SYMBOL_VARIABLE;
+                            member_symbol->type = (struct ASTNode*)analyze_type(semantic, member->data.var_decl.type);
+                            struct_type->data.composite.members[i] = member_symbol;
+                        }
+                    }
+                }
+            }
+
+            printf("Semantic: Analyzed struct type '%s' with %zu members\n",
+                   struct_type->data.composite.tag ? struct_type->data.composite.tag : "(anonymous)",
+                   struct_type->data.composite.member_count);
+
+            return struct_type;
+        }
+
+        case ASTC_UNION_DECL: {
+            // 联合体类型
+            struct Type* union_type = type_create(TYPE_UNION);
+            if (!union_type) return NULL;
+
+            union_type->data.composite.tag = type_node->data.union_decl.name ?
+                strdup(type_node->data.union_decl.name) : NULL;
+            union_type->data.composite.member_count = type_node->data.union_decl.member_count;
+            union_type->data.composite.is_complete = (type_node->data.union_decl.members != NULL);
+
+            // 分析成员类型
+            if (union_type->data.composite.is_complete) {
+                union_type->data.composite.members = malloc(
+                    sizeof(Symbol*) * union_type->data.composite.member_count);
+
+                for (size_t i = 0; i < union_type->data.composite.member_count; i++) {
+                    struct ASTNode* member = type_node->data.union_decl.members[i];
+                    if (member && member->type == ASTC_VAR_DECL) {
+                        Symbol* member_symbol = malloc(sizeof(Symbol));
+                        if (member_symbol) {
+                            memset(member_symbol, 0, sizeof(Symbol));
+                            member_symbol->name = member->data.var_decl.name ?
+                                strdup(member->data.var_decl.name) : NULL;
+                            member_symbol->kind = SYMBOL_VARIABLE;
+                            member_symbol->type = (struct ASTNode*)analyze_type(semantic, member->data.var_decl.type);
+                            union_type->data.composite.members[i] = member_symbol;
+                        }
+                    }
+                }
+            }
+
+            printf("Semantic: Analyzed union type '%s' with %zu members\n",
+                   union_type->data.composite.tag ? union_type->data.composite.tag : "(anonymous)",
+                   union_type->data.composite.member_count);
+
+            return union_type;
+        }
+
+        case ASTC_POINTER_TYPE: {
+            // 指针类型
+            struct Type* pointer_type = type_create(TYPE_POINTER);
+            if (!pointer_type) return NULL;
+
+            // 分析基础类型
+            if (type_node->data.pointer_type.base_type) {
+                pointer_type->data.pointer.pointee = analyze_type(semantic, type_node->data.pointer_type.base_type);
+            } else {
+                // 如果没有基础类型，默认为void*
+                pointer_type->data.pointer.pointee = type_create(TYPE_VOID);
+            }
+
+            printf("Semantic: Analyzed pointer type with %d indirection levels\n",
+                   type_node->data.pointer_type.pointer_level);
+
+            return pointer_type;
+        }
+
+        case ASTC_ARRAY_TYPE: {
+            // 数组类型
+            struct Type* array_type = type_create(TYPE_ARRAY);
+            if (!array_type) return NULL;
+
+            // 分析元素类型
+            if (type_node->data.array_type.element_type) {
+                array_type->data.array.element = analyze_type(semantic, type_node->data.array_type.element_type);
+            } else {
+                // 默认为int数组
+                array_type->data.array.element = type_create(TYPE_INT);
+            }
+
+            // 分析数组大小
+            array_type->data.array.size = 0; // 默认大小
+            array_type->data.array.is_vla = false;
+
+            if (type_node->data.array_type.size_expr) {
+                if (type_node->data.array_type.size_expr->type == ASTC_EXPR_CONSTANT) {
+                    array_type->data.array.size = type_node->data.array_type.size_expr->data.constant.int_val;
+                } else {
+                    // 变长数组
+                    array_type->data.array.is_vla = true;
+                }
+            }
+
+            printf("Semantic: Analyzed array type with size %zu (VLA: %s)\n",
+                   array_type->data.array.size,
+                   array_type->data.array.is_vla ? "yes" : "no");
+
+            return array_type;
+        }
+
+        default:
+            printf("Semantic: Unknown type node type %d, defaulting to int\n", type_node->type);
+            return type_create(TYPE_INT);
+    }
 }
 
 static bool type_is_scalar(struct Type* type) {
     if (!type) return false;
 
-    switch (type->kind) {
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_CHAR:
-        case TYPE_POINTER:
-            return true;
-        default:
-            return false;
-    }
+    // 标量类型包括算术类型和指针类型
+    return type_is_arithmetic(type) || type->kind == TYPE_POINTER;
 }
 
 static struct Type* type_arithmetic_conversion(struct Type* left, struct Type* right) {
     if (!left || !right) return NULL;
 
-    // 简化的算术转换规则
+    // C99标准算术转换规则
+    // 1. 如果任一操作数是long double，结果为long double
+    if (left->kind == TYPE_LONG_DOUBLE || right->kind == TYPE_LONG_DOUBLE) {
+        return type_create(TYPE_LONG_DOUBLE);
+    }
+
+    // 2. 如果任一操作数是double，结果为double
+    if (left->kind == TYPE_DOUBLE || right->kind == TYPE_DOUBLE) {
+        return type_create(TYPE_DOUBLE);
+    }
+
+    // 3. 如果任一操作数是float，结果为float
     if (left->kind == TYPE_FLOAT || right->kind == TYPE_FLOAT) {
         return type_create(TYPE_FLOAT);
     }
+
+    // 4. 整数提升：char, short -> int
+    TypeKind left_promoted = left->kind;
+    TypeKind right_promoted = right->kind;
+
+    if (left_promoted == TYPE_CHAR || left_promoted == TYPE_SHORT) {
+        left_promoted = TYPE_INT;
+    }
+    if (right_promoted == TYPE_CHAR || right_promoted == TYPE_SHORT) {
+        right_promoted = TYPE_INT;
+    }
+
+    // 5. 如果任一操作数是long long，结果为long long
+    if (left_promoted == TYPE_LONG_LONG || right_promoted == TYPE_LONG_LONG) {
+        return type_create(TYPE_LONG_LONG);
+    }
+
+    // 6. 如果任一操作数是long，结果为long
+    if (left_promoted == TYPE_LONG || right_promoted == TYPE_LONG) {
+        return type_create(TYPE_LONG);
+    }
+
+    // 7. 否则结果为int
     return type_create(TYPE_INT);
+}
+
+static struct Type* type_implicit_conversion(struct Type* from, struct Type* to) {
+    if (!from || !to) return NULL;
+
+    // 相同类型，无需转换
+    if (type_compatible(from, to)) {
+        return to;
+    }
+
+    // 算术类型之间的隐式转换
+    if (type_is_arithmetic(from) && type_is_arithmetic(to)) {
+        return to; // 允许算术类型之间的隐式转换
+    }
+
+    // 指针类型转换
+    if (from->kind == TYPE_POINTER && to->kind == TYPE_POINTER) {
+        // void* 可以转换为任何指针类型
+        if (from->data.pointer.pointee->kind == TYPE_VOID ||
+            to->data.pointer.pointee->kind == TYPE_VOID) {
+            return to;
+        }
+
+        // 兼容的指针类型
+        if (type_compatible(from->data.pointer.pointee, to->data.pointer.pointee)) {
+            return to;
+        }
+    }
+
+    // 数组到指针的隐式转换
+    if (from->kind == TYPE_ARRAY && to->kind == TYPE_POINTER) {
+        if (type_compatible(from->data.array.element, to->data.pointer.pointee)) {
+            return to;
+        }
+    }
+
+    // 函数到函数指针的隐式转换
+    if (from->kind == TYPE_FUNCTION && to->kind == TYPE_POINTER &&
+        to->data.pointer.pointee->kind == TYPE_FUNCTION) {
+        if (type_compatible(from, to->data.pointer.pointee)) {
+            return to;
+        }
+    }
+
+    // 空指针常量到指针的转换
+    if (from->kind == TYPE_INT && to->kind == TYPE_POINTER) {
+        // 这里应该检查是否为0常量，简化处理
+        return to;
+    }
+
+    return NULL; // 无法进行隐式转换
+}
+
+static bool type_can_cast(struct Type* from, struct Type* to) {
+    if (!from || !to) return false;
+
+    // 隐式转换总是允许的
+    if (type_implicit_conversion(from, to)) {
+        return true;
+    }
+
+    // 显式转换规则
+
+    // 算术类型之间可以显式转换
+    if (type_is_arithmetic(from) && type_is_arithmetic(to)) {
+        return true;
+    }
+
+    // 指针类型之间可以显式转换
+    if (from->kind == TYPE_POINTER && to->kind == TYPE_POINTER) {
+        return true;
+    }
+
+    // 整数和指针之间可以显式转换
+    if ((type_is_integral(from) && to->kind == TYPE_POINTER) ||
+        (from->kind == TYPE_POINTER && type_is_integral(to))) {
+        return true;
+    }
+
+    return false;
+}
+
+static bool is_builtin_function(const char* name) {
+    if (!name) return false;
+
+    // 常见的C标准库函数
+    const char* builtin_functions[] = {
+        // stdio.h
+        "printf", "scanf", "fprintf", "fscanf", "sprintf", "sscanf",
+        "fopen", "fclose", "fread", "fwrite", "fseek", "ftell",
+        "fgetc", "fputc", "fgets", "fputs", "getchar", "putchar",
+        "puts", "getc", "putc", "ungetc", "fflush", "feof", "ferror",
+
+        // stdlib.h
+        "malloc", "calloc", "realloc", "free", "exit", "abort",
+        "atoi", "atof", "atol", "strtol", "strtod", "rand", "srand",
+
+        // string.h
+        "strlen", "strcpy", "strncpy", "strcat", "strncat", "strcmp",
+        "strncmp", "strchr", "strrchr", "strstr", "strtok", "memcpy",
+        "memmove", "memset", "memcmp", "memchr",
+
+        // math.h
+        "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+        "sinh", "cosh", "tanh", "exp", "log", "log10", "pow",
+        "sqrt", "ceil", "floor", "fabs", "fmod",
+
+        NULL
+    };
+
+    for (int i = 0; builtin_functions[i]; i++) {
+        if (strcmp(name, builtin_functions[i]) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static struct Type* handle_builtin_function_call(SemanticContext* semantic, struct ASTNode* call, const char* func_name) {
+    if (!semantic || !call || !func_name) return NULL;
+
+    printf("Semantic: Handling builtin function '%s' with %d arguments\n",
+           func_name, call->data.call_expr.arg_count);
+
+    // 标记为libc调用
+    call->data.call_expr.is_libc_call = true;
+    call->data.call_expr.libc_func_id = get_libc_function_id(func_name);
+
+    // 简化的内置函数类型检查
+    // 在实际实现中，这里应该有更详细的参数类型检查
+
+    // 分析所有参数表达式
+    for (int i = 0; i < call->data.call_expr.arg_count; i++) {
+        struct Type* arg_type = semantic_analyze_expression(semantic, call->data.call_expr.args[i]);
+        if (!arg_type) {
+            return NULL;
+        }
+    }
+
+    // 返回适当的类型
+    if (strcmp(func_name, "printf") == 0 || strcmp(func_name, "scanf") == 0 ||
+        strcmp(func_name, "fprintf") == 0 || strcmp(func_name, "fscanf") == 0) {
+        return type_create(TYPE_INT);
+    } else if (strcmp(func_name, "malloc") == 0 || strcmp(func_name, "calloc") == 0 ||
+               strcmp(func_name, "realloc") == 0) {
+        return type_create_pointer(type_create(TYPE_VOID));
+    } else if (strcmp(func_name, "strlen") == 0) {
+        return type_create(TYPE_LONG); // size_t
+    } else if (strcmp(func_name, "strcpy") == 0 || strcmp(func_name, "strcat") == 0) {
+        return type_create_pointer(type_create(TYPE_CHAR));
+    } else if (strcmp(func_name, "strcmp") == 0 || strcmp(func_name, "atoi") == 0) {
+        return type_create(TYPE_INT);
+    } else if (strcmp(func_name, "atof") == 0 || strcmp(func_name, "sin") == 0 ||
+               strcmp(func_name, "cos") == 0 || strcmp(func_name, "sqrt") == 0) {
+        return type_create(TYPE_DOUBLE);
+    } else {
+        // 默认返回int
+        return type_create(TYPE_INT);
+    }
+}
+
+static uint16_t get_libc_function_id(const char* func_name) {
+    if (!func_name) return 0x0000;
+
+    // 基于函数名返回libc函数ID
+    // 这些ID应该与运行时系统中的定义保持一致
+
+    // stdio.h functions
+    if (strcmp(func_name, "printf") == 0) return 0x0001;
+    if (strcmp(func_name, "scanf") == 0) return 0x0002;
+    if (strcmp(func_name, "fprintf") == 0) return 0x0003;
+    if (strcmp(func_name, "fscanf") == 0) return 0x0004;
+    if (strcmp(func_name, "sprintf") == 0) return 0x0005;
+    if (strcmp(func_name, "sscanf") == 0) return 0x0006;
+    if (strcmp(func_name, "fopen") == 0) return 0x0010;
+    if (strcmp(func_name, "fclose") == 0) return 0x0011;
+    if (strcmp(func_name, "fread") == 0) return 0x0012;
+    if (strcmp(func_name, "fwrite") == 0) return 0x0013;
+    if (strcmp(func_name, "fseek") == 0) return 0x0014;
+    if (strcmp(func_name, "ftell") == 0) return 0x0015;
+    if (strcmp(func_name, "fgetc") == 0) return 0x0016;
+    if (strcmp(func_name, "fputc") == 0) return 0x0017;
+    if (strcmp(func_name, "fgets") == 0) return 0x0018;
+    if (strcmp(func_name, "fputs") == 0) return 0x0019;
+    if (strcmp(func_name, "getchar") == 0) return 0x001A;
+    if (strcmp(func_name, "putchar") == 0) return 0x001B;
+    if (strcmp(func_name, "puts") == 0) return 0x001C;
+
+    // stdlib.h functions
+    if (strcmp(func_name, "malloc") == 0) return 0x0020;
+    if (strcmp(func_name, "calloc") == 0) return 0x0021;
+    if (strcmp(func_name, "realloc") == 0) return 0x0022;
+    if (strcmp(func_name, "free") == 0) return 0x0023;
+    if (strcmp(func_name, "exit") == 0) return 0x0024;
+    if (strcmp(func_name, "abort") == 0) return 0x0025;
+    if (strcmp(func_name, "atoi") == 0) return 0x0026;
+    if (strcmp(func_name, "atof") == 0) return 0x0027;
+    if (strcmp(func_name, "atol") == 0) return 0x0028;
+    if (strcmp(func_name, "rand") == 0) return 0x0029;
+    if (strcmp(func_name, "srand") == 0) return 0x002A;
+
+    // string.h functions
+    if (strcmp(func_name, "strlen") == 0) return 0x0030;
+    if (strcmp(func_name, "strcpy") == 0) return 0x0031;
+    if (strcmp(func_name, "strncpy") == 0) return 0x0032;
+    if (strcmp(func_name, "strcat") == 0) return 0x0033;
+    if (strcmp(func_name, "strncat") == 0) return 0x0034;
+    if (strcmp(func_name, "strcmp") == 0) return 0x0035;
+    if (strcmp(func_name, "strncmp") == 0) return 0x0036;
+    if (strcmp(func_name, "strchr") == 0) return 0x0037;
+    if (strcmp(func_name, "strrchr") == 0) return 0x0038;
+    if (strcmp(func_name, "strstr") == 0) return 0x0039;
+    if (strcmp(func_name, "memcpy") == 0) return 0x003A;
+    if (strcmp(func_name, "memmove") == 0) return 0x003B;
+    if (strcmp(func_name, "memset") == 0) return 0x003C;
+    if (strcmp(func_name, "memcmp") == 0) return 0x003D;
+
+    // math.h functions
+    if (strcmp(func_name, "sin") == 0) return 0x0040;
+    if (strcmp(func_name, "cos") == 0) return 0x0041;
+    if (strcmp(func_name, "tan") == 0) return 0x0042;
+    if (strcmp(func_name, "sqrt") == 0) return 0x0043;
+    if (strcmp(func_name, "pow") == 0) return 0x0044;
+    if (strcmp(func_name, "exp") == 0) return 0x0045;
+    if (strcmp(func_name, "log") == 0) return 0x0046;
+    if (strcmp(func_name, "log10") == 0) return 0x0047;
+    if (strcmp(func_name, "fabs") == 0) return 0x0048;
+    if (strcmp(func_name, "ceil") == 0) return 0x0049;
+    if (strcmp(func_name, "floor") == 0) return 0x004A;
+
+    return 0x0000; // 未知函数
+}
+
+static struct Type* type_create_pointer(struct Type* pointee) {
+    if (!pointee) return NULL;
+
+    struct Type* ptr_type = type_create(TYPE_POINTER);
+    if (!ptr_type) return NULL;
+
+    ptr_type->data.pointer.pointee = pointee;
+    return ptr_type;
 }
