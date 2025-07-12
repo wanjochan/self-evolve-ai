@@ -477,7 +477,13 @@ typedef struct ASTNode {
             struct ASTNode *increment;
             struct ASTNode *body;
         } for_stmt;
-        
+
+        // switch语句
+        struct {
+            struct ASTNode *expr;
+            struct ASTNode *body;
+        } switch_stmt;
+
         // return语句
         struct {
             struct ASTNode *value;

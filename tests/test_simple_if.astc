@@ -1,4 +1,4 @@
 # ASTC Bytecode
-# Generated from: tests/test_minimal.c
+# Generated from: tests/test_simple_if.c
 # Optimization level: 0
 # Compilation phases: Lexical + Syntax + Semantic

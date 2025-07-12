@@ -21,6 +21,9 @@ ENABLE_FALLBACK=true        # Enable TinyCC fallback
 VERBOSE_MODE=false          # Verbose output
 PERFORMANCE_TEST=false      # Enable performance comparison
 COMPATIBILITY_MODE=false    # Force compatibility mode (TinyCC only)
+STATISTICS_MODE=false       # Collect compilation statistics
+LOG_COMPILATIONS=false      # Log all compilation attempts
+AUTO_FALLBACK=true          # Automatically fallback on C99 failure
 
 # Colors for output
 RED='\033[0;31m'
@@ -28,6 +31,20 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Statistics and logging
+STATS_FILE="$SCRIPT_DIR/logs/compilation_stats.log"
+LOG_FILE="$SCRIPT_DIR/logs/compilation.log"
+mkdir -p "$(dirname "$STATS_FILE")"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Compilation counters
+C99_SUCCESS_COUNT=0
+C99_FAILURE_COUNT=0
+TCC_SUCCESS_COUNT=0
+TCC_FAILURE_COUNT=0
+GCC_SUCCESS_COUNT=0
+GCC_FAILURE_COUNT=0
 
 # Function to print colored output
 print_status() {
@@ -40,6 +57,49 @@ print_status() {
             "ERROR") echo -e "${RED}[ERROR]${NC} $message" ;;
             "OK")    echo -e "${GREEN}[OK]${NC} $message" ;;
         esac
+    fi
+}
+
+# Function to log compilation attempts
+log_compilation() {
+    local compiler=$1
+    local status=$2
+    local args="$3"
+    local duration=${4:-0}
+
+    if [ "$LOG_COMPILATIONS" = true ]; then
+        local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$timestamp] $compiler: $status (${duration}ms) - Args: $args" >> "$LOG_FILE"
+    fi
+}
+
+# Function to update statistics
+update_stats() {
+    local compiler=$1
+    local status=$2
+
+    if [ "$STATISTICS_MODE" = true ]; then
+        case "$compiler-$status" in
+            "C99-SUCCESS") C99_SUCCESS_COUNT=$((C99_SUCCESS_COUNT + 1)) ;;
+            "C99-FAILURE") C99_FAILURE_COUNT=$((C99_FAILURE_COUNT + 1)) ;;
+            "TCC-SUCCESS") TCC_SUCCESS_COUNT=$((TCC_SUCCESS_COUNT + 1)) ;;
+            "TCC-FAILURE") TCC_FAILURE_COUNT=$((TCC_FAILURE_COUNT + 1)) ;;
+            "GCC-SUCCESS") GCC_SUCCESS_COUNT=$((GCC_SUCCESS_COUNT + 1)) ;;
+            "GCC-FAILURE") GCC_FAILURE_COUNT=$((GCC_FAILURE_COUNT + 1)) ;;
+        esac
+    fi
+}
+
+# Function to save statistics
+save_stats() {
+    if [ "$STATISTICS_MODE" = true ]; then
+        local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+        cat >> "$STATS_FILE" << EOF
+[$timestamp] Compilation Statistics:
+  C99: $C99_SUCCESS_COUNT success, $C99_FAILURE_COUNT failures
+  TCC: $TCC_SUCCESS_COUNT success, $TCC_FAILURE_COUNT failures
+  GCC: $GCC_SUCCESS_COUNT success, $GCC_FAILURE_COUNT failures
+EOF
     fi
 }
 
@@ -135,15 +195,26 @@ try_c99_compilation() {
     
     # Try C99 compilation
     if [ -n "$input_file" ]; then
+        local start_time=$(date +%s%N)
         if "$C99_COMPILER" $c99_args 2>/dev/null; then
-            print_status "OK" "C99 compilation successful"
+            local end_time=$(date +%s%N)
+            local duration=$((($end_time - $start_time) / 1000000))
+            print_status "OK" "C99 compilation successful (${duration}ms)"
+            log_compilation "C99" "SUCCESS" "$c99_args" "$duration"
+            update_stats "C99" "SUCCESS"
             return 0
         else
-            print_status "WARN" "C99 compilation failed"
+            local end_time=$(date +%s%N)
+            local duration=$((($end_time - $start_time) / 1000000))
+            print_status "WARN" "C99 compilation failed (${duration}ms)"
+            log_compilation "C99" "FAILURE" "$c99_args" "$duration"
+            update_stats "C99" "FAILURE"
             return 1
         fi
     else
         print_status "WARN" "No input file detected for C99"
+        log_compilation "C99" "FAILURE" "$args" "0"
+        update_stats "C99" "FAILURE"
         return 1
     fi
 }
@@ -153,16 +224,23 @@ try_tcc_compilation() {
     local args="$*"
     
     print_status "INFO" "Attempting TinyCC compilation..."
-    
+
     # Try TCC first
+    local start_time=$(date +%s%N)
     "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>/dev/null
     local tcc_exit_code=$?
+    local end_time=$(date +%s%N)
+    local duration=$((($end_time - $start_time) / 1000000))
 
     if [ $tcc_exit_code -eq 0 ]; then
-        print_status "OK" "TinyCC compilation successful"
+        print_status "OK" "TinyCC compilation successful (${duration}ms)"
+        log_compilation "TCC" "SUCCESS" "$args" "$duration"
+        update_stats "TCC" "SUCCESS"
         return 0
     else
-        print_status "WARN" "TinyCC compilation failed"
+        print_status "WARN" "TinyCC compilation failed (${duration}ms)"
+        log_compilation "TCC" "FAILURE" "$args" "$duration"
+        update_stats "TCC" "FAILURE"
         # Show TCC error for debugging
         if [ "$VERBOSE_MODE" = true ]; then
             "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>&1 | head -3
@@ -176,15 +254,22 @@ try_gcc_compilation() {
     local args="$*"
     
     print_status "INFO" "Attempting GCC compilation as final fallback..."
-    
+
+    local start_time=$(date +%s%N)
     gcc "$@"
     local gcc_exit_code=$?
-    
+    local end_time=$(date +%s%N)
+    local duration=$((($end_time - $start_time) / 1000000))
+
     if [ $gcc_exit_code -eq 0 ]; then
-        print_status "OK" "GCC compilation successful"
+        print_status "OK" "GCC compilation successful (${duration}ms)"
+        log_compilation "GCC" "SUCCESS" "$args" "$duration"
+        update_stats "GCC" "SUCCESS"
         return 0
     else
-        print_status "ERROR" "GCC compilation failed with exit code $gcc_exit_code"
+        print_status "ERROR" "GCC compilation failed with exit code $gcc_exit_code (${duration}ms)"
+        log_compilation "GCC" "FAILURE" "$args" "$duration"
+        update_stats "GCC" "FAILURE"
         return $gcc_exit_code
     fi
 }
@@ -209,6 +294,36 @@ parse_wrapper_options() {
                 PERFORMANCE_TEST=true
                 VERBOSE_MODE=true
                 shift
+                ;;
+            --c99-statistics)
+                STATISTICS_MODE=true
+                shift
+                ;;
+            --c99-log)
+                LOG_COMPILATIONS=true
+                shift
+                ;;
+            --c99-no-auto-fallback)
+                AUTO_FALLBACK=false
+                shift
+                ;;
+            --c99-show-stats)
+                if [ -f "$STATS_FILE" ]; then
+                    echo "=== Compilation Statistics ==="
+                    tail -20 "$STATS_FILE"
+                else
+                    echo "No statistics file found"
+                fi
+                exit 0
+                ;;
+            --c99-show-log)
+                if [ -f "$LOG_FILE" ]; then
+                    echo "=== Compilation Log ==="
+                    tail -50 "$LOG_FILE"
+                else
+                    echo "No log file found"
+                fi
+                exit 0
                 ;;
             *)
                 # Not a wrapper option, pass through
@@ -288,8 +403,14 @@ main() {
     fi
     
     # Final fallback to GCC
+    local result
     try_gcc_compilation $remaining_args
-    return $?
+    result=$?
+
+    # Save statistics before exit
+    save_stats
+
+    return $result
 }
 
 # Run main function with all arguments

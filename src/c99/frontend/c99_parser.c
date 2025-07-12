@@ -335,13 +335,16 @@ struct ASTNode* parser_parse_compound_statement(ParserContext* parser) {
     parser->scope_depth++;
     
     // Parse statements until closing brace
-    while (parser->current_token && 
-           parser->current_token->type != TOKEN_RBRACE && 
+    while (parser->current_token &&
+           parser->current_token->type != TOKEN_RBRACE &&
            parser->current_token->type != TOKEN_EOF) {
-        
+
         struct ASTNode* stmt = parser_parse_statement(parser);
         if (stmt) {
             // TODO: Add statement to compound
+        } else {
+            // If we can't parse a statement, advance to avoid infinite loop
+            parser_advance(parser);
         }
     }
     
@@ -358,6 +361,16 @@ struct ASTNode* parser_parse_statement(ParserContext* parser) {
     if (!parser || !parser->current_token) return NULL;
 
     switch (parser->current_token->type) {
+        case TOKEN_IF:
+            return parser_parse_if_statement(parser);
+        case TOKEN_WHILE:
+            return parser_parse_while_statement(parser);
+        case TOKEN_FOR:
+            return parser_parse_for_statement(parser);
+        case TOKEN_SWITCH:
+            return parser_parse_switch_statement(parser);
+        case TOKEN_BREAK:
+        case TOKEN_CONTINUE:
         case TOKEN_RETURN:
             return parser_parse_jump_statement(parser);
         case TOKEN_LBRACE:
@@ -489,22 +502,39 @@ struct ASTNode* parser_parse_variable_declaration(ParserContext* parser) {
 
 struct ASTNode* parser_parse_jump_statement(ParserContext* parser) {
     if (!parser || !parser->current_token) return NULL;
-    
-    if (parser->current_token->type == TOKEN_RETURN) {
-        struct ASTNode* return_stmt = parser_create_ast_node(parser, ASTC_RETURN_STMT);
-        parser_advance(parser); // consume 'return'
-        
-        // Parse optional return value
-        if (parser->current_token->type != TOKEN_SEMICOLON) {
-            parser_parse_expression(parser);
+
+    switch (parser->current_token->type) {
+        case TOKEN_RETURN: {
+            struct ASTNode* return_stmt = parser_create_ast_node(parser, ASTC_RETURN_STMT);
+            parser_advance(parser); // consume 'return'
+
+            // Parse optional return value
+            if (parser->current_token->type != TOKEN_SEMICOLON) {
+                return_stmt->data.return_stmt.value = parser_parse_expression(parser);
+            }
+
+            parser_expect(parser, TOKEN_SEMICOLON);
+            return return_stmt;
         }
-        
-        parser_expect(parser, TOKEN_SEMICOLON);
-        return return_stmt;
+
+        case TOKEN_BREAK: {
+            struct ASTNode* break_stmt = parser_create_ast_node(parser, ASTC_BREAK_STMT);
+            parser_advance(parser); // consume 'break'
+            parser_expect(parser, TOKEN_SEMICOLON);
+            return break_stmt;
+        }
+
+        case TOKEN_CONTINUE: {
+            struct ASTNode* continue_stmt = parser_create_ast_node(parser, ASTC_CONTINUE_STMT);
+            parser_advance(parser); // consume 'continue'
+            parser_expect(parser, TOKEN_SEMICOLON);
+            return continue_stmt;
+        }
+
+        default:
+            parser_error(parser, "Unsupported jump statement");
+            return NULL;
     }
-    
-    parser_error(parser, "Unsupported jump statement");
-    return NULL;
 }
 
 struct ASTNode* parser_parse_expression(ParserContext* parser) {
@@ -1191,4 +1221,182 @@ struct ASTNode* parser_try_parse_type_specifier(ParserContext* parser) {
         default:
             return NULL;
     }
+}
+
+// ===============================================
+// Control Flow Statement Parsing
+// ===============================================
+
+struct ASTNode* parser_parse_if_statement(ParserContext* parser) {
+    if (!parser || !parser->current_token) return NULL;
+
+    struct ASTNode* if_stmt = parser_create_ast_node(parser, ASTC_IF_STMT);
+    if (!if_stmt) return NULL;
+
+    parser_advance(parser); // consume 'if'
+
+    if (!parser_expect(parser, TOKEN_LPAREN)) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+
+    // Parse condition
+    if_stmt->data.if_stmt.condition = parser_parse_expression(parser);
+    if (!if_stmt->data.if_stmt.condition) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+
+    if (!parser_expect(parser, TOKEN_RPAREN)) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+
+    // Parse then branch
+    if_stmt->data.if_stmt.then_branch = parser_parse_statement(parser);
+    if (!if_stmt->data.if_stmt.then_branch) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+
+    // Parse optional else branch
+    if (parser->current_token && parser->current_token->type == TOKEN_ELSE) {
+        parser_advance(parser); // consume 'else'
+        if_stmt->data.if_stmt.else_branch = parser_parse_statement(parser);
+        if (!if_stmt->data.if_stmt.else_branch) {
+            ast_free(if_stmt);
+            return NULL;
+        }
+    }
+
+    printf("Parser: Parsed if statement\n");
+    return if_stmt;
+}
+
+struct ASTNode* parser_parse_while_statement(ParserContext* parser) {
+    if (!parser || !parser->current_token) return NULL;
+
+    struct ASTNode* while_stmt = parser_create_ast_node(parser, ASTC_WHILE_STMT);
+    if (!while_stmt) return NULL;
+
+    parser_advance(parser); // consume 'while'
+
+    if (!parser_expect(parser, TOKEN_LPAREN)) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+
+    // Parse condition
+    while_stmt->data.while_stmt.condition = parser_parse_expression(parser);
+    if (!while_stmt->data.while_stmt.condition) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+
+    if (!parser_expect(parser, TOKEN_RPAREN)) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+
+    // Parse body
+    while_stmt->data.while_stmt.body = parser_parse_statement(parser);
+    if (!while_stmt->data.while_stmt.body) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+
+    printf("Parser: Parsed while statement\n");
+    return while_stmt;
+}
+
+struct ASTNode* parser_parse_for_statement(ParserContext* parser) {
+    if (!parser || !parser->current_token) return NULL;
+
+    struct ASTNode* for_stmt = parser_create_ast_node(parser, ASTC_FOR_STMT);
+    if (!for_stmt) return NULL;
+
+    parser_advance(parser); // consume 'for'
+
+    if (!parser_expect(parser, TOKEN_LPAREN)) {
+        ast_free(for_stmt);
+        return NULL;
+    }
+
+    // Parse initialization (optional)
+    if (parser->current_token && parser->current_token->type != TOKEN_SEMICOLON) {
+        // Check if it's a declaration or expression
+        if (parser->current_token->type == TOKEN_INT ||
+            parser->current_token->type == TOKEN_CHAR ||
+            parser->current_token->type == TOKEN_FLOAT ||
+            parser->current_token->type == TOKEN_DOUBLE) {
+            for_stmt->data.for_stmt.init = parser_parse_variable_declaration(parser);
+        } else {
+            for_stmt->data.for_stmt.init = parser_parse_expression(parser);
+            parser_expect(parser, TOKEN_SEMICOLON);
+        }
+    } else {
+        parser_advance(parser); // consume ';'
+    }
+
+    // Parse condition (optional)
+    if (parser->current_token && parser->current_token->type != TOKEN_SEMICOLON) {
+        for_stmt->data.for_stmt.condition = parser_parse_expression(parser);
+    }
+    parser_expect(parser, TOKEN_SEMICOLON);
+
+    // Parse increment (optional)
+    if (parser->current_token && parser->current_token->type != TOKEN_RPAREN) {
+        for_stmt->data.for_stmt.increment = parser_parse_expression(parser);
+    }
+
+    if (!parser_expect(parser, TOKEN_RPAREN)) {
+        ast_free(for_stmt);
+        return NULL;
+    }
+
+    // Parse body
+    for_stmt->data.for_stmt.body = parser_parse_statement(parser);
+    if (!for_stmt->data.for_stmt.body) {
+        ast_free(for_stmt);
+        return NULL;
+    }
+
+    printf("Parser: Parsed for statement\n");
+    return for_stmt;
+}
+
+struct ASTNode* parser_parse_switch_statement(ParserContext* parser) {
+    if (!parser || !parser->current_token) return NULL;
+
+    struct ASTNode* switch_stmt = parser_create_ast_node(parser, ASTC_SWITCH_STMT);
+    if (!switch_stmt) return NULL;
+
+    parser_advance(parser); // consume 'switch'
+
+    if (!parser_expect(parser, TOKEN_LPAREN)) {
+        ast_free(switch_stmt);
+        return NULL;
+    }
+
+    // Parse switch expression
+    switch_stmt->data.switch_stmt.expr = parser_parse_expression(parser);
+    if (!switch_stmt->data.switch_stmt.expr) {
+        ast_free(switch_stmt);
+        return NULL;
+    }
+
+    if (!parser_expect(parser, TOKEN_RPAREN)) {
+        ast_free(switch_stmt);
+        return NULL;
+    }
+
+    // Parse switch body (usually a compound statement)
+    switch_stmt->data.switch_stmt.body = parser_parse_statement(parser);
+    if (!switch_stmt->data.switch_stmt.body) {
+        ast_free(switch_stmt);
+        return NULL;
+    }
+
+    printf("Parser: Parsed switch statement\n");
+    return switch_stmt;
 }
