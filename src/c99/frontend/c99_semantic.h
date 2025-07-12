@@ -149,9 +149,14 @@ typedef struct {
     
     // Type checking state
     struct Type* current_function_type;
+    struct Type* current_switch_type;
     bool in_function;
     bool in_loop;
     bool in_switch;
+    bool has_default_case;              // Track if switch has default case
+
+    // Label management
+    SymbolTable* label_scope;           // Function-level label scope
     
     // Error handling
     char error_message[512];

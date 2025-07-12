@@ -16,7 +16,15 @@ static struct Type* analyze_type(SemanticContext* semantic, struct ASTNode* type
 static bool analyze_compound_statement(SemanticContext* semantic, struct ASTNode* stmt);
 static bool analyze_if_statement(SemanticContext* semantic, struct ASTNode* stmt);
 static bool analyze_while_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_for_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_break_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_continue_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_switch_statement(SemanticContext* semantic, struct ASTNode* stmt);
 static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_goto_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_labeled_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_case_statement(SemanticContext* semantic, struct ASTNode* stmt);
+static bool analyze_default_statement(SemanticContext* semantic, struct ASTNode* stmt);
 static struct Type* check_binary_operation(SemanticContext* semantic, int operator, struct Type* left, struct Type* right, struct ASTNode* expr);
 static struct Type* check_unary_operation(SemanticContext* semantic, int operator, struct Type* operand, struct ASTNode* expr);
 static bool check_function_call(SemanticContext* semantic, Symbol* func, struct ASTNode* call);
@@ -30,6 +38,20 @@ static bool is_builtin_function(const char* name);
 static struct Type* handle_builtin_function_call(SemanticContext* semantic, struct ASTNode* call, const char* func_name);
 static uint16_t get_libc_function_id(const char* func_name);
 static struct Type* type_create_pointer(struct Type* pointee);
+static bool type_is_integer(struct Type* type);
+static bool is_reserved_keyword(const char* name);
+static bool validate_array_type(SemanticContext* semantic, struct Type* array_type, struct ASTNode* decl);
+static bool validate_variable_initializer(SemanticContext* semantic, struct Type* var_type,
+                                         struct ASTNode* initializer, struct ASTNode* decl);
+static bool validate_array_initializer(SemanticContext* semantic, struct Type* array_type,
+                                      struct ASTNode* initializer, struct ASTNode* decl);
+static bool validate_struct_initializer(SemanticContext* semantic, struct Type* struct_type,
+                                       struct ASTNode* initializer, struct ASTNode* decl);
+static bool is_lvalue_expression(struct ASTNode* expr);
+static int get_base_operator(int compound_op);
+static struct Type* check_binary_operation_compatibility(SemanticContext* semantic, int operator,
+                                                       struct Type* left, struct Type* right, struct ASTNode* expr);
+static bool is_zero_literal(struct ASTNode* expr);
 
 // ===============================================
 // Hash Function for Symbol Table
@@ -279,6 +301,11 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
     printf("Semantic: Analyzing function\n");
     
     semantic->in_function = true;
+    semantic->has_default_case = false;
+
+    // 创建函数级别的标签作用域
+    semantic->label_scope = symbol_table_create(NULL);
+
     semantic_enter_scope(semantic);
     
     // 分析返回类型
@@ -313,6 +340,12 @@ bool semantic_analyze_function(SemanticContext* semantic, struct ASTNode* func) 
     
     semantic_exit_scope(semantic);
     semantic->in_function = false;
+
+    // 清理标签作用域
+    if (semantic->label_scope) {
+        symbol_table_destroy(semantic->label_scope);
+        semantic->label_scope = NULL;
+    }
     
     return true;
 }
@@ -336,12 +369,39 @@ bool semantic_analyze_statement(SemanticContext* semantic, struct ASTNode* stmt)
             semantic->in_loop = false;
             return loop_result;
             
+        case ASTC_FOR_STMT:
+            semantic->in_loop = true;
+            bool for_result = analyze_for_statement(semantic, stmt);
+            semantic->in_loop = false;
+            return for_result;
+
+        case ASTC_BREAK_STMT:
+            return analyze_break_statement(semantic, stmt);
+
+        case ASTC_CONTINUE_STMT:
+            return analyze_continue_statement(semantic, stmt);
+
+        case ASTC_SWITCH_STMT:
+            return analyze_switch_statement(semantic, stmt);
+
         case ASTC_RETURN_STMT:
             return analyze_return_statement(semantic, stmt);
-            
+
         case ASTC_EXPR_STMT:
             return semantic_analyze_expression(semantic, stmt->data.expr_stmt.expr) != NULL;
-            
+
+        case ASTC_GOTO_STMT:
+            return analyze_goto_statement(semantic, stmt);
+
+        case ASTC_LABELED_STMT:
+            return analyze_labeled_statement(semantic, stmt);
+
+        case ASTC_CASE_STMT:
+            return analyze_case_statement(semantic, stmt);
+
+        case ASTC_DEFAULT_STMT:
+            return analyze_default_statement(semantic, stmt);
+
         default:
             semantic_error(semantic, stmt, "Unsupported statement type");
             return false;
@@ -562,6 +622,85 @@ struct Type* semantic_analyze_expression(SemanticContext* semantic, struct ASTNo
             return target_type;
         }
 
+        case ASTC_EXPR_CONDITIONAL: {
+            // 三元条件运算符 condition ? true_expr : false_expr
+            struct Type* cond_type = semantic_analyze_expression(semantic, expr->data.conditional.condition);
+            if (!cond_type || !type_is_scalar(cond_type)) {
+                semantic_error(semantic, expr, "Conditional expression requires scalar condition");
+                return NULL;
+            }
+
+            struct Type* true_type = semantic_analyze_expression(semantic, expr->data.conditional.true_expr);
+            struct Type* false_type = semantic_analyze_expression(semantic, expr->data.conditional.false_expr);
+
+            if (!true_type || !false_type) return NULL;
+
+            // 确定结果类型：两个操作数的公共类型
+            if (type_compatible(true_type, false_type)) {
+                return true_type;
+            }
+
+            // 尝试算术转换
+            if (type_is_arithmetic(true_type) && type_is_arithmetic(false_type)) {
+                return type_arithmetic_conversion(true_type, false_type);
+            }
+
+            // 指针类型处理
+            if (true_type->kind == TYPE_POINTER && false_type->kind == TYPE_POINTER) {
+                if (type_compatible(true_type->data.pointer.pointee, false_type->data.pointer.pointee)) {
+                    return true_type;
+                }
+            }
+
+            semantic_error(semantic, expr, "Incompatible types in conditional expression");
+            return NULL;
+        }
+
+        case ASTC_EXPR_COMMA: {
+            // 逗号运算符：计算所有表达式，返回最后一个的类型
+            struct Type* result_type = NULL;
+            for (int i = 0; i < expr->data.comma_expr.expr_count; i++) {
+                result_type = semantic_analyze_expression(semantic, expr->data.comma_expr.expressions[i]);
+                if (!result_type) return NULL;
+            }
+            return result_type;
+        }
+
+        case ASTC_EXPR_POSTFIX_INC:
+        case ASTC_EXPR_POSTFIX_DEC: {
+            // 后缀递增递减运算符 var++ var--
+            struct Type* operand_type = semantic_analyze_expression(semantic, expr->data.postfix.operand);
+            if (!operand_type) return NULL;
+
+            if (!type_is_scalar(operand_type)) {
+                semantic_error(semantic, expr, "Postfix increment/decrement requires scalar type");
+                return NULL;
+            }
+
+            if (!is_lvalue_expression(expr->data.postfix.operand)) {
+                semantic_error(semantic, expr, "Postfix increment/decrement requires lvalue");
+                return NULL;
+            }
+
+            return operand_type;
+        }
+
+        case ASTC_EXPR_SIZEOF: {
+            // sizeof运算符
+            if (expr->data.sizeof_expr.is_type) {
+                // sizeof(type)
+                struct Type* type = analyze_type(semantic, expr->data.sizeof_expr.type_node);
+                if (!type) return NULL;
+            } else {
+                // sizeof(expression)
+                struct Type* expr_type = semantic_analyze_expression(semantic, expr->data.sizeof_expr.expr);
+                if (!expr_type) return NULL;
+            }
+
+            // sizeof返回size_t类型，这里简化为int
+            return type_create(TYPE_INT);
+        }
+
         default:
             semantic_error(semantic, expr, "Unsupported expression type");
             return NULL;
@@ -601,12 +740,228 @@ static bool analyze_while_statement(SemanticContext* semantic, struct ASTNode* s
     return semantic_analyze_statement(semantic, stmt->data.while_stmt.body);
 }
 
+static bool analyze_for_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing for statement\n");
+
+    // 进入新的作用域（for循环的初始化变量作用域）
+    semantic_enter_scope(semantic);
+
+    // 分析初始化部分（可以是声明或表达式）
+    if (stmt->data.for_stmt.init) {
+        if (stmt->data.for_stmt.init->type == ASTC_VAR_DECL) {
+            if (!semantic_analyze_declaration(semantic, stmt->data.for_stmt.init)) {
+                semantic_exit_scope(semantic);
+                return false;
+            }
+        } else {
+            if (!semantic_analyze_expression(semantic, stmt->data.for_stmt.init)) {
+                semantic_exit_scope(semantic);
+                return false;
+            }
+        }
+    }
+
+    // 分析条件部分
+    if (stmt->data.for_stmt.condition) {
+        struct Type* cond_type = semantic_analyze_expression(semantic, stmt->data.for_stmt.condition);
+        if (!cond_type || !type_is_scalar(cond_type)) {
+            semantic_error(semantic, stmt->data.for_stmt.condition, "For loop condition must be a scalar type");
+            semantic_exit_scope(semantic);
+            return false;
+        }
+    }
+
+    // 分析增量部分
+    if (stmt->data.for_stmt.increment) {
+        if (!semantic_analyze_expression(semantic, stmt->data.for_stmt.increment)) {
+            semantic_exit_scope(semantic);
+            return false;
+        }
+    }
+
+    // 分析循环体
+    bool body_result = semantic_analyze_statement(semantic, stmt->data.for_stmt.body);
+
+    semantic_exit_scope(semantic);
+    return body_result;
+}
+
+static bool analyze_break_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing break statement\n");
+
+    if (!semantic->in_loop && !semantic->in_switch) {
+        semantic_error(semantic, stmt, "Break statement not within loop or switch");
+        return false;
+    }
+
+    return true;
+}
+
+static bool analyze_continue_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing continue statement\n");
+
+    if (!semantic->in_loop) {
+        semantic_error(semantic, stmt, "Continue statement not within loop");
+        return false;
+    }
+
+    return true;
+}
+
+static bool analyze_switch_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing switch statement\n");
+
+    // 分析switch表达式
+    struct Type* switch_type = semantic_analyze_expression(semantic, stmt->data.switch_stmt.expr);
+    if (!switch_type || !type_is_integer(switch_type)) {
+        semantic_error(semantic, stmt->data.switch_stmt.expr, "Switch expression must be an integer type");
+        return false;
+    }
+
+    // 设置switch上下文
+    bool prev_in_switch = semantic->in_switch;
+    bool prev_has_default = semantic->has_default_case;
+    struct Type* prev_switch_type = semantic->current_switch_type;
+
+    semantic->in_switch = true;
+    semantic->has_default_case = false;
+    semantic->current_switch_type = switch_type;
+
+    // 分析switch体
+    bool result = semantic_analyze_statement(semantic, stmt->data.switch_stmt.body);
+
+    // 恢复上下文
+    semantic->in_switch = prev_in_switch;
+    semantic->has_default_case = prev_has_default;
+    semantic->current_switch_type = prev_switch_type;
+
+    return result;
+}
+
+static bool analyze_goto_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing goto statement\n");
+
+    // 检查标签名是否有效
+    if (!stmt->data.goto_stmt.label || strlen(stmt->data.goto_stmt.label) == 0) {
+        semantic_error(semantic, stmt, "Goto statement missing label");
+        return false;
+    }
+
+    // 在当前函数作用域中查找或声明标签
+    // 简化实现：这里我们只检查标签名的有效性
+    // 完整实现需要维护标签符号表
+    printf("Semantic: Goto to label '%s'\n", stmt->data.goto_stmt.label);
+
+    return true;
+}
+
+static bool analyze_labeled_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing labeled statement\n");
+
+    // 检查标签名是否有效
+    if (!stmt->data.labeled_stmt.label || strlen(stmt->data.labeled_stmt.label) == 0) {
+        semantic_error(semantic, stmt, "Labeled statement missing label");
+        return false;
+    }
+
+    // 检查标签是否已经定义
+    // 简化实现：这里我们只检查标签名的有效性
+    // 完整实现需要维护标签符号表并检查重复定义
+    printf("Semantic: Label '%s' defined\n", stmt->data.labeled_stmt.label);
+
+    // 分析标签后的语句
+    if (stmt->data.labeled_stmt.statement) {
+        return semantic_analyze_statement(semantic, stmt->data.labeled_stmt.statement);
+    }
+
+    return true;
+}
+
+static bool analyze_case_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing case statement\n");
+
+    // 检查是否在switch语句内
+    if (!semantic->in_switch) {
+        semantic_error(semantic, stmt, "Case statement not within switch");
+        return false;
+    }
+
+    // 分析case值表达式
+    if (stmt->data.case_stmt.value) {
+        struct Type* case_type = semantic_analyze_expression(semantic, stmt->data.case_stmt.value);
+        if (!case_type) {
+            semantic_error(semantic, stmt, "Invalid case value expression");
+            return false;
+        }
+
+        // 检查case值是否为整数常量
+        if (!type_is_integer(case_type)) {
+            semantic_error(semantic, stmt, "Case value must be an integer constant");
+            return false;
+        }
+
+        // 检查case值类型是否与switch表达式兼容
+        if (semantic->current_switch_type &&
+            !type_compatible(case_type, semantic->current_switch_type)) {
+            semantic_warning(semantic, stmt, "Case value type differs from switch expression type");
+        }
+    }
+
+    // 分析case后的语句
+    if (stmt->data.case_stmt.statement) {
+        return semantic_analyze_statement(semantic, stmt->data.case_stmt.statement);
+    }
+
+    return true;
+}
+
+static bool analyze_default_statement(SemanticContext* semantic, struct ASTNode* stmt) {
+    if (!semantic || !stmt) return false;
+
+    printf("Semantic: Analyzing default statement\n");
+
+    // 检查是否在switch语句内
+    if (!semantic->in_switch) {
+        semantic_error(semantic, stmt, "Default statement not within switch");
+        return false;
+    }
+
+    // 检查是否已有default语句
+    if (semantic->has_default_case) {
+        semantic_error(semantic, stmt, "Multiple default statements in switch");
+        return false;
+    }
+
+    semantic->has_default_case = true;
+
+    // 分析default后的语句
+    if (stmt->data.default_stmt.statement) {
+        return semantic_analyze_statement(semantic, stmt->data.default_stmt.statement);
+    }
+
+    return true;
+}
+
 static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* stmt) {
     if (!semantic->in_function) {
         semantic_error(semantic, stmt, "Return statement outside of function");
         return false;
     }
-    
+
     if (!stmt->data.return_stmt.value) {
         if (semantic->current_function_type->kind != TYPE_VOID) {
             semantic_error(semantic, stmt, "Return value required");
@@ -614,15 +969,15 @@ static bool analyze_return_statement(SemanticContext* semantic, struct ASTNode* 
         }
         return true;
     }
-    
+
     struct Type* expr_type = semantic_analyze_expression(semantic, stmt->data.return_stmt.value);
     if (!expr_type) return false;
-    
+
     if (!type_compatible(semantic->current_function_type, expr_type)) {
         semantic_error(semantic, stmt, "Incompatible return type");
         return false;
     }
-    
+
     return true;
 }
 
@@ -662,15 +1017,62 @@ static struct Type* check_binary_operation(SemanticContext* semantic, int operat
                 semantic_error(semantic, expr, "Operands must be arithmetic types");
                 return NULL;
             }
+
+            // 模运算只支持整数类型
+            if (operator == TOKEN_MODULO && (!type_is_integral(left) || !type_is_integral(right))) {
+                semantic_error(semantic, expr, "Modulo operator requires integral operands");
+                return NULL;
+            }
+
+            // 检查除零（简化检查：只检查字面量）
+            if ((operator == TOKEN_DIVIDE || operator == TOKEN_MODULO) &&
+                is_zero_literal(expr->data.binary_op.right)) {
+                semantic_error(semantic, expr, "Division by zero");
+                return NULL;
+            }
+
             return type_arithmetic_conversion(left, right);
 
         case TOKEN_ASSIGN:
-            // 赋值运算符：检查隐式转换
+            // 赋值运算符：检查左值和类型转换
+            if (!is_lvalue_expression(expr->data.binary_op.left)) {
+                semantic_error(semantic, expr, "Assignment requires lvalue");
+                return NULL;
+            }
             if (!type_implicit_conversion(right, left)) {
                 semantic_error(semantic, expr, "Cannot convert type in assignment");
                 return NULL;
             }
             return left; // 赋值表达式的类型是左操作数的类型
+
+        case TOKEN_PLUS_ASSIGN:
+        case TOKEN_MINUS_ASSIGN:
+        case TOKEN_MULTIPLY_ASSIGN:
+        case TOKEN_DIVIDE_ASSIGN:
+        case TOKEN_MODULO_ASSIGN:
+        case TOKEN_AND_ASSIGN:
+        case TOKEN_OR_ASSIGN:
+        case TOKEN_XOR_ASSIGN:
+        case TOKEN_LEFT_SHIFT_ASSIGN:
+        case TOKEN_RIGHT_SHIFT_ASSIGN:
+            // 复合赋值运算符：op= 等价于 left = left op right
+            if (!is_lvalue_expression(expr->data.binary_op.left)) {
+                semantic_error(semantic, expr, "Compound assignment requires lvalue");
+                return NULL;
+            }
+
+            // 检查对应的二元运算是否有效
+            int base_op = get_base_operator(operator);
+            struct Type* result_type = check_binary_operation_compatibility(semantic, base_op, left, right, expr);
+            if (!result_type) return NULL;
+
+            // 检查结果类型是否可以赋值给左操作数
+            if (!type_implicit_conversion(result_type, left)) {
+                semantic_error(semantic, expr, "Cannot convert result type in compound assignment");
+                return NULL;
+            }
+
+            return left; // 复合赋值表达式的类型是左操作数的类型
 
         case TOKEN_PLUS_ASSIGN:
         case TOKEN_MINUS_ASSIGN:
@@ -795,6 +1197,11 @@ static struct Type* check_unary_operation(SemanticContext* semantic, int operato
         case TOKEN_DECREMENT: // 前缀递减 --var
             if (!type_is_scalar(operand)) {
                 semantic_error(semantic, expr, "Increment/decrement requires scalar type");
+                return NULL;
+            }
+            // 检查是否为左值
+            if (!is_lvalue_expression(expr->data.unary_op.operand)) {
+                semantic_error(semantic, expr, "Increment/decrement requires lvalue");
                 return NULL;
             }
             return operand;
@@ -1201,35 +1608,77 @@ static bool semantic_analyze_declaration(SemanticContext* semantic, struct ASTNo
 
         case ASTC_VAR_DECL: {
             // 变量声明分析
-            printf("Semantic: Analyzing variable declaration\n");
+            printf("Semantic: Analyzing variable declaration '%s'\n",
+                   decl->data.var_decl.name ? decl->data.var_decl.name : "<unnamed>");
+
+            // 检查变量名是否有效
+            if (!decl->data.var_decl.name || strlen(decl->data.var_decl.name) == 0) {
+                semantic_error(semantic, decl, "Variable declaration missing name");
+                return false;
+            }
+
+            // 检查变量名是否为关键字
+            if (is_reserved_keyword(decl->data.var_decl.name)) {
+                semantic_error(semantic, decl, "Cannot use reserved keyword as variable name");
+                return false;
+            }
 
             // 分析变量类型
             struct Type* var_type = NULL;
             if (decl->data.var_decl.type) {
                 var_type = analyze_type(semantic, decl->data.var_decl.type);
+                if (!var_type) {
+                    semantic_error(semantic, decl, "Invalid variable type");
+                    return false;
+                }
             } else {
                 var_type = type_create(TYPE_INT); // 默认为int
             }
 
-            // 创建变量符号
-            if (decl->data.var_decl.name) {
-                Symbol* var_symbol = semantic_declare_symbol(semantic,
-                    decl->data.var_decl.name, SYMBOL_VARIABLE, var_type);
-                if (var_symbol) {
-                    var_symbol->data.variable.initializer = decl->data.var_decl.initializer;
+            // 检查类型是否完整（不能声明void类型的变量）
+            if (var_type->kind == TYPE_VOID) {
+                semantic_error(semantic, decl, "Cannot declare variable of void type");
+                return false;
+            }
 
-                    // 如果有初始化器，检查类型兼容性
-                    if (decl->data.var_decl.initializer) {
-                        struct Type* init_type = semantic_analyze_expression(semantic,
-                            decl->data.var_decl.initializer);
-                        if (init_type && !type_compatible(var_type, init_type)) {
-                            semantic_warning(semantic, decl,
-                                "Initializer type incompatible with variable type");
-                        }
-                    }
+            // 检查数组类型的有效性
+            if (var_type->kind == TYPE_ARRAY) {
+                if (!validate_array_type(semantic, var_type, decl)) {
+                    return false;
                 }
             }
 
+            // 创建变量符号
+            Symbol* var_symbol = semantic_declare_symbol(semantic,
+                decl->data.var_decl.name, SYMBOL_VARIABLE, var_type);
+            if (!var_symbol) {
+                return false; // 错误已在semantic_declare_symbol中报告
+            }
+
+            var_symbol->data.variable.initializer = decl->data.var_decl.initializer;
+            var_symbol->is_initialized = (decl->data.var_decl.initializer != NULL);
+
+            // 如果有初始化器，检查类型兼容性
+            if (decl->data.var_decl.initializer) {
+                if (!validate_variable_initializer(semantic, var_type,
+                                                 decl->data.var_decl.initializer, decl)) {
+                    return false;
+                }
+            } else {
+                // 检查是否需要初始化（const变量必须初始化）
+                if (var_type->is_const) {
+                    semantic_error(semantic, decl, "const variable must be initialized");
+                    return false;
+                }
+
+                // 在函数内部的局部变量如果未初始化，给出警告
+                if (semantic->in_function && semantic->warn_unused) {
+                    semantic_warning(semantic, decl, "Variable declared but not initialized");
+                }
+            }
+
+            printf("Semantic: Successfully declared variable '%s' of type %d\n",
+                   decl->data.var_decl.name, var_type->kind);
             return true;
         }
 
@@ -1719,4 +2168,279 @@ static struct Type* type_create_pointer(struct Type* pointee) {
 
     ptr_type->data.pointer.pointee = pointee;
     return ptr_type;
+}
+
+static bool type_is_integer(struct Type* type) {
+    if (!type) return false;
+
+    switch (type->kind) {
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_INT:
+        case TYPE_LONG:
+        case TYPE_LONG_LONG:
+        case TYPE_BOOL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool is_reserved_keyword(const char* name) {
+    if (!name) return false;
+
+    // C99关键字列表
+    const char* keywords[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "_Bool", "_Complex", "_Imaginary",
+        NULL
+    };
+
+    for (int i = 0; keywords[i]; i++) {
+        if (strcmp(name, keywords[i]) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool validate_array_type(SemanticContext* semantic, struct Type* array_type, struct ASTNode* decl) {
+    if (!semantic || !array_type || !decl) return false;
+
+    if (array_type->kind != TYPE_ARRAY) return true;
+
+    // 检查数组元素类型
+    struct Type* element_type = array_type->data.array.element_type;
+    if (!element_type) {
+        semantic_error(semantic, decl, "Array missing element type");
+        return false;
+    }
+
+    // 数组元素不能是void类型
+    if (element_type->kind == TYPE_VOID) {
+        semantic_error(semantic, decl, "Array cannot have void element type");
+        return false;
+    }
+
+    // 数组元素不能是函数类型
+    if (element_type->kind == TYPE_FUNCTION) {
+        semantic_error(semantic, decl, "Array cannot have function element type");
+        return false;
+    }
+
+    // 递归检查多维数组
+    if (element_type->kind == TYPE_ARRAY) {
+        return validate_array_type(semantic, element_type, decl);
+    }
+
+    return true;
+}
+
+static bool validate_variable_initializer(SemanticContext* semantic, struct Type* var_type,
+                                         struct ASTNode* initializer, struct ASTNode* decl) {
+    if (!semantic || !var_type || !initializer || !decl) return false;
+
+    printf("Semantic: Validating variable initializer\n");
+
+    // 分析初始化器表达式的类型
+    struct Type* init_type = semantic_analyze_expression(semantic, initializer);
+    if (!init_type) {
+        semantic_error(semantic, decl, "Invalid initializer expression");
+        return false;
+    }
+
+    // 检查类型兼容性
+    if (!type_compatible(var_type, init_type)) {
+        // 尝试隐式类型转换
+        if (type_implicit_conversion(init_type, var_type)) {
+            printf("Semantic: Implicit conversion in initializer\n");
+            return true;
+        } else {
+            semantic_error(semantic, decl, "Initializer type incompatible with variable type");
+            return false;
+        }
+    }
+
+    // 特殊检查：数组初始化
+    if (var_type->kind == TYPE_ARRAY) {
+        return validate_array_initializer(semantic, var_type, initializer, decl);
+    }
+
+    // 特殊检查：结构体初始化
+    if (var_type->kind == TYPE_STRUCT) {
+        return validate_struct_initializer(semantic, var_type, initializer, decl);
+    }
+
+    printf("Semantic: Variable initializer validation successful\n");
+    return true;
+}
+
+static bool validate_array_initializer(SemanticContext* semantic, struct Type* array_type,
+                                      struct ASTNode* initializer, struct ASTNode* decl) {
+    if (!semantic || !array_type || !initializer || !decl) return false;
+
+    printf("Semantic: Validating array initializer\n");
+
+    // 简化实现：目前只支持单个表达式初始化
+    // 完整实现需要支持初始化器列表 {1, 2, 3}
+
+    struct Type* element_type = array_type->data.array.element_type;
+    struct Type* init_type = semantic_analyze_expression(semantic, initializer);
+
+    if (!init_type) {
+        semantic_error(semantic, decl, "Invalid array initializer");
+        return false;
+    }
+
+    // 检查初始化器类型是否与数组元素类型兼容
+    if (!type_compatible(element_type, init_type) &&
+        !type_implicit_conversion(init_type, element_type)) {
+        semantic_error(semantic, decl, "Array initializer type incompatible with element type");
+        return false;
+    }
+
+    return true;
+}
+
+static bool validate_struct_initializer(SemanticContext* semantic, struct Type* struct_type,
+                                       struct ASTNode* initializer, struct ASTNode* decl) {
+    if (!semantic || !struct_type || !initializer || !decl) return false;
+
+    printf("Semantic: Validating struct initializer\n");
+
+    // 简化实现：目前只支持单个表达式初始化
+    // 完整实现需要支持结构体初始化器列表 {.field1 = value1, .field2 = value2}
+
+    struct Type* init_type = semantic_analyze_expression(semantic, initializer);
+    if (!init_type) {
+        semantic_error(semantic, decl, "Invalid struct initializer");
+        return false;
+    }
+
+    // 检查是否为相同的结构体类型
+    if (!type_compatible(struct_type, init_type)) {
+        semantic_error(semantic, decl, "Struct initializer type mismatch");
+        return false;
+    }
+
+    return true;
+}
+
+static bool is_lvalue_expression(struct ASTNode* expr) {
+    if (!expr) return false;
+
+    switch (expr->type) {
+        case ASTC_EXPR_IDENTIFIER:
+            // 变量标识符是左值
+            return true;
+
+        case ASTC_UNARY_OP:
+            // 解引用操作 *ptr 是左值
+            if (expr->data.unary_op.op == TOKEN_MULTIPLY) {
+                return true;
+            }
+            return false;
+
+        case ASTC_EXPR_ARRAY_SUBSCRIPT:
+            // 数组访问 arr[i] 是左值
+            return true;
+
+        case ASTC_EXPR_MEMBER_ACCESS:
+        case ASTC_EXPR_PTR_MEMBER_ACCESS:
+            // 成员访问 obj.member 和 ptr->member 是左值
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+static int get_base_operator(int compound_op) {
+    switch (compound_op) {
+        case TOKEN_PLUS_ASSIGN: return TOKEN_PLUS;
+        case TOKEN_MINUS_ASSIGN: return TOKEN_MINUS;
+        case TOKEN_MULTIPLY_ASSIGN: return TOKEN_MULTIPLY;
+        case TOKEN_DIVIDE_ASSIGN: return TOKEN_DIVIDE;
+        case TOKEN_MODULO_ASSIGN: return TOKEN_MODULO;
+        case TOKEN_AND_ASSIGN: return TOKEN_BITWISE_AND;
+        case TOKEN_OR_ASSIGN: return TOKEN_BITWISE_OR;
+        case TOKEN_XOR_ASSIGN: return TOKEN_BITWISE_XOR;
+        case TOKEN_LEFT_SHIFT_ASSIGN: return TOKEN_LEFT_SHIFT;
+        case TOKEN_RIGHT_SHIFT_ASSIGN: return TOKEN_RIGHT_SHIFT;
+        default: return compound_op;
+    }
+}
+
+static struct Type* check_binary_operation_compatibility(SemanticContext* semantic, int operator,
+                                                       struct Type* left, struct Type* right, struct ASTNode* expr) {
+    if (!semantic || !left || !right || !expr) return NULL;
+
+    switch (operator) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+            // 指针算术和普通算术
+            if (left->kind == TYPE_POINTER && type_is_integral(right)) {
+                return left;
+            }
+            if (type_is_integral(left) && right->kind == TYPE_POINTER) {
+                return right;
+            }
+            if (operator == TOKEN_MINUS && left->kind == TYPE_POINTER && right->kind == TYPE_POINTER) {
+                if (type_compatible(left->data.pointer.pointee, right->data.pointer.pointee)) {
+                    return type_create(TYPE_INT);
+                }
+            }
+            if (type_is_arithmetic(left) && type_is_arithmetic(right)) {
+                return type_arithmetic_conversion(left, right);
+            }
+            return NULL;
+
+        case TOKEN_MULTIPLY:
+        case TOKEN_DIVIDE:
+            if (type_is_arithmetic(left) && type_is_arithmetic(right)) {
+                return type_arithmetic_conversion(left, right);
+            }
+            return NULL;
+
+        case TOKEN_MODULO:
+            if (type_is_integral(left) && type_is_integral(right)) {
+                return type_arithmetic_conversion(left, right);
+            }
+            return NULL;
+
+        case TOKEN_BITWISE_AND:
+        case TOKEN_BITWISE_OR:
+        case TOKEN_BITWISE_XOR:
+        case TOKEN_LEFT_SHIFT:
+        case TOKEN_RIGHT_SHIFT:
+            if (type_is_integral(left) && type_is_integral(right)) {
+                return type_arithmetic_conversion(left, right);
+            }
+            return NULL;
+
+        default:
+            return NULL;
+    }
+}
+
+static bool is_zero_literal(struct ASTNode* expr) {
+    if (!expr) return false;
+
+    switch (expr->type) {
+        case ASTC_EXPR_INTEGER_LITERAL:
+            return expr->data.integer_literal.value == 0;
+
+        case ASTC_EXPR_FLOAT_LITERAL:
+            return expr->data.float_literal.value == 0.0;
+
+        case ASTC_EXPR_CHAR_LITERAL:
+            return expr->data.char_literal.value == 0;
+
+        default:
+            return false;
+    }
 }

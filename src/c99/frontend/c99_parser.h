@@ -126,6 +126,26 @@ struct ASTNode* parser_parse_compound_statement(ParserContext* parser);
 struct ASTNode* parser_parse_expression_statement(ParserContext* parser);
 
 /**
+ * Parse if statement
+ */
+struct ASTNode* parser_parse_if_statement(ParserContext* parser);
+
+/**
+ * Parse while statement
+ */
+struct ASTNode* parser_parse_while_statement(ParserContext* parser);
+
+/**
+ * Parse for statement
+ */
+struct ASTNode* parser_parse_for_statement(ParserContext* parser);
+
+/**
+ * Parse switch statement
+ */
+struct ASTNode* parser_parse_switch_statement(ParserContext* parser);
+
+/**
  * Parse jump statement (return/break/continue/goto)
  */
 struct ASTNode* parser_parse_jump_statement(ParserContext* parser);
