@@ -134,12 +134,15 @@ bool codegen_generate(CodegenContext* codegen, struct ASTNode* ast) {
     
     printf("Codegen: Starting code generation\n");
     
-    // Emit bytecode header
+    // Emit ASTC header compatible with simple_loader VM
     codegen_emit_byte(codegen, 'A');
     codegen_emit_byte(codegen, 'S');
     codegen_emit_byte(codegen, 'T');
     codegen_emit_byte(codegen, 'C');
-    codegen_emit_i32(codegen, 1); // Version
+    codegen_emit_i32(codegen, 1);  // version
+    codegen_emit_i32(codegen, 0);  // flags
+    codegen_emit_i32(codegen, 0);  // entry_point
+    codegen_emit_i32(codegen, 0);  // source_size (no source included)
     
     // Generate code for translation unit
     bool result = codegen_translation_unit(codegen, ast);
@@ -583,15 +586,40 @@ bool codegen_write_to_file(CodegenContext* codegen, const char* filename) {
         return false;
     }
     
-    size_t written = fwrite(codegen->bytecode, 1, codegen->bytecode_size, file);
-    fclose(file);
+    // The bytecode buffer already contains the ASTC header (20 bytes) + actual bytecode
+    // We need to add the bytecode_size field after the header and before the actual bytecode
     
-    if (written != codegen->bytecode_size) {
-        codegen_error(codegen, NULL, "Failed to write complete bytecode");
+    // Calculate actual bytecode size (total - header size)
+    uint32_t header_size = 20;  // ASTC header size
+    uint32_t actual_bytecode_size = codegen->bytecode_size - header_size;
+    
+    // Write ASTC header (first 20 bytes of bytecode buffer)
+    size_t written = fwrite(codegen->bytecode, 1, header_size, file);
+    if (written != header_size) {
+        codegen_error(codegen, NULL, "Failed to write ASTC header");
+        fclose(file);
         return false;
     }
     
-    printf("Codegen: Wrote %zu bytes to %s\n", codegen->bytecode_size, filename);
+    // Write bytecode size
+    written = fwrite(&actual_bytecode_size, sizeof(uint32_t), 1, file);
+    if (written != 1) {
+        codegen_error(codegen, NULL, "Failed to write bytecode size");
+        fclose(file);
+        return false;
+    }
+    
+    // Write actual bytecode data (everything after the header)
+    written = fwrite(codegen->bytecode + header_size, 1, actual_bytecode_size, file);
+    if (written != actual_bytecode_size) {
+        codegen_error(codegen, NULL, "Failed to write bytecode data");
+        fclose(file);
+        return false;
+    }
+    
+    fclose(file);
+    
+    printf("Codegen: Wrote %zu bytes to %s\n", codegen->bytecode_size + sizeof(uint32_t), filename);
     return true;
 }
 

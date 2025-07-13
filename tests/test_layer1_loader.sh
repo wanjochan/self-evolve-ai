@@ -78,7 +78,7 @@ fi
 
 # 测试1: 检查架构检测
 echo -e "${BLUE}=== 架构检测测试 ===${NC}"
-run_test "架构检测功能" "file '$SIMPLE_LOADER' | grep -q 'ELF\\|Mach-O\\|PE32'" "success"
+run_test "架构检测功能" "file -L '$SIMPLE_LOADER' | grep -q 'ELF\\|Mach-O\\|PE32'" "success"
 
 # 测试2: 检查模块加载能力
 echo -e "${BLUE}=== 模块加载测试 ===${NC}"
