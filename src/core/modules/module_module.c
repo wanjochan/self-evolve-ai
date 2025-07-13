@@ -572,6 +572,40 @@ static const char* module_get_error(const Module* module) {
     return module ? module->error : "Invalid module";
 }
 
+// 手动添加模块到缓存 (用于测试)
+static int module_add_to_cache(Module* module) {
+    if (!module) return -1;
+    
+    // 必要时初始化
+    if (!module_cache.initialized) {
+        if (module_init() != 0) {
+            return -1;
+        }
+    }
+    
+    // 检查是否已经在缓存中
+    for (size_t i = 0; i < module_cache.count; i++) {
+        if (module_cache.loaded_modules[i] == module) {
+            return 0; // 已在缓存中
+        }
+    }
+    
+    // 检查缓存容量
+    if (module_cache.count >= MAX_MODULES) {
+        printf("Module: 错误: 模块缓存已满\n");
+        return -1;
+    }
+    
+    // 添加到缓存
+    module_cache.loaded_modules[module_cache.count] = module;
+    module_cache.count++;
+    
+    printf("Module: 模块 %s 已手动添加到缓存 (缓存数量: %zu)\n", 
+           module->name, module_cache.count);
+    
+    return 0;
+}
+
 // ===============================================
 // 内部辅助函数实现
 // ===============================================
@@ -960,6 +994,9 @@ static struct {
     {"module_get_error", module_get_error},
     {"resolve_native_file", resolve_native_file},
     {"load_module", load_module},
+    
+    // 测试辅助函数
+    {"module_add_to_cache", module_add_to_cache},
 
     // 依赖管理接口
     {"module_register_dependency", module_register_dependency},

@@ -46,9 +46,19 @@ int main() {
 
     // 1.5. 手动将测试模块添加到缓存中
     printf("\n1.5. Adding test module to cache...\n");
-    void* module_load_func = module_module.resolve("module_load");
-    // 由于我们的测试模块不是.native文件，我们需要手动模拟添加到缓存
-    // 这里我们直接调用内部函数来测试依赖管理功能
+    void* add_to_cache_func = module_module.resolve("module_add_to_cache");
+    int (*module_add_to_cache)(Module*) = (int (*)(Module*))add_to_cache_func;
+    
+    if (!module_add_to_cache) {
+        printf("ERROR: Could not resolve module_add_to_cache function\n");
+        return 1;
+    }
+    
+    if (module_add_to_cache(&test_module) != 0) {
+        printf("ERROR: Failed to add test module to cache\n");
+        return 1;
+    }
+    printf("   ✓ Test module added to cache successfully\n");
 
     // 2. 测试注册单个依赖
     printf("\n2. Testing single dependency registration...\n");
