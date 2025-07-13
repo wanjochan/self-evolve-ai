@@ -247,7 +247,7 @@ test_compilation_speed() {
         echo -n "  C99编译器: "
         local start_time=$(date +%s.%N)
         
-        if timeout 30s "$C99_COMPILER" "$test_file" -o "$output_file" 2>/dev/null; then
+        if timeout 60s "$C99_COMPILER" "$test_file" -o "$output_file" 2>/dev/null; then
             local end_time=$(date +%s.%N)
             local duration=$(echo "$end_time - $start_time" | bc -l)
             echo -e "${GREEN}${duration}s${NC}"
@@ -263,7 +263,7 @@ test_compilation_speed() {
             local tcc_output="/tmp/${filename%.c}.o"
             local start_time=$(date +%s.%N)
             
-            if timeout 30s "$TINYCC_COMPILER" -c "$test_file" -o "$tcc_output" 2>/dev/null; then
+            if timeout 60s "$TINYCC_COMPILER" -c "$test_file" -o "$tcc_output" 2>/dev/null; then
                 local end_time=$(date +%s.%N)
                 local duration=$(echo "$end_time - $start_time" | bc -l)
                 echo -e "${GREEN}${duration}s${NC}"

@@ -42,26 +42,35 @@ FAILED_SUITES=0
 run_test_suite() {
     local suite_name="$1"
     local test_script="$2"
-    
+    local timeout_seconds="${3:-300}"  # 默认5分钟超时
+
     TOTAL_SUITES=$((TOTAL_SUITES + 1))
     echo -e "${YELLOW}=== 运行测试套件 $TOTAL_SUITES: $suite_name ===${NC}"
-    
+
     if [ -f "$test_script" ]; then
         echo "开始时间: $(date)" >> "$RESULTS_FILE"
         echo "测试套件: $suite_name" >> "$RESULTS_FILE"
         echo "脚本路径: $test_script" >> "$RESULTS_FILE"
+        echo "超时设置: ${timeout_seconds}秒" >> "$RESULTS_FILE"
         echo "----------------------------------------" >> "$RESULTS_FILE"
-        
-        if bash "$test_script" >> "$RESULTS_FILE" 2>&1; then
+
+        # 使用timeout命令执行测试脚本
+        if timeout "${timeout_seconds}s" bash "$test_script" >> "$RESULTS_FILE" 2>&1; then
             echo -e "  ${GREEN}✓ 通过${NC}"
             echo "结果: PASS" >> "$RESULTS_FILE"
             PASSED_SUITES=$((PASSED_SUITES + 1))
         else
-            echo -e "  ${RED}✗ 失败${NC}"
-            echo "结果: FAIL" >> "$RESULTS_FILE"
+            local exit_code=$?
+            if [ $exit_code -eq 124 ]; then
+                echo -e "  ${YELLOW}⚠ 超时${NC}"
+                echo "结果: TIMEOUT (${timeout_seconds}秒)" >> "$RESULTS_FILE"
+            else
+                echo -e "  ${RED}✗ 失败${NC}"
+                echo "结果: FAIL" >> "$RESULTS_FILE"
+            fi
             FAILED_SUITES=$((FAILED_SUITES + 1))
         fi
-        
+
         echo "结束时间: $(date)" >> "$RESULTS_FILE"
         echo "" >> "$RESULTS_FILE"
     else
@@ -73,31 +82,31 @@ run_test_suite() {
 
 # 运行现有的测试脚本
 echo -e "${BLUE}=== 运行现有测试脚本 ===${NC}"
-run_test_suite "C99合规性测试" "$TEST_DIR/c99_compliance_test.sh"
-run_test_suite "性能测试" "$TEST_DIR/performance_test.sh"
-run_test_suite "代码质量分析" "$TEST_DIR/code_quality_analysis.sh"
+run_test_suite "C99合规性测试" "$TEST_DIR/c99_compliance_test.sh" 180  # 3分钟
+run_test_suite "性能测试" "$TEST_DIR/performance_test.sh" 240  # 4分钟
+run_test_suite "代码质量分析" "$TEST_DIR/code_quality_analysis.sh" 120  # 2分钟
 
 # 运行新创建的层级测试
 echo -e "${BLUE}=== 运行层级测试 ===${NC}"
-run_test_suite "Layer 1 Loader测试" "$TEST_DIR/test_layer1_loader.sh"
-run_test_suite "Layer 2 Modules测试" "$TEST_DIR/test_layer2_modules.sh"
-run_test_suite "Layer 3 Programs测试" "$TEST_DIR/test_layer3_programs.sh"
+run_test_suite "Layer 1 Loader测试" "$TEST_DIR/test_layer1_loader.sh" 120  # 2分钟
+run_test_suite "Layer 2 Modules测试" "$TEST_DIR/test_layer2_modules.sh" 180  # 3分钟
+run_test_suite "Layer 3 Programs测试" "$TEST_DIR/test_layer3_programs.sh" 240  # 4分钟
 
 # 运行模块测试
 echo -e "${BLUE}=== 运行模块测试 ===${NC}"
-run_test_suite "ASTC核心测试" "$TEST_DIR/test_astc_core"
-run_test_suite "ASTC字节码测试" "$TEST_DIR/test_astc_bytecode"
-run_test_suite "编译器模块测试" "$TEST_DIR/test_compiler_module"
-run_test_suite "流水线模块测试" "$TEST_DIR/test_pipeline_module"
+run_test_suite "ASTC核心测试" "$TEST_DIR/test_astc_core" 150  # 2.5分钟
+run_test_suite "ASTC字节码测试" "$TEST_DIR/test_astc_bytecode" 150  # 2.5分钟
+run_test_suite "编译器模块测试" "$TEST_DIR/test_compiler_module" 180  # 3分钟
+run_test_suite "流水线模块测试" "$TEST_DIR/test_pipeline_module" 180  # 3分钟
 
 # 运行其他可用测试
 echo -e "${BLUE}=== 运行其他测试 ===${NC}"
 if [ -f "$TEST_DIR/test_module_system" ]; then
-    run_test_suite "模块系统测试" "$TEST_DIR/test_module_system"
+    run_test_suite "模块系统测试" "$TEST_DIR/test_module_system" 120  # 2分钟
 fi
 
 if [ -f "$TEST_DIR/test_module_dependencies" ]; then
-    run_test_suite "模块依赖测试" "$TEST_DIR/test_module_dependencies"
+    run_test_suite "模块依赖测试" "$TEST_DIR/test_module_dependencies" 120  # 2分钟
 fi
 
 # 生成综合报告

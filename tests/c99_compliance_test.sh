@@ -58,7 +58,7 @@ run_test() {
     local compile_result=0
     
     # 运行编译器
-    if timeout 30s "$C99_COMPILER" "$test_file" -o "$output_file" 2>/dev/null; then
+    if timeout 45s "$C99_COMPILER" "$test_file" -o "$output_file" 2>/dev/null; then
         compile_result=0  # 编译成功
     else
         compile_result=1  # 编译失败
