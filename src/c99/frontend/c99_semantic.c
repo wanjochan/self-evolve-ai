@@ -1047,14 +1047,14 @@ static struct Type* check_binary_operation(SemanticContext* semantic, int operat
 
         case TOKEN_PLUS_ASSIGN:
         case TOKEN_MINUS_ASSIGN:
-        case TOKEN_MULTIPLY_ASSIGN:
-        case TOKEN_DIVIDE_ASSIGN:
-        case TOKEN_MODULO_ASSIGN:
+        case TOKEN_MUL_ASSIGN:
+        case TOKEN_DIV_ASSIGN:
+        case TOKEN_MOD_ASSIGN:
         case TOKEN_AND_ASSIGN:
         case TOKEN_OR_ASSIGN:
         case TOKEN_XOR_ASSIGN:
-        case TOKEN_LEFT_SHIFT_ASSIGN:
-        case TOKEN_RIGHT_SHIFT_ASSIGN:
+        case TOKEN_LSHIFT_ASSIGN:
+        case TOKEN_RSHIFT_ASSIGN:
             // 复合赋值运算符：op= 等价于 left = left op right
             if (!is_lvalue_expression(expr->data.binary_op.left)) {
                 semantic_error(semantic, expr, "Compound assignment requires lvalue");
@@ -1073,33 +1073,6 @@ static struct Type* check_binary_operation(SemanticContext* semantic, int operat
             }
 
             return left; // 复合赋值表达式的类型是左操作数的类型
-
-        case TOKEN_PLUS_ASSIGN:
-        case TOKEN_MINUS_ASSIGN:
-            // 复合赋值运算符（指针算术）
-            if (left->kind == TYPE_POINTER && type_is_integral(right)) {
-                return left;
-            }
-            if (type_is_arithmetic(left) && type_is_arithmetic(right)) {
-                return left;
-            }
-            semantic_error(semantic, expr, "Invalid operands for compound assignment");
-            return NULL;
-
-        case TOKEN_MUL_ASSIGN:
-        case TOKEN_DIV_ASSIGN:
-        case TOKEN_MOD_ASSIGN:
-        case TOKEN_AND_ASSIGN:
-        case TOKEN_OR_ASSIGN:
-        case TOKEN_XOR_ASSIGN:
-        case TOKEN_LSHIFT_ASSIGN:
-        case TOKEN_RSHIFT_ASSIGN:
-            // 其他复合赋值运算符
-            if (!type_is_arithmetic(left) || !type_is_arithmetic(right)) {
-                semantic_error(semantic, expr, "Operands must be arithmetic types");
-                return NULL;
-            }
-            return left;
 
         case TOKEN_EQUAL:
         case TOKEN_NOT_EQUAL:
@@ -2363,14 +2336,14 @@ static int get_base_operator(int compound_op) {
     switch (compound_op) {
         case TOKEN_PLUS_ASSIGN: return TOKEN_PLUS;
         case TOKEN_MINUS_ASSIGN: return TOKEN_MINUS;
-        case TOKEN_MULTIPLY_ASSIGN: return TOKEN_MULTIPLY;
-        case TOKEN_DIVIDE_ASSIGN: return TOKEN_DIVIDE;
-        case TOKEN_MODULO_ASSIGN: return TOKEN_MODULO;
+        case TOKEN_MUL_ASSIGN: return TOKEN_MULTIPLY;
+        case TOKEN_DIV_ASSIGN: return TOKEN_DIVIDE;
+        case TOKEN_MOD_ASSIGN: return TOKEN_MODULO;
         case TOKEN_AND_ASSIGN: return TOKEN_BITWISE_AND;
         case TOKEN_OR_ASSIGN: return TOKEN_BITWISE_OR;
         case TOKEN_XOR_ASSIGN: return TOKEN_BITWISE_XOR;
-        case TOKEN_LEFT_SHIFT_ASSIGN: return TOKEN_LEFT_SHIFT;
-        case TOKEN_RIGHT_SHIFT_ASSIGN: return TOKEN_RIGHT_SHIFT;
+        case TOKEN_LSHIFT_ASSIGN: return TOKEN_LEFT_SHIFT;
+        case TOKEN_RSHIFT_ASSIGN: return TOKEN_RIGHT_SHIFT;
         default: return compound_op;
     }
 }

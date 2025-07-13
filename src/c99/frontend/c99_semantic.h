@@ -44,6 +44,7 @@ typedef struct Symbol {
     int scope_level;                // Scope level
     bool is_defined;                // Is symbol defined (vs declared)
     bool is_used;                   // Is symbol used
+    bool is_initialized;            // Is symbol initialized
     
     // Location information
     int line;
@@ -119,6 +120,7 @@ typedef struct Type {
         
         struct {
             struct Type* element;
+            struct Type* element_type;  // 别名，为了兼容性
             size_t size;
             bool is_vla;                // Variable length array
         } array;
