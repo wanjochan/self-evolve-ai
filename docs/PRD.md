@@ -303,6 +303,15 @@ review roadmap (continuous improvement)
 - 决策记录和经验总结 (待建立)
 ```
 
+### 测试脚本概述 (PRD Stage 1, work_id=prd_0_1_0)
+以下是当前测试分支中用于验证三层架构的测试脚本及其覆盖范围：
+- **test_layer1_loader.sh**: 测试 Layer 1 加载器功能，验证 `simple_loader` 是否能正确加载和执行模块，覆盖基础加载机制。
+- **test_layer2_modules.sh**: 测试 Layer 2 模块功能，验证编译器模块、libc 模块等的构建和运行，覆盖核心模块的独立性和依赖管理。
+- **test_layer3_programs.sh**: 测试 Layer 3 程序编译和运行，验证 C99 编译器和相关工具链的端到端功能，覆盖高级程序构建。
+- **test_comprehensive_integration.sh**: 综合集成测试，验证三层架构的整体协作，覆盖从加载到程序执行的完整流程。
+
+这些脚本旨在发现关键问题（如编译器错误、跨平台兼容性问题），为后续开发提供指导。详细测试结果和问题报告见 `TEST_SUMMARY_REPORT.md`。
+
 ## 6. 技术经验总结
 
 ### 开发支线经验
