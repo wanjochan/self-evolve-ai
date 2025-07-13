@@ -266,7 +266,7 @@ void* ptr = ((void*(*)(size_t))malloc_func)(1024);
 #### 开发支线 (Development Track)
 ```
 dev roadmap (by human master)
-- src/core/                    # our modulized system core layer
+- src/core/                    # our modulized-c core layer
 - layer 1 loader (simple_loader)
 - layer 2 native module (pipeline, layer0, compiler, libc), will be loaded by mmap() 
 - layer 3 program (c99 windows 64 x86)

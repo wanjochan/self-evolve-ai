@@ -54,8 +54,24 @@ run_test_suite() {
         echo "超时设置: ${timeout_seconds}秒" >> "$RESULTS_FILE"
         echo "----------------------------------------" >> "$RESULTS_FILE"
 
-        # 使用timeout命令执行测试脚本
-        if timeout "${timeout_seconds}s" bash "$test_script" >> "$RESULTS_FILE" 2>&1; then
+        # 使用timeout命令执行测试脚本或可执行文件
+        if [[ "$test_script" == *.sh ]]; then
+            # 对于.sh文件使用bash执行
+            if timeout "${timeout_seconds}s" bash "$test_script" >> "$RESULTS_FILE" 2>&1; then
+                test_passed=true
+            else
+                test_passed=false
+            fi
+        else
+            # 对于可执行文件直接执行
+            if timeout "${timeout_seconds}s" "$test_script" >> "$RESULTS_FILE" 2>&1; then
+                test_passed=true
+            else
+                test_passed=false
+            fi
+        fi
+
+        if [ "$test_passed" = true ]; then
             echo -e "  ${GREEN}✓ 通过${NC}"
             echo "结果: PASS" >> "$RESULTS_FILE"
             PASSED_SUITES=$((PASSED_SUITES + 1))

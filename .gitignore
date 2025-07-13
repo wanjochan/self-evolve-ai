@@ -36,3 +36,5 @@ tests/comprehensive_test_results/
 tests/layer*_results/
 *.astc
 test_*.c
+core
+core.*

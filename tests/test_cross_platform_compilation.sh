@@ -198,13 +198,14 @@ test_cross_platform_compatibility() {
         
         case "$(uname -s)" in
             Linux)
-                run_test "Linux ELF格式检查" "file '$simple_loader' | grep -q 'ELF'" "success"
+                # 使用-L选项跟随符号链接
+                run_test "Linux ELF格式检查" "file -L '$simple_loader' | grep -q 'ELF'" "success"
                 ;;
             Darwin)
-                run_test "macOS Mach-O格式检查" "file '$simple_loader' | grep -q 'Mach-O'" "success"
+                run_test "macOS Mach-O格式检查" "file -L '$simple_loader' | grep -q 'Mach-O'" "success"
                 ;;
             CYGWIN*|MINGW*|MSYS*)
-                run_test "Windows PE格式检查" "file '$simple_loader' | grep -q 'PE32'" "success"
+                run_test "Windows PE格式检查" "file -L '$simple_loader' | grep -q 'PE32'" "success"
                 ;;
             *)
                 echo -e "${YELLOW}未知操作系统，跳过格式检查${NC}"
