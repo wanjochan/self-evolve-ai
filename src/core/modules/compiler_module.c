@@ -787,7 +787,8 @@ static void compiler_service_destroy(CompilerServiceContext* service) {
     }
 
     if (service->ffi_context) {
-        ffi_free_context(service->ffi_context);
+        // ffi_free_context(service->ffi_context);  // TODO: implement this function
+        ffi_destroy_context(service->ffi_context);
     }
 
     free(service);

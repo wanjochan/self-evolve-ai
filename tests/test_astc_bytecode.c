@@ -121,13 +121,13 @@ int main() {
             printf("   ✓ astc_bytecode_create works\n");
             
             void* add_instr_func = module_pipeline.resolve("astc_bytecode_add_instruction");
-            int (*astc_bytecode_add_instruction)(ASTCBytecodeProgram*, ASTCOpcode, int64_t) = 
-                (int (*)(ASTCBytecodeProgram*, ASTCOpcode, int64_t))add_instr_func;
+            int (*astc_bytecode_add_instruction)(ASTCBytecodeProgram*, ASTNodeType, int64_t) = 
+                (int (*)(ASTCBytecodeProgram*, ASTNodeType, int64_t))add_instr_func;
             
             if (astc_bytecode_add_instruction) {
                 // 添加一些测试指令
-                astc_bytecode_add_instruction(test_program, ASTC_OP_I32_CONST, 123);
-                astc_bytecode_add_instruction(test_program, ASTC_OP_RETURN, 0);
+                astc_bytecode_add_instruction(test_program, AST_I32_CONST, 123);
+                astc_bytecode_add_instruction(test_program, AST_RETURN, 0);
                 
                 printf("   ✓ astc_bytecode_add_instruction works\n");
                 printf("   Test program has %u instructions\n", test_program->instruction_count);

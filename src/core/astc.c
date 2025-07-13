@@ -286,11 +286,7 @@ void ast_print(struct ASTNode* node, int indent) {
  */
 void token_free(void* token) {
     if (token) {
-        // Assume token has a value field that needs to be freed
-        struct { int type; char* value; } *t = (struct { int type; char* value; } *)token;
-        if (t->value) {
-            free(t->value);
-        }
+        // Simplified token free - assume token is a simple structure
         free(token);
     }
 }
