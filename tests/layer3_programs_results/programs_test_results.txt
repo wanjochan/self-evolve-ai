@@ -1,4 +1,4 @@
-Layer 3 Program 测试结果 - Sun Jul 13 14:23:04 HKT 2025
+Layer 3 Program 测试结果 - Sun Jul 13 07:35:01 AM UTC 2025
 ======================================
 [1] ASTC文件存在: hello_world.astc: PASS
 [2] ASTC文件非空: hello_world.astc: PASS
@@ -21,13 +21,13 @@ Layer 3 Program 测试结果 - Sun Jul 13 14:23:04 HKT 2025
 [19] ASTC格式验证: hello_world.astc: PASS
 [20] ASTC格式验证: test_c99.astc: PASS
 [21] ASTC格式验证: test_program.astc: PASS
-[22] ASTC核心执行测试: PASS
-[23] ASTC字节码执行测试: PASS
+[22] ASTC核心执行测试: FAIL
+[23] ASTC字节码执行测试: FAIL
 [24] 无效函数调用处理: PASS (expected failure)
 [25] 语法错误处理: PASS (expected failure)
 
 测试汇总:
 总测试数: 25
-通过: 22
-失败: 3
-成功率: 88%
+通过: 20
+失败: 5
+成功率: 80%
