@@ -260,7 +260,7 @@ Module* module_load(const char* name) {
     size_t file_size = st.st_size;
 
     // 映射文件到内存
-    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, 0);
     close(fd);
 
     if (mapped == MAP_FAILED) {
@@ -1003,7 +1003,7 @@ static Module* load_native_file_direct(const char* file_path, const char* module
     size_t file_size = st.st_size;
     
     // 映射文件到内存
-    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, 0);
     close(fd);
     
     if (mapped == MAP_FAILED) {
