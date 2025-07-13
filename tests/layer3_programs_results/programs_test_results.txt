@@ -1,0 +1,33 @@
+Layer 3 Program 测试结果 - Sun Jul 13 14:23:04 HKT 2025
+======================================
+[1] ASTC文件存在: hello_world.astc: PASS
+[2] ASTC文件非空: hello_world.astc: PASS
+[3] ASTC文件存在: test_c99.astc: PASS
+[4] ASTC文件非空: test_c99.astc: PASS
+[5] ASTC文件存在: test_program.astc: PASS
+[6] ASTC文件非空: test_program.astc: PASS
+[7] 测试ASTC文件存在: test_minimal.astc: PASS
+[8] 测试ASTC文件非空: test_minimal.astc: PASS
+[9] 测试ASTC文件存在: test_function_call.astc: PASS
+[10] 测试ASTC文件非空: test_function_call.astc: PASS
+[11] 测试ASTC文件存在: test_global_var.astc: PASS
+[12] 测试ASTC文件非空: test_global_var.astc: PASS
+[13] 测试ASTC文件存在: test_complex_c99.astc: PASS
+[14] 测试ASTC文件非空: test_complex_c99.astc: PASS
+[15] C2ASTC编译器存在: PASS
+[16] 编译简单C程序: FAIL
+[17] 编译返回值程序: FAIL
+[18] 编译函数调用程序: FAIL
+[19] ASTC格式验证: hello_world.astc: PASS
+[20] ASTC格式验证: test_c99.astc: PASS
+[21] ASTC格式验证: test_program.astc: PASS
+[22] ASTC核心执行测试: PASS
+[23] ASTC字节码执行测试: PASS
+[24] 无效函数调用处理: PASS (expected failure)
+[25] 语法错误处理: PASS (expected failure)
+
+测试汇总:
+总测试数: 25
+通过: 22
+失败: 3
+成功率: 88%
