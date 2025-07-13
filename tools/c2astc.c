@@ -158,8 +158,15 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
         return -1;
     }
     
-    // Get compilation function
-    bool (*pipeline_compile)(const char*, void*) = pipeline->resolve("pipeline_compile");
+    // Get compilation function - fix signature
+    typedef struct {
+        int optimize_level;
+        bool enable_debug;
+        bool enable_warnings;
+        char output_file[256];
+    } CompileOptions;
+    
+    bool (*pipeline_compile)(const char*, CompileOptions*) = pipeline->resolve("pipeline_compile");
     ASTCBytecodeProgram* (*pipeline_get_astc_program)(void) = pipeline->resolve("pipeline_get_astc_program");
     const char* (*pipeline_get_error)(void) = pipeline->resolve("pipeline_get_error");
     
@@ -169,9 +176,16 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
         return -1;
     }
     
+    // Create compile options
+    CompileOptions options = {0};
+    options.optimize_level = 0;  // No optimization
+    options.enable_debug = false;
+    options.enable_warnings = true;
+    strncpy(options.output_file, astc_file, sizeof(options.output_file) - 1);
+    
     // Compile source code
     printf("c2astc: Compiling C source to ASTC...\n");
-    if (!pipeline_compile(source_code, NULL)) {
+    if (!pipeline_compile(source_code, &options)) {
         printf("c2astc: Error: Compilation failed: %s\n", pipeline_get_error());
         free(source_code);
         return -1;

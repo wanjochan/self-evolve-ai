@@ -319,63 +319,8 @@ int main(int argc, char* argv[]) {
 
     printf("Loader: Pipeline模块路径: %s\n", pipeline_module_path);
 
-    // 尝试加载Pipeline模块
-    LoadedModule* pipeline_module = load_native_module(pipeline_module_path);
-    vm_execute_astc_t vm_execute_func = NULL;
-
-    if (pipeline_module) {
-        // 查找执行函数
-        vm_execute_func = (vm_execute_astc_t)resolve_export(pipeline_module, "vm_execute_astc");
-        if (!vm_execute_func) {
-            // 尝试备用函数名
-            vm_execute_func = (vm_execute_astc_t)resolve_export(pipeline_module, "execute_astc");
-            if (!vm_execute_func) {
-                // 尝试native_main
-                native_main_t native_main = (native_main_t)resolve_export(pipeline_module, "native_main");
-                if (native_main) {
-                    printf("Loader: 使用native_main函数\n");
-                    int result = native_main(argc - 1, argv + 1);
-                    unload_native_module(pipeline_module);
-                    return result;
-                }
-            }
-        }
-        
-        if (vm_execute_func) {
-            printf("Loader: 调用Pipeline模块执行ASTC程序...\n");
-
-            // 测试函数调用机制
-            typedef int (*test_func_t)(void);
-            test_func_t test_func = (test_func_t)resolve_export(pipeline_module, "test_export_function");
-            if (test_func) {
-                printf("Loader: 尝试调用test_export_function...\n");
-                printf("Loader: test_func地址: %p\n", (void*)test_func);
-
-                // 尝试调用测试函数
-                printf("Loader: 准备调用测试函数...\n");
-                int test_result = test_func();
-                printf("Loader: 测试函数返回值: %d\n", test_result);
-
-                // 如果测试函数成功，尝试调用vm_execute_astc
-                printf("Loader: 测试函数调用成功，尝试调用vm_execute_astc...\n");
-                int result = vm_execute_func(astc_file, argc - 1, argv + 1);
-                printf("Loader: vm_execute_astc返回值: %d\n", result);
-
-                unload_native_module(pipeline_module);
-                return result;
-            } else {
-                printf("Loader: 无法找到test_export_function\n");
-            }
-
-            unload_native_module(pipeline_module);
-            // 继续到fallback VM
-        } else {
-            printf("Loader: 警告: 无法找到Pipeline模块执行函数，使用内置VM\n");
-            unload_native_module(pipeline_module);
-        }
-    } else {
-        printf("Loader: 警告: 无法加载Pipeline模块，使用内置VM\n");
-    }
+    // 暂时跳过Pipeline模块以避免段错误，直接使用内置VM
+    printf("Loader: 警告: 跳过Pipeline模块（避免段错误），使用内置VM\n");
     
     // Fallback到内置VM
     printf("Loader: 使用内置VM执行ASTC程序...\n");
