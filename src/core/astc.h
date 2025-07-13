@@ -269,6 +269,17 @@ typedef enum {
     ASTC_EXPR_MEMBER_ACCESS,     // 成员访问
     ASTC_EXPR_PTR_MEMBER_ACCESS, // 指针成员访问
     ASTC_EXPR_CAST_EXPR,        // 类型转换
+    ASTC_EXPR_CONDITIONAL,       // 三元条件运算符 ?:
+    ASTC_EXPR_COMMA,            // 逗号运算符
+    ASTC_EXPR_POSTFIX_INC,      // 后缀递增 var++
+    ASTC_EXPR_POSTFIX_DEC,      // 后缀递减 var--
+    ASTC_EXPR_SIZEOF,           // sizeof运算符
+    ASTC_EXPR_INTEGER_LITERAL,  // 整数字面量
+    ASTC_EXPR_FLOAT_LITERAL,    // 浮点字面量
+    ASTC_EXPR_CHAR_LITERAL,     // 字符字面量
+
+    // 语句类型扩展
+    ASTC_LABELED_STMT,          // 标签语句
     
     // 语句类型
     ASTC_STMT_NONE,
@@ -494,6 +505,70 @@ typedef struct ASTNode {
         struct {
             struct ASTNode *expr;
         } expr_stmt;
+
+        // 三元条件运算符
+        struct {
+            struct ASTNode *condition;
+            struct ASTNode *true_expr;
+            struct ASTNode *false_expr;
+        } conditional;
+
+        // 逗号运算符
+        struct {
+            struct ASTNode **expressions;
+            int expr_count;
+        } comma_expr;
+
+        // 后缀运算符 (++ --)
+        struct {
+            struct ASTNode *operand;
+        } postfix;
+
+        // sizeof运算符
+        struct {
+            bool is_type;           // true if sizeof(type), false if sizeof(expr)
+            union {
+                struct ASTNode *type_node;
+                struct ASTNode *expr;
+            };
+        } sizeof_expr;
+
+        // 整数字面量
+        struct {
+            long long value;
+        } integer_literal;
+
+        // 浮点字面量
+        struct {
+            double value;
+        } float_literal;
+
+        // 字符字面量
+        struct {
+            int value;
+        } char_literal;
+
+        // goto语句
+        struct {
+            char *label;
+        } goto_stmt;
+
+        // 标签语句
+        struct {
+            char *label;
+            struct ASTNode *statement;
+        } labeled_stmt;
+
+        // case语句
+        struct {
+            struct ASTNode *value;
+            struct ASTNode *statement;
+        } case_stmt;
+
+        // default语句
+        struct {
+            struct ASTNode *statement;
+        } default_stmt;
         
         // 指针类型
         struct {
