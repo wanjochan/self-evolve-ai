@@ -471,6 +471,479 @@ void libc_srand(unsigned int seed) {
 }
 
 // ===============================================
+// 增强的C99标准库函数 (T4.1)
+// ===============================================
+
+// 扩展的stdio函数
+int libc_fprintf(FILE* stream, const char* format, ...) {
+    if (!stream || !format) return -1;
+
+    va_list args;
+    va_start(args, format);
+    int result = vfprintf(stream, format, args);
+    va_end(args);
+
+    printf("LibC: fprintf() -> %d\n", result);
+    return result;
+}
+
+int libc_fscanf(FILE* stream, const char* format, ...) {
+    if (!stream || !format) return EOF;
+
+    va_list args;
+    va_start(args, format);
+    int result = vfscanf(stream, format, args);
+    va_end(args);
+
+    printf("LibC: fscanf() -> %d\n", result);
+    return result;
+}
+
+int libc_scanf(const char* format, ...) {
+    if (!format) return EOF;
+
+    va_list args;
+    va_start(args, format);
+    int result = vscanf(format, args);
+    va_end(args);
+
+    printf("LibC: scanf() -> %d\n", result);
+    return result;
+}
+
+int libc_sscanf(const char* str, const char* format, ...) {
+    if (!str || !format) return EOF;
+
+    va_list args;
+    va_start(args, format);
+    int result = vsscanf(str, format, args);
+    va_end(args);
+
+    printf("LibC: sscanf() -> %d\n", result);
+    return result;
+}
+
+// 扩展的字符串函数
+char* libc_strdup(const char* s) {
+    if (!s) return NULL;
+
+    size_t len = strlen(s) + 1;
+    char* dup = malloc(len);
+    if (dup) {
+        memcpy(dup, s, len);
+    }
+
+    printf("LibC: strdup(%zu bytes)\n", len);
+    return dup;
+}
+
+char* libc_strchr(const char* s, int c) {
+    if (!s) return NULL;
+
+    char* result = strchr(s, c);
+    printf("LibC: strchr() -> %p\n", (void*)result);
+    return result;
+}
+
+char* libc_strrchr(const char* s, int c) {
+    if (!s) return NULL;
+
+    char* result = strrchr(s, c);
+    printf("LibC: strrchr() -> %p\n", (void*)result);
+    return result;
+}
+
+char* libc_strstr(const char* haystack, const char* needle) {
+    if (!haystack || !needle) return NULL;
+
+    char* result = strstr(haystack, needle);
+    printf("LibC: strstr() -> %p\n", (void*)result);
+    return result;
+}
+
+char* libc_strtok(char* str, const char* delim) {
+    char* result = strtok(str, delim);
+    printf("LibC: strtok() -> %p\n", (void*)result);
+    return result;
+}
+
+// 扩展的数学函数
+double libc_round(double x) {
+    double result = round(x);
+    printf("LibC: round(%f) -> %f\n", x, result);
+    return result;
+}
+
+double libc_trunc(double x) {
+    double result = trunc(x);
+    printf("LibC: trunc(%f) -> %f\n", x, result);
+    return result;
+}
+
+double libc_remainder(double x, double y) {
+    double result = remainder(x, y);
+    printf("LibC: remainder(%f, %f) -> %f\n", x, y, result);
+    return result;
+}
+
+// 类型转换函数
+int libc_atoi(const char* str) {
+    if (!str) return 0;
+
+    int result = atoi(str);
+    printf("LibC: atoi(%s) -> %d\n", str, result);
+    return result;
+}
+
+long libc_atol(const char* str) {
+    if (!str) return 0L;
+
+    long result = atol(str);
+    printf("LibC: atol(%s) -> %ld\n", str, result);
+    return result;
+}
+
+double libc_atof(const char* str) {
+    if (!str) return 0.0;
+
+    double result = atof(str);
+    printf("LibC: atof(%s) -> %f\n", str, result);
+    return result;
+}
+
+long libc_strtol(const char* str, char** endptr, int base) {
+    if (!str) return 0L;
+
+    long result = strtol(str, endptr, base);
+    printf("LibC: strtol(%s, base=%d) -> %ld\n", str, base, result);
+    return result;
+}
+
+double libc_strtod(const char* str, char** endptr) {
+    if (!str) return 0.0;
+
+    double result = strtod(str, endptr);
+    printf("LibC: strtod(%s) -> %f\n", str, result);
+    return result;
+}
+
+// 字符分类函数
+int libc_isalpha(int c) {
+    int result = isalpha(c);
+    printf("LibC: isalpha(%c) -> %d\n", c, result);
+    return result;
+}
+
+int libc_isdigit(int c) {
+    int result = isdigit(c);
+    printf("LibC: isdigit(%c) -> %d\n", c, result);
+    return result;
+}
+
+int libc_isalnum(int c) {
+    int result = isalnum(c);
+    printf("LibC: isalnum(%c) -> %d\n", c, result);
+    return result;
+}
+
+int libc_isspace(int c) {
+    int result = isspace(c);
+    printf("LibC: isspace(%c) -> %d\n", c, result);
+    return result;
+}
+
+int libc_toupper(int c) {
+    int result = toupper(c);
+    printf("LibC: toupper(%c) -> %c\n", c, result);
+    return result;
+}
+
+int libc_tolower(int c) {
+    int result = tolower(c);
+    printf("LibC: tolower(%c) -> %c\n", c, result);
+    return result;
+}
+
+// ===============================================
+// 系统调用接口实现 (T4.2)
+// ===============================================
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <time.h>
+#include <signal.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#include <process.h>
+#define mkdir(path, mode) _mkdir(path)
+#define rmdir(path) _rmdir(path)
+#define getcwd(buf, size) _getcwd(buf, size)
+#define chdir(path) _chdir(path)
+#define access(path, mode) _access(path, mode)
+#define unlink(path) _unlink(path)
+#define getpid() _getpid()
+#else
+#include <sys/wait.h>
+#include <dirent.h>
+#endif
+
+// 文件系统操作
+int libc_open(const char* pathname, int flags, ...) {
+    if (!pathname) return -1;
+
+    int fd;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode_t mode = va_arg(args, mode_t);
+        va_end(args);
+        fd = open(pathname, flags, mode);
+    } else {
+        fd = open(pathname, flags);
+    }
+
+    printf("LibC: open(%s, %d) -> %d\n", pathname, flags, fd);
+    return fd;
+}
+
+int libc_close(int fd) {
+    int result = close(fd);
+    printf("LibC: close(%d) -> %d\n", fd, result);
+    return result;
+}
+
+ssize_t libc_read(int fd, void* buf, size_t count) {
+    if (!buf) return -1;
+
+    ssize_t result = read(fd, buf, count);
+    printf("LibC: read(%d, %zu bytes) -> %zd\n", fd, count, result);
+    return result;
+}
+
+ssize_t libc_write(int fd, const void* buf, size_t count) {
+    if (!buf) return -1;
+
+    ssize_t result = write(fd, buf, count);
+    printf("LibC: write(%d, %zu bytes) -> %zd\n", fd, count, result);
+    return result;
+}
+
+off_t libc_lseek(int fd, off_t offset, int whence) {
+    off_t result = lseek(fd, offset, whence);
+    printf("LibC: lseek(%d, %ld, %d) -> %ld\n", fd, offset, whence, result);
+    return result;
+}
+
+int libc_stat(const char* pathname, struct stat* statbuf) {
+    if (!pathname || !statbuf) return -1;
+
+    int result = stat(pathname, statbuf);
+    printf("LibC: stat(%s) -> %d\n", pathname, result);
+    return result;
+}
+
+int libc_mkdir(const char* pathname, mode_t mode) {
+    if (!pathname) return -1;
+
+    int result = mkdir(pathname, mode);
+    printf("LibC: mkdir(%s, %o) -> %d\n", pathname, mode, result);
+    return result;
+}
+
+int libc_rmdir(const char* pathname) {
+    if (!pathname) return -1;
+
+    int result = rmdir(pathname);
+    printf("LibC: rmdir(%s) -> %d\n", pathname, result);
+    return result;
+}
+
+int libc_unlink(const char* pathname) {
+    if (!pathname) return -1;
+
+    int result = unlink(pathname);
+    printf("LibC: unlink(%s) -> %d\n", pathname, result);
+    return result;
+}
+
+char* libc_getcwd(char* buf, size_t size) {
+    char* result = getcwd(buf, size);
+    printf("LibC: getcwd() -> %s\n", result ? result : "NULL");
+    return result;
+}
+
+int libc_chdir(const char* path) {
+    if (!path) return -1;
+
+    int result = chdir(path);
+    printf("LibC: chdir(%s) -> %d\n", path, result);
+    return result;
+}
+
+int libc_access(const char* pathname, int mode) {
+    if (!pathname) return -1;
+
+    int result = access(pathname, mode);
+    printf("LibC: access(%s, %d) -> %d\n", pathname, mode, result);
+    return result;
+}
+
+// 进程管理
+pid_t libc_getpid(void) {
+    pid_t result = getpid();
+    printf("LibC: getpid() -> %d\n", result);
+    return result;
+}
+
+#ifndef _WIN32
+pid_t libc_fork(void) {
+    pid_t result = fork();
+    printf("LibC: fork() -> %d\n", result);
+    return result;
+}
+
+int libc_execv(const char* path, char* const argv[]) {
+    if (!path || !argv) return -1;
+
+    printf("LibC: execv(%s)\n", path);
+    return execv(path, argv);
+}
+
+int libc_execvp(const char* file, char* const argv[]) {
+    if (!file || !argv) return -1;
+
+    printf("LibC: execvp(%s)\n", file);
+    return execvp(file, argv);
+}
+
+pid_t libc_wait(int* wstatus) {
+    pid_t result = wait(wstatus);
+    printf("LibC: wait() -> %d\n", result);
+    return result;
+}
+
+pid_t libc_waitpid(pid_t pid, int* wstatus, int options) {
+    pid_t result = waitpid(pid, wstatus, options);
+    printf("LibC: waitpid(%d, %d) -> %d\n", pid, options, result);
+    return result;
+}
+#endif
+
+void libc_exit(int status) {
+    printf("LibC: exit(%d)\n", status);
+    exit(status);
+}
+
+int libc_system(const char* command) {
+    if (!command) return -1;
+
+    printf("LibC: system(%s)\n", command);
+    return system(command);
+}
+
+// 时间和日期处理
+time_t libc_time(time_t* tloc) {
+    time_t result = time(tloc);
+    printf("LibC: time() -> %ld\n", result);
+    return result;
+}
+
+struct tm* libc_localtime(const time_t* timep) {
+    if (!timep) return NULL;
+
+    struct tm* result = localtime(timep);
+    printf("LibC: localtime(%ld)\n", *timep);
+    return result;
+}
+
+struct tm* libc_gmtime(const time_t* timep) {
+    if (!timep) return NULL;
+
+    struct tm* result = gmtime(timep);
+    printf("LibC: gmtime(%ld)\n", *timep);
+    return result;
+}
+
+time_t libc_mktime(struct tm* tm) {
+    if (!tm) return -1;
+
+    time_t result = mktime(tm);
+    printf("LibC: mktime() -> %ld\n", result);
+    return result;
+}
+
+size_t libc_strftime(char* s, size_t maxsize, const char* format, const struct tm* tm) {
+    if (!s || !format || !tm) return 0;
+
+    size_t result = strftime(s, maxsize, format, tm);
+    printf("LibC: strftime() -> %zu\n", result);
+    return result;
+}
+
+clock_t libc_clock(void) {
+    clock_t result = clock();
+    printf("LibC: clock() -> %ld\n", result);
+    return result;
+}
+
+// 信号处理
+#ifndef _WIN32
+int libc_kill(pid_t pid, int sig) {
+    int result = kill(pid, sig);
+    printf("LibC: kill(%d, %d) -> %d\n", pid, sig, result);
+    return result;
+}
+
+void (*libc_signal(int sig, void (*handler)(int)))(int) {
+    printf("LibC: signal(%d)\n", sig);
+    return signal(sig, handler);
+}
+#endif
+
+// 环境变量
+char* libc_getenv(const char* name) {
+    if (!name) return NULL;
+
+    char* result = getenv(name);
+    printf("LibC: getenv(%s) -> %s\n", name, result ? result : "NULL");
+    return result;
+}
+
+int libc_setenv(const char* name, const char* value, int overwrite) {
+    if (!name || !value) return -1;
+
+    #ifdef _WIN32
+    char buffer[1024];
+    snprintf(buffer, sizeof(buffer), "%s=%s", name, value);
+    int result = _putenv(buffer);
+    #else
+    int result = setenv(name, value, overwrite);
+    #endif
+
+    printf("LibC: setenv(%s, %s, %d) -> %d\n", name, value, overwrite, result);
+    return result;
+}
+
+int libc_unsetenv(const char* name) {
+    if (!name) return -1;
+
+    #ifdef _WIN32
+    char buffer[1024];
+    snprintf(buffer, sizeof(buffer), "%s=", name);
+    int result = _putenv(buffer);
+    #else
+    int result = unsetenv(name);
+    #endif
+
+    printf("LibC: unsetenv(%s) -> %d\n", name, result);
+    return result;
+}
+
+// ===============================================
 // Error Handling and errno Management
 // ===============================================
 

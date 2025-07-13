@@ -93,21 +93,22 @@ typedef enum {
     AST_I64_CONST = 0x42,            // i64 常量
     AST_F32_CONST = 0x43,            // f32 常量
     AST_F64_CONST = 0x44,            // f64 常量
+    AST_STRING_CONST = 0x45,          // 字符串常量 (扩展)
     
     // 数值运算 (参考: https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions)
     
     // i32 运算
-    AST_I32_EQZ = 0x45,         // i32 等于零
-    AST_I32_EQ = 0x46,          // i32 等于
-    AST_I32_NE = 0x47,          // i32 不等于
-    AST_I32_LT_S = 0x48,        // i32 有符号小于
-    AST_I32_LT_U = 0x49,        // i32 无符号小于
-    AST_I32_GT_S = 0x4A,        // i32 有符号大于
-    AST_I32_GT_U = 0x4B,        // i32 无符号大于
-    AST_I32_LE_S = 0x4C,        // i32 有符号小于等于
-    AST_I32_LE_U = 0x4D,        // i32 无符号小于等于
-    AST_I32_GE_S = 0x4E,        // i32 有符号大于等于
-    AST_I32_GE_U = 0x4F,        // i32 无符号大于等于
+    AST_I32_EQZ = 0x46,         // i32 等于零
+    AST_I32_EQ = 0x47,          // i32 等于
+    AST_I32_NE = 0x48,          // i32 不等于
+    AST_I32_LT_S = 0x49,        // i32 有符号小于
+    AST_I32_LT_U = 0x4A,        // i32 无符号小于
+    AST_I32_GT_S = 0x4B,        // i32 有符号大于
+    AST_I32_GT_U = 0x4C,        // i32 无符号大于
+    AST_I32_LE_S = 0x4D,        // i32 有符号小于等于
+    AST_I32_LE_U = 0x4E,        // i32 无符号小于等于
+    AST_I32_GE_S = 0x4F,        // i32 有符号大于等于
+    AST_I32_GE_U = 0x50,        // i32 无符号大于等于
     
     // i64 运算
     AST_I64_EQZ = 0x50,         // i64 等于零
