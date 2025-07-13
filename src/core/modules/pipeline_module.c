@@ -17,6 +17,10 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <sys/mman.h>
+#include <dlfcn.h>
+#include <unistd.h>
 
 // ===============================================
 // 模块信息
@@ -27,6 +31,17 @@
 #define MODULE_DESCRIPTION "Complete compilation and execution pipeline"
 
 // 依赖layer0模块 (通过动态加载)
+
+// ===============================================
+// 类型定义
+// ===============================================
+
+// 导出表条目
+typedef struct {
+    char name[64];
+    uint32_t offset;
+    uint32_t size;
+} ExportEntry;
 
 // ===============================================
 // ASTC字节码生成器实现
@@ -5245,6 +5260,9 @@ static bool jit_generate_arm64_code(ASTCBytecodeProgram* program, void* buffer, 
 // ===============================================
 // FFI (Foreign Function Interface) 系统实现
 // ===============================================
+
+// 前向声明
+static bool ffi_register_basic_functions(FFIContext* ctx);
 
 // 创建FFI上下文
 static FFIContext* ffi_create_context(void) {

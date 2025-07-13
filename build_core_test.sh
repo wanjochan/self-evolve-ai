@@ -49,6 +49,10 @@ echo "编译 core_test_framework.c..."
 echo ""
 echo "2. 编译核心模块（用于测试）..."
 
+# 编译astc.c（必需）
+echo "编译 astc.c..."
+"$SCRIPT_DIR/cc.sh" -c "$SRC_DIR/astc.c" -I "$SRC_DIR" -o "$SRC_DIR/astc.o"
+
 # 检查核心模块是否已编译
 if [[ ! -f "$MODULES_DIR/module_module.o" ]]; then
     echo "编译 module_module.c..."
@@ -87,6 +91,7 @@ echo "链接 core_test..."
     "$TESTS_DIR/test_astc_module.o" \
     "$TESTS_DIR/test_module_system.o" \
     "$TESTS_DIR/test_specific_modules.o" \
+    "$SRC_DIR/astc.o" \
     "$MODULES_DIR/module_module.o" \
     "$MODULES_DIR/pipeline_module.o" \
     -I "$TESTS_DIR" -I "$SRC_DIR" \

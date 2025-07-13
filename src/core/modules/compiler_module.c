@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
 
 // Platform-specific includes
 #ifdef _WIN32
@@ -694,12 +695,12 @@ static struct {
     {"allocate_executable_memory", allocate_executable_memory},
     {"free_executable_memory", free_executable_memory},
 
-    // 增强的编译器服务 (T3.3)
-    {"compiler_service_jit_compile", compiler_service_jit_compile},
-    {"compiler_service_ffi_call", compiler_service_ffi_call},
-    {"compiler_service_get_stats", compiler_service_get_stats},
-    {"compiler_service_reset_stats", compiler_service_reset_stats},
-    {"compiler_service_print_performance_report", compiler_service_print_performance_report},
+    // 增强的编译器服务 (T3.3) - 暂时注释掉，稍后添加
+    // {"compiler_service_jit_compile", compiler_service_jit_compile},
+    // {"compiler_service_ffi_call", compiler_service_ffi_call},
+    // {"compiler_service_get_stats", compiler_service_get_stats},
+    // {"compiler_service_reset_stats", compiler_service_reset_stats},
+    // {"compiler_service_print_performance_report", compiler_service_print_performance_report},
 
     {NULL, NULL}
 };
@@ -735,6 +736,13 @@ typedef struct {
 
 // 全局编译器服务
 static CompilerServiceContext* g_compiler_service = NULL;
+
+// 前向声明
+static void* compiler_service_jit_compile(const char* source_code);
+static void* compiler_service_ffi_call(const char* function_name, void** args, int arg_count);
+static CompilerServiceStats* compiler_service_get_stats(void);
+static void compiler_service_reset_stats(void);
+static void compiler_service_print_performance_report(void);
 
 // 创建编译器服务
 static CompilerServiceContext* compiler_service_create(void) {
@@ -820,7 +828,8 @@ static void* compiler_service_ffi_call(const char* function_name, void** args, i
 
     printf("Compiler Service: FFI calling function '%s' with %d arguments\n", function_name, arg_count);
 
-    void* result = ffi_call_function(g_compiler_service->ffi_context, function_name, args);
+    void* result = NULL;
+    ffi_call_function(g_compiler_service->ffi_context, function_name, args, &result);
 
     // 更新统计信息
     g_compiler_service->stats.ffi_calls++;

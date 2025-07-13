@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <math.h>
 #include <errno.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -537,29 +538,7 @@ char* libc_strdup(const char* s) {
     return dup;
 }
 
-char* libc_strchr(const char* s, int c) {
-    if (!s) return NULL;
-
-    char* result = strchr(s, c);
-    printf("LibC: strchr() -> %p\n", (void*)result);
-    return result;
-}
-
-char* libc_strrchr(const char* s, int c) {
-    if (!s) return NULL;
-
-    char* result = strrchr(s, c);
-    printf("LibC: strrchr() -> %p\n", (void*)result);
-    return result;
-}
-
-char* libc_strstr(const char* haystack, const char* needle) {
-    if (!haystack || !needle) return NULL;
-
-    char* result = strstr(haystack, needle);
-    printf("LibC: strstr() -> %p\n", (void*)result);
-    return result;
-}
+// 重复函数已删除，使用上面的实现
 
 char* libc_strtok(char* str, const char* delim) {
     char* result = strtok(str, delim);
