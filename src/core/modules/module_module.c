@@ -369,16 +369,24 @@ void module_unload(Module* module) {
 }
 
 /**
- * 从.native模块解析符号
+ * 从模块解析符号
+ * @param module 模块指针
+ * @param symbol 符号名称
+ * @return 符号地址，未找到返回NULL
  */
 void* module_resolve(Module* module, const char* symbol) {
     if (!module || !symbol || module->state != MODULE_READY) {
+        printf("Module: module_resolve 参数检查失败 (module: %p, symbol: %s, state: %d)\n", 
+               module, symbol, module ? module->state : -1);
         return NULL;
     }
+
+    printf("Module: 开始解析符号 %s 在模块 %s\n", symbol, module->name);
 
     // 检查缓存
     void* cached = find_cached_symbol(symbol);
     if (cached) {
+        printf("Module: 从缓存找到符号 %s -> %p\n", symbol, cached);
         return cached;
     }
 
@@ -386,13 +394,18 @@ void* module_resolve(Module* module, const char* symbol) {
 
     // 如果是动态加载的.native模块
     if (module->native_handle && module->base_addr) {
+        printf("Module: 处理动态加载的.native模块\n");
         NativeHeader* header = (NativeHeader*)module->base_addr;
+        printf("Module: 头部信息 - 导出数量: %d, 导出偏移: 0x%x\n", 
+               header->export_count, header->export_offset);
 
         // 获取导出表
         ExportEntry* exports = (ExportEntry*)((char*)module->base_addr + header->export_offset);
+        printf("Module: 导出表地址: %p\n", exports);
 
         // 查找符号
         for (uint32_t i = 0; i < header->export_count; i++) {
+            printf("Module: 检查导出 %d: '%s' (寻找 '%s')\n", i, exports[i].name, symbol);
             if (strcmp(exports[i].name, symbol) == 0) {
                 // 计算符号地址 = 基地址 + 代码段偏移 + 符号偏移
                 addr = (char*)module->base_addr + header->header_size + exports[i].offset;
@@ -400,15 +413,23 @@ void* module_resolve(Module* module, const char* symbol) {
                 break;
             }
         }
+        
+        if (!addr) {
+            printf("Module: 符号 %s 未在导出表中找到\n", symbol);
+        }
     }
     // 如果是静态模块，使用传统方式
     else if (module->resolve) {
+        printf("Module: 处理静态模块，使用传统resolve方式\n");
         addr = module->resolve(symbol);
     }
 
     // 缓存结果
     if (addr) {
         cache_symbol(symbol, addr);
+        printf("Module: 符号 %s 已缓存\n", symbol);
+    } else {
+        printf("Module: 符号 %s 解析失败\n", symbol);
     }
 
     return addr;
@@ -841,6 +862,62 @@ char* resolve_native_file(const char* module_path) {
 }
 
 /**
+ * 模块符号解析包装函数 - 用于函数指针
+ */
+static Module* current_resolving_module = NULL;
+
+static void* module_resolve_wrapper(const char* symbol_name) {
+    // 使用全局的当前解析模块
+    if (current_resolving_module) {
+        return module_resolve(current_resolving_module, symbol_name);
+    }
+    
+    // 如果没有当前模块，尝试全局解析
+    return module_resolve_global(symbol_name);
+}
+
+// 为每个模块创建专用的resolve函数的结构
+typedef struct {
+    Module* module;
+    void* (*resolve_func)(const char*);
+} ModuleResolveWrapper;
+
+// 存储模块resolve包装器
+static ModuleResolveWrapper module_wrappers[MAX_MODULES];
+static size_t wrapper_count = 0;
+
+/**
+ * 为特定模块创建resolve包装器的实现
+ */
+static void* module_resolve_impl_0(const char* symbol) { return module_resolve(module_wrappers[0].module, symbol); }
+static void* module_resolve_impl_1(const char* symbol) { return module_resolve(module_wrappers[1].module, symbol); }
+static void* module_resolve_impl_2(const char* symbol) { return module_resolve(module_wrappers[2].module, symbol); }
+static void* module_resolve_impl_3(const char* symbol) { return module_resolve(module_wrappers[3].module, symbol); }
+static void* module_resolve_impl_4(const char* symbol) { return module_resolve(module_wrappers[4].module, symbol); }
+static void* module_resolve_impl_5(const char* symbol) { return module_resolve(module_wrappers[5].module, symbol); }
+static void* module_resolve_impl_6(const char* symbol) { return module_resolve(module_wrappers[6].module, symbol); }
+static void* module_resolve_impl_7(const char* symbol) { return module_resolve(module_wrappers[7].module, symbol); }
+
+static void* (*resolve_impls[])(const char*) = {
+    module_resolve_impl_0, module_resolve_impl_1, module_resolve_impl_2, module_resolve_impl_3,
+    module_resolve_impl_4, module_resolve_impl_5, module_resolve_impl_6, module_resolve_impl_7
+};
+
+/**
+ * 为特定模块创建resolve包装器
+ */
+static void* (*create_module_resolve_wrapper(Module* module))(const char*) {
+    if (wrapper_count >= MAX_MODULES || wrapper_count >= 8) {
+        return NULL; // 太多模块了
+    }
+    
+    module_wrappers[wrapper_count].module = module;
+    module_wrappers[wrapper_count].resolve_func = resolve_impls[wrapper_count];
+    
+    return resolve_impls[wrapper_count++];
+}
+
+/**
  * 模块符号解析接口实现
  */
 static void* module_sym_impl(Module* self, const char* symbol_name) {
@@ -961,7 +1038,7 @@ static Module* load_native_file_direct(const char* file_path, const char* module
     module->file_size = file_size;
     module->init = NULL;
     module->cleanup = NULL;
-    module->resolve = NULL;
+    module->resolve = create_module_resolve_wrapper(module);  // 为这个模块创建专用的resolve包装器
     module->sym = module_sym_impl;  // 设置符号解析接口
     
     // 添加到缓存

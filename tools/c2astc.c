@@ -150,6 +150,7 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
     
     // Load pipeline module
     printf("c2astc: Loading pipeline module...\n");
+    fflush(stdout);
     Module* pipeline = load_module("./bin/pipeline");
     if (!pipeline) {
         printf("c2astc: Error: Failed to load pipeline module\n");
@@ -157,6 +158,9 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
         free(source_code);
         return -1;
     }
+    
+    printf("c2astc: Pipeline module loaded successfully\n");
+    fflush(stdout);
     
     // Get compilation function - fix signature
     typedef struct {
@@ -166,15 +170,38 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
         char output_file[256];
     } CompileOptions;
     
+    printf("c2astc: Resolving pipeline functions...\n");
+    fflush(stdout);
+    
+    printf("c2astc: Attempting to resolve pipeline_compile...\n");
+    fflush(stdout);
     bool (*pipeline_compile)(const char*, CompileOptions*) = pipeline->resolve("pipeline_compile");
+    printf("c2astc: pipeline_compile resolved to: %p\n", pipeline_compile);
+    fflush(stdout);
+    
+    printf("c2astc: Attempting to resolve pipeline_get_astc_program...\n");
+    fflush(stdout);
     ASTCBytecodeProgram* (*pipeline_get_astc_program)(void) = pipeline->resolve("pipeline_get_astc_program");
+    printf("c2astc: pipeline_get_astc_program resolved to: %p\n", pipeline_get_astc_program);
+    fflush(stdout);
+    
+    printf("c2astc: Attempting to resolve pipeline_get_error...\n");
+    fflush(stdout);
     const char* (*pipeline_get_error)(void) = pipeline->resolve("pipeline_get_error");
+    printf("c2astc: pipeline_get_error resolved to: %p\n", pipeline_get_error);
+    fflush(stdout);
     
     if (!pipeline_compile || !pipeline_get_astc_program || !pipeline_get_error) {
         printf("c2astc: Error: Pipeline module missing required functions\n");
+        printf("c2astc: pipeline_compile: %p\n", pipeline_compile);
+        printf("c2astc: pipeline_get_astc_program: %p\n", pipeline_get_astc_program);
+        printf("c2astc: pipeline_get_error: %p\n", pipeline_get_error);
         free(source_code);
         return -1;
     }
+    
+    printf("c2astc: Pipeline functions resolved successfully\n");
+    fflush(stdout);
     
     // Create compile options
     CompileOptions options = {0};
@@ -185,11 +212,16 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
     
     // Compile source code
     printf("c2astc: Compiling C source to ASTC...\n");
+    fflush(stdout);
+    
     if (!pipeline_compile(source_code, &options)) {
         printf("c2astc: Error: Compilation failed: %s\n", pipeline_get_error());
         free(source_code);
         return -1;
     }
+    
+    printf("c2astc: Compilation successful, getting ASTC program...\n");
+    fflush(stdout);
     
     // Get ASTC bytecode program
     ASTCBytecodeProgram* astc_program = pipeline_get_astc_program();

@@ -265,32 +265,32 @@ int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
     ExportEntry exports[7];
     memset(exports, 0, sizeof(exports));
 
-    // 定义导出函数
-    strcpy(exports[0].name, "vm_execute_astc");
+    // 定义导出函数 - 使用pipeline模块的实际函数
+    strcpy(exports[0].name, "pipeline_compile");
     exports[0].offset = 0;
     exports[0].size = 100;
 
-    strcpy(exports[1].name, "execute_astc");
+    strcpy(exports[1].name, "pipeline_get_error");
     exports[1].offset = 128;
     exports[1].size = 50;
 
-    strcpy(exports[2].name, "native_main");
+    strcpy(exports[2].name, "pipeline_get_astc_program");
     exports[2].offset = 256;
     exports[2].size = 50;
 
-    strcpy(exports[3].name, "test_export_function");
+    strcpy(exports[3].name, "pipeline_execute");
     exports[3].offset = 384;
     exports[3].size = 20;
 
-    strcpy(exports[4].name, "module_init");
+    strcpy(exports[4].name, "pipeline_compile_and_run");
     exports[4].offset = 512;
     exports[4].size = 20;
 
-    strcpy(exports[5].name, "module_cleanup");
+    strcpy(exports[5].name, "pipeline_astc2native");
     exports[5].offset = 640;
     exports[5].size = 20;
 
-    strcpy(exports[6].name, "module_resolve");
+    strcpy(exports[6].name, "pipeline_get_assembly");
     exports[6].offset = 768;
     exports[6].size = 20;
 
