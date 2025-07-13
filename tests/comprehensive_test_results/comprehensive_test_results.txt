@@ -1,0 +1,437 @@
+Self-Evolve AI 综合测试报告 - Sun Jul 13 14:22:48 HKT 2025
+=================================================
+
+开始时间: Sun Jul 13 14:22:48 HKT 2025
+测试套件: C99合规性测试
+脚本路径: ./c99_compliance_test.sh
+----------------------------------------
+[0;34m=== C99标准兼容性测试 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+测试目录: .
+结果目录: ./c99_compliance_results
+
+[0;31m错误: C99编译器不存在: /Users/wjc/repos/self-evolve-ai/bin/c99_compiler[0m
+请先运行 bash build_c99.sh 构建编译器
+结果: FAIL
+结束时间: Sun Jul 13 14:22:48 HKT 2025
+
+开始时间: Sun Jul 13 14:22:48 HKT 2025
+测试套件: 性能测试
+脚本路径: ./performance_test.sh
+----------------------------------------
+[0;34m=== C99编译器性能测试 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+测试目录: .
+结果目录: ./performance_results
+
+[0;31m错误: C99编译器不存在: /Users/wjc/repos/self-evolve-ai/bin/c99_compiler[0m
+请先运行 bash build_c99.sh 构建编译器
+结果: FAIL
+结束时间: Sun Jul 13 14:22:48 HKT 2025
+
+开始时间: Sun Jul 13 14:22:48 HKT 2025
+测试套件: 代码质量分析
+脚本路径: ./code_quality_analysis.sh
+----------------------------------------
+[0;34m=== 代码质量分析 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+源代码目录: /Users/wjc/repos/self-evolve-ai/src
+结果目录: ./code_quality_results
+
+[0;34m=== 代码行数统计 ===[0m
+  development_toolchain.c:      555 行
+  tool_c2astc_enhanced.c:      415 行
+  tool_astc2asm.c:      493 行
+  tool_c2astc.c:      272 行
+  build_native_module.c:      386 行
+  build_native_module_standalone.c:      286 行
+  tool_astc2native.c:      163 行
+  simple_c2astc.c:      210 行
+  c99_main.c:      341 行
+  c99_error.c:      358 行
+  c99_parser.c:     1402 行
+  c99_semantic.c:     2446 行
+  c99_lexer.c:      672 行
+  c99_debug.c:      407 行
+  c99_codegen.c:      779 行
+  c99_optimizer.c:      353 行
+  c99_target.c:      318 行
+  test_c99_lexer.c:      198 行
+  c99_stdio.c:     1070 行
+  c99_lexer.c:      733 行
+  astc.c:      296 行
+  compiler_module.c:      941 行
+  layer0_module.c:      607 行
+  pipeline_module.c:     6366 行
+  module_module.c:     1033 行
+  libc_module.c:     1404 行
+  loader.c:      547 行
+  simple_loader.c:      392 行
+  libc_version_manager.c:      230 行
+  libc_full.c:      292 行
+  libc_minimal.c:      111 行
+  libc_native_module.c:      380 行
+  core_libc.c:      711 行
+  libc_os.c:      284 行
+  performance_optimizer.c:      493 行
+  module_loader.c:      238 行
+  dynamic_module_loader.c:      491 行
+  simple_loader.c:      135 行
+  multi_arch_support.c:      557 行
+  evolution_experiment_framework.c:      543 行
+  security_evolution.c:      580 行
+  observability_system.c:      667 行
+  evolution_engine.c:      522 行
+  enhanced_evolution_framework.c:      327 行
+  code_analyzer.c:      349 行
+  evolution_core_loop.c:      389 行
+  evolution_engine_enhanced.c:      440 行
+  general_intelligence_emergence.c:      578 行
+  ai_integration.c:      377 行
+  c99_compiler.c:      132 行
+  evolver0.c:      257 行
+  c99.c:      518 行
+  development_toolchain.h:      344 行
+  c99_lexer.h:      282 行
+  c99_parser.h:      206 行
+  c99_error.h:      289 行
+  c99_semantic.h:      314 行
+  c99_lexer.h:      270 行
+  c99_codegen.h:      267 行
+  c99_target.h:      282 行
+  c99_optimizer.h:      237 行
+  c99_debug.h:      311 行
+  c99_stdio.h:      285 行
+  astc.h:      765 行
+  module.h:      132 行
+  loader.h:       81 行
+  libc_native_module.h:      202 行
+  core_libc.h:      253 行
+  module_loader.h:      109 行
+  code_analyzer.h:      210 行
+  general_intelligence_emergence.h:      460 行
+  security_evolution.h:      397 行
+  evolution_experiment_framework.h:      444 行
+  observability_system.h:      494 行
+  ai_integration.h:      243 行
+  evolution_engine_enhanced.h:      304 行
+  evolution_strategy.h:      273 行
+  evolution_engine.h:      282 行
+  总文件数量: [0;32m78[0m
+  总代码行数: [0;32m40780[0m
+  C文件: [0;34m52 个文件，33044 行[0m
+  头文件: [0;34m26 个文件，7736 行[0m
+
+[0;34m=== 函数复杂度分析 ===[0m
+  分析文件: development_toolchain.c
+  分析文件: tool_c2astc_enhanced.c
+  分析文件: tool_astc2asm.c
+  分析文件: tool_c2astc.c
+  分析文件: build_native_module.c
+  分析文件: build_native_module_standalone.c
+  分析文件: tool_astc2native.c
+  分析文件: simple_c2astc.c
+  分析文件: c99_main.c
+  分析文件: c99_error.c
+  分析文件: c99_parser.c
+  分析文件: c99_semantic.c
+  分析文件: c99_lexer.c
+  分析文件: c99_debug.c
+  分析文件: c99_codegen.c
+  分析文件: c99_optimizer.c
+  分析文件: c99_target.c
+  分析文件: test_c99_lexer.c
+  分析文件: c99_stdio.c
+  分析文件: c99_lexer.c
+  分析文件: astc.c
+  分析文件: compiler_module.c
+  分析文件: layer0_module.c
+  分析文件: pipeline_module.c
+  分析文件: module_module.c
+  分析文件: libc_module.c
+  分析文件: loader.c
+  分析文件: simple_loader.c
+  分析文件: libc_version_manager.c
+  分析文件: libc_full.c
+  分析文件: libc_minimal.c
+  分析文件: libc_native_module.c
+  分析文件: core_libc.c
+  分析文件: libc_os.c
+  分析文件: performance_optimizer.c
+  分析文件: module_loader.c
+  分析文件: dynamic_module_loader.c
+  分析文件: simple_loader.c
+  分析文件: multi_arch_support.c
+  分析文件: evolution_experiment_framework.c
+  分析文件: security_evolution.c
+  分析文件: observability_system.c
+  分析文件: evolution_engine.c
+  分析文件: enhanced_evolution_framework.c
+  分析文件: code_analyzer.c
+  分析文件: evolution_core_loop.c
+  分析文件: evolution_engine_enhanced.c
+  分析文件: general_intelligence_emergence.c
+  分析文件: ai_integration.c
+  分析文件: c99_compiler.c
+  分析文件: evolver0.c
+  分析文件: c99.c
+  总函数数量: [0;32m1284[0m
+  复杂函数数量 (>50行): [1;33m143[0m
+  最长函数: [0;34mint libc_forward_call (core_libc.c:48) (498 行)[0m
+
+[0;34m=== 代码重复分析 ===[0m
+  总有效行数: [0;32m   23764[0m
+  重复行数: [1;33m9095[0m
+  重复率: [0;34m38%[0m
+
+[0;34m=== 注释覆盖率分析 ===[0m
+  总行数: [0;32m40780[0m
+  注释行数: [0;34m7048[0m
+  注释覆盖率: [1;33m17%[0m
+
+[0;34m=== 代码质量评分 ===[0m
+  代码质量: [0;32m优秀 (100/100)[0m
+
+[0;32m=== 代码质量分析完成 ===[0m
+详细结果保存在: ./code_quality_results/quality_analysis.txt
+
+查看结果: cat ./code_quality_results/quality_analysis.txt
+结果: PASS
+结束时间: Sun Jul 13 14:23:03 HKT 2025
+
+开始时间: Sun Jul 13 14:23:03 HKT 2025
+测试套件: Layer 1 Loader测试
+脚本路径: ./test_layer1_loader.sh
+----------------------------------------
+[0;34m=== Layer 1 Loader 测试 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+测试目录: .
+结果目录: ./layer1_loader_results
+
+[0;34m=== 架构检测测试 ===[0m
+[1;33m测试 1: 架构检测功能[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块加载测试 ===[0m
+[1;33m测试 2: ASTC程序文件存在性检查[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块文件检测测试 ===[0m
+[1;33m测试 3: pipeline模块存在性[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 4: layer0模块存在性[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 5: compiler模块存在性[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 6: libc模块存在性[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 错误处理测试 ===[0m
+[1;33m测试 7: 不存在的ASTC文件处理[0m
+  [0;32m✓ 通过 (预期失败)[0m
+[1;33m测试 8: 无效的ASTC文件处理[0m
+  [0;32m✓ 通过 (预期失败)[0m
+[0;34m=== 基本功能测试 ===[0m
+[1;33m测试 9: 示例ASTC程序加载[0m
+  [0;31m✗ 失败[0m
+[1;33m测试 10: 最小ASTC程序加载[0m
+  [0;31m✗ 失败[0m
+
+[0;34m=== 测试结果汇总 ===[0m
+总测试数: 10
+通过: [0;32m8[0m
+失败: [0;31m2[0m
+[0;31m有 2 个测试失败[0m
+结果: FAIL
+结束时间: Sun Jul 13 14:23:03 HKT 2025
+
+开始时间: Sun Jul 13 14:23:03 HKT 2025
+测试套件: Layer 2 Modules测试
+脚本路径: ./test_layer2_modules.sh
+----------------------------------------
+[0;34m=== Layer 2 Native Module 测试 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+测试目录: .
+结果目录: ./layer2_modules_results
+
+检测到架构: arm64 (使用后缀: arm64_64)
+[0;34m=== 模块文件存在性测试 ===[0m
+[1;33m测试 1: pipeline模块文件存在[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 2: layer0模块文件存在[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 3: compiler模块文件存在[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 4: libc模块文件存在[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块文件格式测试 ===[0m
+[1;33m测试 5: pipeline模块格式检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 6: layer0模块格式检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 7: compiler模块格式检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 8: libc模块格式检查[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块大小合理性测试 ===[0m
+[1;33m测试 9: pipeline模块大小检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 10: layer0模块大小检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 11: compiler模块大小检查[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 12: libc模块大小检查[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块功能测试 ===[0m
+[1;33m测试 13: ASTC核心功能测试[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 14: ASTC字节码测试[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 15: 编译器模块测试[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 16: 流水线模块测试[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 模块依赖关系测试 ===[0m
+[1;33m测试 17: 模块依赖关系测试[0m
+  [0;31m✗ 失败[0m
+[0;34m=== 模块加载测试 ===[0m
+[1;33m测试 18: 模块加载基本功能[0m
+  [0;32m✓ 通过[0m
+
+[0;34m=== 测试结果汇总 ===[0m
+总测试数: 18
+通过: [0;32m17[0m
+失败: [0;31m1[0m
+[0;31m有 1 个测试失败[0m
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: Layer 3 Programs测试
+脚本路径: ./test_layer3_programs.sh
+----------------------------------------
+[0;34m=== Layer 3 Program 测试 ===[0m
+项目根目录: /Users/wjc/repos/self-evolve-ai
+测试目录: .
+结果目录: ./layer3_programs_results
+
+[0;34m=== 现有ASTC程序检查 ===[0m
+[1;33m测试 1: ASTC文件存在: hello_world.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 2: ASTC文件非空: hello_world.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 3: ASTC文件存在: test_c99.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 4: ASTC文件非空: test_c99.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 5: ASTC文件存在: test_program.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 6: ASTC文件非空: test_program.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 7: 测试ASTC文件存在: test_minimal.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 8: 测试ASTC文件非空: test_minimal.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 9: 测试ASTC文件存在: test_function_call.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 10: 测试ASTC文件非空: test_function_call.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 11: 测试ASTC文件存在: test_global_var.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 12: 测试ASTC文件非空: test_global_var.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 13: 测试ASTC文件存在: test_complex_c99.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 14: 测试ASTC文件非空: test_complex_c99.astc[0m
+  [0;32m✓ 通过[0m
+[0;34m=== C到ASTC编译测试 ===[0m
+[1;33m测试 15: C2ASTC编译器存在[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 16: 编译简单C程序[0m
+  [0;31m✗ 失败[0m
+[1;33m测试 17: 编译返回值程序[0m
+  [0;31m✗ 失败[0m
+[1;33m测试 18: 编译函数调用程序[0m
+  [0;31m✗ 失败[0m
+[0;34m=== ASTC程序格式验证 ===[0m
+[1;33m测试 19: ASTC格式验证: hello_world.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 20: ASTC格式验证: test_c99.astc[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 21: ASTC格式验证: test_program.astc[0m
+  [0;32m✓ 通过[0m
+[0;34m=== ASTC程序执行测试 ===[0m
+[1;33m测试 22: ASTC核心执行测试[0m
+  [0;32m✓ 通过[0m
+[1;33m测试 23: ASTC字节码执行测试[0m
+  [0;32m✓ 通过[0m
+[0;34m=== 错误处理测试 ===[0m
+[1;33m测试 24: 无效函数调用处理[0m
+  [0;32m✓ 通过 (预期失败)[0m
+[1;33m测试 25: 语法错误处理[0m
+  [0;32m✓ 通过 (预期失败)[0m
+[0;34m=== 性能基准测试 ===[0m
+
+[0;34m=== 测试结果汇总 ===[0m
+总测试数: 25
+通过: [0;32m22[0m
+失败: [0;31m3[0m
+[0;31m有 3 个测试失败[0m
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: ASTC核心测试
+脚本路径: ./test_astc_core
+----------------------------------------
+./test_astc_core: ./test_astc_core: cannot execute binary file
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: ASTC字节码测试
+脚本路径: ./test_astc_bytecode
+----------------------------------------
+./test_astc_bytecode: ./test_astc_bytecode: cannot execute binary file
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: 编译器模块测试
+脚本路径: ./test_compiler_module
+----------------------------------------
+./test_compiler_module: ./test_compiler_module: cannot execute binary file
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: 流水线模块测试
+脚本路径: ./test_pipeline_module
+----------------------------------------
+./test_pipeline_module: ./test_pipeline_module: cannot execute binary file
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+开始时间: Sun Jul 13 14:23:04 HKT 2025
+测试套件: 模块依赖测试
+脚本路径: ./test_module_dependencies
+----------------------------------------
+./test_module_dependencies: ./test_module_dependencies: cannot execute binary file
+结果: FAIL
+结束时间: Sun Jul 13 14:23:04 HKT 2025
+
+
+=========================================
+综合测试汇总:
+总测试套件数: 11
+通过: 1
+失败: 10
+成功率: 9%
+报告生成时间: Sun Jul 13 14:23:04 HKT 2025
+问题报告:
+----------------------------------------
+发现的主要问题:
+1. 编译器构建问题 - C99编译器无法正常构建
+2. 跨平台兼容性问题 - simple_loader为Linux ELF格式，无法在macOS运行
+3. C2ASTC编译器问题 - 编译测试失败
+建议修复措施:
+- 修复C99编译器的语法错误和未定义标识符问题
+- 重新构建适用于当前平台的simple_loader
+- 检查和修复C2ASTC编译器的功能

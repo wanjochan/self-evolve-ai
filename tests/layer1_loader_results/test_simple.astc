@@ -1,0 +1,9 @@
+ASTC
+version 1
+flags 0x00000000
+instruction_count 2
+code_size 1024
+entry_point 0
+instructions:
+  LOAD_CONST 42
+  RETURN
