@@ -1,4 +1,4 @@
-Layer 2 Native Module 测试结果 - Sun Jul 13 14:23:03 HKT 2025
+Layer 2 Native Module 测试结果 - Sun Jul 13 06:39:31 AM UTC 2025
 ======================================
 [1] pipeline模块文件存在: PASS
 [2] layer0模块文件存在: PASS
@@ -12,15 +12,15 @@ Layer 2 Native Module 测试结果 - Sun Jul 13 14:23:03 HKT 2025
 [10] layer0模块大小检查: PASS
 [11] compiler模块大小检查: PASS
 [12] libc模块大小检查: PASS
-[13] ASTC核心功能测试: PASS
-[14] ASTC字节码测试: PASS
-[15] 编译器模块测试: PASS
-[16] 流水线模块测试: PASS
+[13] ASTC核心功能测试: FAIL
+[14] ASTC字节码测试: FAIL
+[15] 编译器模块测试: FAIL
+[16] 流水线模块测试: FAIL
 [17] 模块依赖关系测试: FAIL
 [18] 模块加载基本功能: PASS
 
 测试汇总:
 总测试数: 18
-通过: 17
-失败: 1
-成功率: 94%
+通过: 13
+失败: 5
+成功率: 72%
