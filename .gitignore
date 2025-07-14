@@ -24,9 +24,7 @@ hello
 /test_*
 module_test
 bin/*_test
-hello_world
 bin/test_*
-c99_compiler
 
 # 测试结果文件 (可能很大)
 tests/*_results/
@@ -36,3 +34,4 @@ tests/comprehensive_test_results/
 tests/layer*_results/
 *.astc
 test_*.c
+/test_*
