@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # c99.sh - C99 Compiler wrapper script with TinyCC fallback
-# 
+#
 # This script serves as a wrapper that tries to use the native C99 compiler first,
 # then falls back to TinyCC (tcc) if C99 fails or is incomplete.
 # This enables gradual replacement of TinyCC with the native C99 implementation.
@@ -12,8 +12,43 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Define paths relative to the script location
 C99_COMPILER="$SCRIPT_DIR/bin/c99_compiler"
+C99_MAIN="$SCRIPT_DIR/src/c99/tools/c99_main.c"
 TCC_PATH="$SCRIPT_DIR/external/tcc/dist/bin/tcc"
 TCC_LIB_PATH="$SCRIPT_DIR/external/tcc/dist/lib/host/tcc"
+
+# Build C99 compiler if it doesn't exist
+build_c99_compiler() {
+    echo "Building C99 compiler..."
+
+    # Create bin directory if it doesn't exist
+    mkdir -p "$SCRIPT_DIR/bin"
+
+    # Check if we have the C99 source files
+    if [ ! -f "$C99_MAIN" ]; then
+        echo "Error: C99 compiler source not found at $C99_MAIN"
+        return 1
+    fi
+
+    # Build the C99 compiler using cc.sh (bootstrap)
+    "$SCRIPT_DIR/cc.sh" -o "$C99_COMPILER" \
+        "$C99_MAIN" \
+        "$SCRIPT_DIR/src/c99/frontend/c99_lexer.c" \
+        "$SCRIPT_DIR/src/c99/frontend/c99_parser.c" \
+        "$SCRIPT_DIR/src/c99/frontend/c99_semantic.c" \
+        "$SCRIPT_DIR/src/c99/frontend/c99_error.c" \
+        "$SCRIPT_DIR/src/c99/backend/c99_codegen.c" \
+        -I "$SCRIPT_DIR/src/c99" \
+        -I "$SCRIPT_DIR/src/core" \
+        -std=c99 -O2 -Wall -ldl
+
+    if [ $? -eq 0 ]; then
+        echo "C99 compiler built successfully"
+        return 0
+    else
+        echo "Failed to build C99 compiler"
+        return 1
+    fi
+}
 
 # Configuration flags
 USE_C99_FIRST=true          # Try C99 compiler first

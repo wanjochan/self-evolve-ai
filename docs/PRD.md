@@ -269,12 +269,13 @@ void* ptr = ((void*(*)(size_t))malloc_func)(1024);
 ```
 dev roadmap (by human master)
 - cc.sh                        # 先使用 tinycc，等我们自己的 c99成熟就切换；
+- c99.sh                       # C99编译器包装脚本，支持自动构建和智能回退到tinycc/gcc
 - src/core/                    # our modulized-c core layer
 - src/c99/                     # 参考tinycc实现的多架构 c99 编译工具链。成熟后替换tinycc
 - build c99 with c99           # c99自举
 - c99 cross build              # 多架构交叉编译
 - layer 1 loader (simple_loader)
-- layer 2 native module (pipeline, layer0, compiler, libc), will be loaded by mmap() 
+- layer 2 native module (pipeline, layer0, compiler, libc), will be loaded by mmap()
 - layer 3 program (evolver0，我们的 AI进化程序)
 - cross build layer 1 loader (linux, macos)
 - cross build layer 2
@@ -304,6 +305,7 @@ dev roadmap (by human master)
 - VM功能已集成在pipeline_module中，不需要独立的vm_module
 - 三层架构：simple_loader -> pipeline_module.native -> program.astc
 - 使用模块系统的load_module()和sym()接口进行模块加载和符号解析
+- C99编译器集成：c99.sh脚本提供智能编译器选择，优先使用原生C99编译器，自动回退到tinycc/gcc
 
 ### 测试支线经验
 - 测试脚本应该覆盖PRD.md的三层架构
