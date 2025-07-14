@@ -9,14 +9,21 @@
 
 ## 高优先级技术债务
 
-### 1. Pipeline模块段错误 (严重)
+### 1. Pipeline模块段错误 (严重) ✅ RESOLVED
 - **文件**: src/core/modules/pipeline_module.c
 - **函数**: pipeline_compile
 - **问题**: 调用时发生段错误 (SIGSEGV)
 - **影响**: C2ASTC编译器无法使用完整功能，依赖fallback
-- **状态**: 已临时修复 (信号处理)
+- **状态**: ✅ 完全修复 (2025-01-14)
 - **优先级**: 最高
-- **预计工作量**: 2-3天
+- **实际工作量**: 3天
+- **解决方案**:
+  - 修复了tokenize函数中的缓冲区溢出问题
+  - 添加了动态数组扩展机制
+  - 修复了Lexer结构体中的strlen重复计算问题
+  - 将关键函数从static改为非static
+  - 创建了直接链接版本的c2astc编译器
+- **验证**: pipeline_compile函数现在完全正常工作，所有调试输出正常
 
 ### 2. C2ASTC编译器简化版依赖 (中等)
 - **文件**: tools/c2astc.c

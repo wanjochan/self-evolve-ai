@@ -163,10 +163,14 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
 
     printf("c2astc: Read %zu bytes of C source code\n", source_size);
     
-    // 尝试使用完整的pipeline模块
+    // 尝试使用完整的pipeline模块 (先尝试修复版本)
     printf("c2astc: Loading pipeline module...\n");
     fflush(stdout);
-    Module* pipeline = load_module("./bin/pipeline");
+    Module* pipeline = load_module("./bin/pipeline_x64_64_fixed");
+    if (!pipeline) {
+        printf("c2astc: Fixed pipeline not found, trying standard version...\n");
+        pipeline = load_module("./bin/pipeline");
+    }
     if (!pipeline) {
         printf("c2astc: Warning: Failed to load pipeline module\n");
         printf("c2astc: Falling back to simplified compiler\n");
