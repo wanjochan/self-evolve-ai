@@ -89,72 +89,22 @@ char* libc_strerror(int errnum);
     #endif
 #endif
 
-// T3.2 Enhanced Module State and Statistics
+// Module state
 static bool libc_initialized = false;
-static bool libc_debug_mode = false;  // T3.2: Configurable debug output
-
-// T3.2 Enhanced Statistics
-typedef struct {
-    // Memory statistics
-    uint64_t malloc_count;
-    uint64_t free_count;
-    uint64_t calloc_count;
-    uint64_t realloc_count;
-    uint64_t total_allocated;
-    uint64_t total_freed;
-    uint64_t current_usage;
-    uint64_t peak_usage;
-
-    // Function call statistics
-    uint64_t string_operations;
-    uint64_t math_operations;
-    uint64_t io_operations;
-    uint64_t file_operations;
-    uint64_t time_operations;
-    uint64_t total_function_calls;
-
-    // Performance metrics
-    double total_execution_time;
-    uint64_t cache_hits;
-    uint64_t cache_misses;
-} LibcModuleStats;
-
-static LibcModuleStats g_libc_stats = {0};
+static uint64_t malloc_count = 0;
+static uint64_t free_count = 0;
+static uint64_t total_allocated = 0;
 
 // ===============================================
-// T3.2 Performance Optimization Macros
+// Extended LibC Function Implementations
 // ===============================================
 
-#define LIBC_DEBUG_PRINT(fmt, ...) \
-    do { if (libc_debug_mode) printf("LibC: " fmt, ##__VA_ARGS__); } while(0)
-
-#define LIBC_STATS_INCREMENT(field) \
-    do { g_libc_stats.field++; g_libc_stats.total_function_calls++; } while(0)
-
-#define LIBC_STATS_ADD(field, value) \
-    do { g_libc_stats.field += (value); } while(0)
-
-// T3.2 Function call timing macro
-#define LIBC_TIMED_CALL(call, category) \
-    do { \
-        clock_t start = clock(); \
-        call; \
-        clock_t end = clock(); \
-        g_libc_stats.total_execution_time += ((double)(end - start)) / CLOCKS_PER_SEC; \
-        LIBC_STATS_INCREMENT(category); \
-    } while(0)
-
-// ===============================================
-// T3.2 Enhanced LibC Function Implementations
-// ===============================================
-
-// T3.2 Optimized File I/O Functions
+// File I/O Functions
 FILE* libc_fopen(const char* filename, const char* mode) {
     if (!filename || !mode) {
         return NULL;
     }
-    LIBC_DEBUG_PRINT("fopen(%s, %s)\n", filename, mode);
-    LIBC_STATS_INCREMENT(file_operations);
+    printf("LibC: fopen(%s, %s)\n", filename, mode);
     return fopen(filename, mode);
 }
 
@@ -162,8 +112,7 @@ int libc_fclose(FILE* stream) {
     if (!stream) {
         return EOF;
     }
-    LIBC_DEBUG_PRINT("fclose()\n");
-    LIBC_STATS_INCREMENT(file_operations);
+    printf("LibC: fclose()\n");
     return fclose(stream);
 }
 
@@ -171,8 +120,7 @@ size_t libc_fread(void* ptr, size_t size, size_t count, FILE* stream) {
     if (!ptr || !stream) {
         return 0;
     }
-    LIBC_DEBUG_PRINT("fread(size=%zu, count=%zu)\n", size, count);
-    LIBC_STATS_INCREMENT(io_operations);
+    printf("LibC: fread(size=%zu, count=%zu)\n", size, count);
     return fread(ptr, size, count, stream);
 }
 
@@ -180,8 +128,7 @@ size_t libc_fwrite(const void* ptr, size_t size, size_t count, FILE* stream) {
     if (!ptr || !stream) {
         return 0;
     }
-    LIBC_DEBUG_PRINT("fwrite(size=%zu, count=%zu)\n", size, count);
-    LIBC_STATS_INCREMENT(io_operations);
+    printf("LibC: fwrite(size=%zu, count=%zu)\n", size, count);
     return fwrite(ptr, size, count, stream);
 }
 
@@ -189,8 +136,7 @@ int libc_fseek(FILE* stream, long offset, int whence) {
     if (!stream) {
         return -1;
     }
-    LIBC_DEBUG_PRINT("fseek(offset=%ld, whence=%d)\n", offset, whence);
-    LIBC_STATS_INCREMENT(file_operations);
+    printf("LibC: fseek(offset=%ld, whence=%d)\n", offset, whence);
     return fseek(stream, offset, whence);
 }
 
@@ -198,8 +144,7 @@ long libc_ftell(FILE* stream) {
     if (!stream) {
         return -1L;
     }
-    LIBC_DEBUG_PRINT("ftell()\n");
-    LIBC_STATS_INCREMENT(file_operations);
+    printf("LibC: ftell()\n");
     return ftell(stream);
 }
 
@@ -217,12 +162,12 @@ int libc_ferror(FILE* stream) {
     return ferror(stream);
 }
 
-// T3.2 Optimized String Functions
+// String Functions (Extended)
 size_t libc_strlen(const char* str) {
     if (!str) {
         return 0;
     }
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strlen()\n");
     return strlen(str);
 }
 
@@ -230,7 +175,7 @@ char* libc_strcpy(char* dest, const char* src) {
     if (!dest || !src) {
         return dest;
     }
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strcpy()\n");
     return strcpy(dest, src);
 }
 
@@ -238,8 +183,7 @@ char* libc_strncpy(char* dest, const char* src, size_t n) {
     if (!dest || !src) {
         return dest;
     }
-    LIBC_DEBUG_PRINT("strncpy(n=%zu)\n", n);
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strncpy(n=%zu)\n", n);
     return strncpy(dest, src, n);
 }
 
@@ -247,7 +191,7 @@ char* libc_strcat(char* dest, const char* src) {
     if (!dest || !src) {
         return dest;
     }
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strcat()\n");
     return strcat(dest, src);
 }
 
@@ -255,8 +199,7 @@ char* libc_strncat(char* dest, const char* src, size_t n) {
     if (!dest || !src) {
         return dest;
     }
-    LIBC_DEBUG_PRINT("strncat(n=%zu)\n", n);
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strncat(n=%zu)\n", n);
     return strncat(dest, src, n);
 }
 
@@ -264,7 +207,7 @@ int libc_strcmp(const char* s1, const char* s2) {
     if (!s1 || !s2) {
         return 0;
     }
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strcmp()\n");
     return strcmp(s1, s2);
 }
 
@@ -272,8 +215,7 @@ int libc_strncmp(const char* s1, const char* s2, size_t n) {
     if (!s1 || !s2) {
         return 0;
     }
-    LIBC_DEBUG_PRINT("strncmp(n=%zu)\n", n);
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strncmp(n=%zu)\n", n);
     return strncmp(s1, s2, n);
 }
 
@@ -281,8 +223,7 @@ char* libc_strchr(const char* s, int c) {
     if (!s) {
         return NULL;
     }
-    LIBC_DEBUG_PRINT("strchr(c=%c)\n", c);
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strchr(c=%c)\n", c);
     return strchr(s, c);
 }
 
@@ -290,8 +231,7 @@ char* libc_strrchr(const char* s, int c) {
     if (!s) {
         return NULL;
     }
-    LIBC_DEBUG_PRINT("strrchr(c=%c)\n", c);
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strrchr(c=%c)\n", c);
     return strrchr(s, c);
 }
 
@@ -299,290 +239,156 @@ char* libc_strstr(const char* haystack, const char* needle) {
     if (!haystack || !needle) {
         return NULL;
     }
-    LIBC_STATS_INCREMENT(string_operations);
+    printf("LibC: strstr()\n");
     return strstr(haystack, needle);
 }
 
 // ===============================================
-// T3.2 Enhanced Memory Management System
+// Enhanced Memory Management
 // ===============================================
 
-// T3.2 Advanced Memory Pool System
-#define MEMORY_POOL_SIZE (2 * 1024 * 1024)  // 2MB pool (increased)
-#define SMALL_ALLOC_THRESHOLD 512            // Increased threshold
-#define MEMORY_ALIGNMENT 16                  // 16-byte alignment
-#define MAX_CACHED_BLOCKS 256                // Free block cache
+// Memory statistics
+typedef struct {
+    size_t total_allocated;
+    size_t total_freed;
+    size_t current_usage;
+    size_t peak_usage;
+    size_t allocation_count;
+    size_t free_count;
+} MemoryStats;
 
-// T3.2 Memory block header for tracking
-typedef struct MemoryBlock {
-    size_t size;
-    uint32_t magic;
-    struct MemoryBlock* next;
-} MemoryBlock;
+static MemoryStats g_memory_stats = {0};
 
-#define MEMORY_MAGIC 0xDEADBEEF
+// Simple memory pool for small allocations
+#define MEMORY_POOL_SIZE 1024 * 1024  // 1MB pool
+#define SMALL_ALLOC_THRESHOLD 256      // Allocations <= 256 bytes use pool
 
-// T3.2 Enhanced memory pools
-static char g_memory_pool[MEMORY_POOL_SIZE] __attribute__((aligned(MEMORY_ALIGNMENT)));
+static char g_memory_pool[MEMORY_POOL_SIZE];
 static size_t g_pool_offset = 0;
 static bool g_pool_enabled = true;
 
-// T3.2 Free block cache for reuse
-static MemoryBlock* g_free_blocks[MAX_CACHED_BLOCKS];
-static size_t g_free_block_count = 0;
-
-// T3.2 Memory allocation statistics (moved to global stats)
-
-// T3.2 Enhanced malloc with advanced optimization
-static void* libc_find_free_block(size_t size) {
-    for (size_t i = 0; i < g_free_block_count; i++) {
-        if (g_free_blocks[i] && g_free_blocks[i]->size >= size) {
-            MemoryBlock* block = g_free_blocks[i];
-            // Remove from free list
-            g_free_blocks[i] = g_free_blocks[--g_free_block_count];
-            g_libc_stats.cache_hits++;
-            return (char*)block + sizeof(MemoryBlock);
-        }
-    }
-    g_libc_stats.cache_misses++;
-    return NULL;
-}
-
-static void libc_add_free_block(MemoryBlock* block) {
-    if (g_free_block_count < MAX_CACHED_BLOCKS) {
-        g_free_blocks[g_free_block_count++] = block;
-    } else {
-        // Cache full, actually free the block
-        free(block);
-    }
-}
-
+// Enhanced malloc with statistics and pool
 void* libc_malloc_enhanced(size_t size) {
     if (size == 0) {
         return NULL;
     }
 
-    // T3.2: Align size to memory boundary
-    size_t aligned_size = (size + MEMORY_ALIGNMENT - 1) & ~(MEMORY_ALIGNMENT - 1);
     void* ptr = NULL;
 
-    // T3.2: Try to reuse cached free blocks first
-    ptr = libc_find_free_block(aligned_size);
-    if (ptr) {
-        LIBC_DEBUG_PRINT("malloc_enhanced(%zu) from cache -> %p\n", size, ptr);
-        LIBC_STATS_INCREMENT(malloc_count);
-        LIBC_STATS_ADD(current_usage, aligned_size);
-        return ptr;
-    }
-
-    // T3.2: Use memory pool for small allocations
-    if (g_pool_enabled && aligned_size <= SMALL_ALLOC_THRESHOLD &&
-        g_pool_offset + aligned_size + sizeof(MemoryBlock) <= MEMORY_POOL_SIZE) {
-        MemoryBlock* block = (MemoryBlock*)&g_memory_pool[g_pool_offset];
-        block->size = aligned_size;
-        block->magic = MEMORY_MAGIC;
-        block->next = NULL;
-
-        ptr = (char*)block + sizeof(MemoryBlock);
-        g_pool_offset += aligned_size + sizeof(MemoryBlock);
-        LIBC_DEBUG_PRINT("malloc_enhanced(%zu) from pool -> %p\n", size, ptr);
+    // Use memory pool for small allocations
+    if (g_pool_enabled && size <= SMALL_ALLOC_THRESHOLD &&
+        g_pool_offset + size <= MEMORY_POOL_SIZE) {
+        ptr = &g_memory_pool[g_pool_offset];
+        g_pool_offset += size;
+        printf("LibC: malloc_enhanced(%zu) from pool -> %p\n", size, ptr);
     } else {
-        // T3.2: Use system malloc for large allocations
-        MemoryBlock* block = malloc(aligned_size + sizeof(MemoryBlock));
-        if (block) {
-            block->size = aligned_size;
-            block->magic = MEMORY_MAGIC;
-            block->next = NULL;
-            ptr = (char*)block + sizeof(MemoryBlock);
-        }
-        LIBC_DEBUG_PRINT("malloc_enhanced(%zu) from system -> %p\n", size, ptr);
+        // Use system malloc for large allocations
+        ptr = malloc(size);
+        printf("LibC: malloc_enhanced(%zu) from system -> %p\n", size, ptr);
     }
 
     if (ptr) {
-        LIBC_STATS_INCREMENT(malloc_count);
-        LIBC_STATS_ADD(total_allocated, aligned_size);
-        LIBC_STATS_ADD(current_usage, aligned_size);
+        g_memory_stats.total_allocated += size;
+        g_memory_stats.current_usage += size;
+        g_memory_stats.allocation_count++;
 
-        if (g_libc_stats.current_usage > g_libc_stats.peak_usage) {
-            g_libc_stats.peak_usage = g_libc_stats.current_usage;
+        if (g_memory_stats.current_usage > g_memory_stats.peak_usage) {
+            g_memory_stats.peak_usage = g_memory_stats.current_usage;
         }
     }
 
     return ptr;
 }
 
-// T3.2 Enhanced free function with caching and validation
+// Enhanced free with statistics
 void libc_free_enhanced(void* ptr) {
     if (!ptr) {
         return;
     }
 
-    // T3.2: Get the memory block header
-    MemoryBlock* block = (MemoryBlock*)((char*)ptr - sizeof(MemoryBlock));
-
-    // T3.2: Validate magic number for safety
-    if (block->magic != MEMORY_MAGIC) {
-        LIBC_DEBUG_PRINT("free_enhanced: Invalid magic number, using system free\n");
-        free(ptr);  // Fallback to system free
-        LIBC_STATS_INCREMENT(free_count);
-        return;
-    }
-
-    LIBC_STATS_INCREMENT(free_count);
-    LIBC_STATS_ADD(total_freed, block->size);
-    g_libc_stats.current_usage -= block->size;
-
-    // T3.2: Check if it's from the memory pool
-    if ((char*)block >= g_memory_pool &&
-        (char*)block < g_memory_pool + MEMORY_POOL_SIZE) {
-        // Pool memory - add to free cache for reuse
-        libc_add_free_block(block);
-        LIBC_DEBUG_PRINT("free_enhanced(%p) cached for reuse\n", ptr);
+    // Check if pointer is from memory pool
+    if (ptr >= (void*)g_memory_pool &&
+        ptr < (void*)(g_memory_pool + MEMORY_POOL_SIZE)) {
+        printf("LibC: free_enhanced(%p) from pool (no-op)\n", ptr);
+        // Pool memory is not individually freed
     } else {
-        // System memory - add to cache or free
-        libc_add_free_block(block);
-        LIBC_DEBUG_PRINT("free_enhanced(%p) system memory cached\n", ptr);
+        printf("LibC: free_enhanced(%p) to system\n", ptr);
+        free(ptr);
     }
+
+    g_memory_stats.free_count++;
 }
 
-// T3.2 Enhanced Statistics and Performance Functions
-void libc_get_module_stats(LibcModuleStats* stats) {
+// Memory statistics functions
+void libc_get_memory_stats(MemoryStats* stats) {
     if (stats) {
-        *stats = g_libc_stats;
+        *stats = g_memory_stats;
     }
 }
 
-void libc_print_performance_report(void) {
-    printf("\n=== T3.2 LibC Module Performance Report ===\n");
-    printf("Memory Management:\n");
-    printf("  Total allocated: %lu bytes\n", g_libc_stats.total_allocated);
-    printf("  Total freed: %lu bytes\n", g_libc_stats.total_freed);
-    printf("  Current usage: %lu bytes\n", g_libc_stats.current_usage);
-    printf("  Peak usage: %lu bytes\n", g_libc_stats.peak_usage);
-    printf("  Malloc calls: %lu\n", g_libc_stats.malloc_count);
-    printf("  Free calls: %lu\n", g_libc_stats.free_count);
-    printf("  Calloc calls: %lu\n", g_libc_stats.calloc_count);
-    printf("  Realloc calls: %lu\n", g_libc_stats.realloc_count);
-
-    printf("\nFunction Call Statistics:\n");
-    printf("  String operations: %lu\n", g_libc_stats.string_operations);
-    printf("  Math operations: %lu\n", g_libc_stats.math_operations);
-    printf("  I/O operations: %lu\n", g_libc_stats.io_operations);
-    printf("  File operations: %lu\n", g_libc_stats.file_operations);
-    printf("  Time operations: %lu\n", g_libc_stats.time_operations);
-    printf("  Total function calls: %lu\n", g_libc_stats.total_function_calls);
-
-    printf("\nPerformance Metrics:\n");
-    printf("  Total execution time: %.3f seconds\n", g_libc_stats.total_execution_time);
-    printf("  Cache hits: %lu\n", g_libc_stats.cache_hits);
-    printf("  Cache misses: %lu\n", g_libc_stats.cache_misses);
-
-    if (g_libc_stats.cache_hits + g_libc_stats.cache_misses > 0) {
-        double hit_rate = (100.0 * g_libc_stats.cache_hits) /
-                         (g_libc_stats.cache_hits + g_libc_stats.cache_misses);
-        printf("  Cache hit rate: %.1f%%\n", hit_rate);
-    }
-
-    printf("\nMemory Pool Status:\n");
-    printf("  Pool usage: %zu / %d bytes (%.1f%%)\n",
+void libc_print_memory_stats(void) {
+    printf("=== LibC Memory Statistics ===\n");
+    printf("Total allocated: %zu bytes\n", g_memory_stats.total_allocated);
+    printf("Total freed: %zu bytes\n", g_memory_stats.total_freed);
+    printf("Current usage: %zu bytes\n", g_memory_stats.current_usage);
+    printf("Peak usage: %zu bytes\n", g_memory_stats.peak_usage);
+    printf("Allocation count: %zu\n", g_memory_stats.allocation_count);
+    printf("Free count: %zu\n", g_memory_stats.free_count);
+    printf("Pool usage: %zu / %d bytes (%.1f%%)\n",
            g_pool_offset, MEMORY_POOL_SIZE,
            (double)g_pool_offset / MEMORY_POOL_SIZE * 100.0);
-    printf("  Free blocks cached: %zu / %d\n", g_free_block_count, MAX_CACHED_BLOCKS);
-    printf("  Debug mode: %s\n", libc_debug_mode ? "ON" : "OFF");
-    printf("==========================================\n\n");
+    printf("==============================\n");
 }
 
-void libc_reset_stats(void) {
-    memset(&g_libc_stats, 0, sizeof(LibcModuleStats));
+void libc_reset_memory_stats(void) {
+    memset(&g_memory_stats, 0, sizeof(MemoryStats));
     g_pool_offset = 0;
-    g_free_block_count = 0;
-    printf("LibC: Statistics reset\n");
 }
-
-void libc_set_debug_mode(bool enabled) {
-    libc_debug_mode = enabled;
-    printf("LibC: Debug mode %s\n", enabled ? "enabled" : "disabled");
-}
-
-// T3.2 Missing C99 Functions Implementation
-
-// Wide character support (basic implementation)
-#include <wchar.h>  // Add missing header for wide character functions
-
-// Note: These functions are now declared in the header above
-// and implemented below only if not already defined elsewhere
 
 // ===============================================
-// T3.2 Optimized Math Functions
+// Math Functions
 // ===============================================
 
 // Trigonometric functions
 double libc_sin(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: sin(%f)\n", x);
     return sin(x);
 }
 
 double libc_cos(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: cos(%f)\n", x);
     return cos(x);
 }
 
 double libc_tan(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: tan(%f)\n", x);
     return tan(x);
 }
 
 double libc_asin(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: asin(%f)\n", x);
     return asin(x);
 }
 
 double libc_acos(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: acos(%f)\n", x);
     return acos(x);
 }
 
 double libc_atan(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: atan(%f)\n", x);
     return atan(x);
 }
 
 double libc_atan2(double y, double x) {
-    LIBC_DEBUG_PRINT("atan2(%f, %f)\n", y, x);
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: atan2(%f, %f)\n", y, x);
     return atan2(y, x);
 }
 
 // Exponential and logarithmic functions
 double libc_exp(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
+    printf("LibC: exp(%f)\n", x);
     return exp(x);
-}
-
-// T3.2 Additional C99 math functions
-double libc_round(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
-    return round(x);
-}
-
-double libc_trunc(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
-    return trunc(x);
-}
-
-double libc_floor(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
-    return floor(x);
-}
-
-double libc_ceil(double x) {
-    LIBC_STATS_INCREMENT(math_operations);
-    return ceil(x);
-}
-
-long long libc_llabs(long long x) {
-    LIBC_STATS_INCREMENT(math_operations);
-    return llabs(x);
 }
 
 double libc_log(double x) {
@@ -605,7 +411,16 @@ double libc_sqrt(double x) {
     return sqrt(x);
 }
 
-// Rounding and remainder functions (duplicates removed)
+// Rounding and remainder functions
+double libc_ceil(double x) {
+    printf("LibC: ceil(%f)\n", x);
+    return ceil(x);
+}
+
+double libc_floor(double x) {
+    printf("LibC: floor(%f)\n", x);
+    return floor(x);
+}
 
 double libc_fabs(double x) {
     printf("LibC: fabs(%f)\n", x);
@@ -731,37 +546,17 @@ char* libc_strtok(char* str, const char* delim) {
     return result;
 }
 
-// T3.2 Missing functions implementation
-char* libc_strndup(const char* s, size_t n) {
-    if (!s) return NULL;
-
-    size_t len = strnlen(s, n);
-    char* dup = libc_malloc_enhanced(len + 1);
-    if (dup) {
-        memcpy(dup, s, len);
-        dup[len] = '\0';
-    }
-    LIBC_STATS_INCREMENT(string_operations);
-    return dup;
+// 扩展的数学函数
+double libc_round(double x) {
+    double result = round(x);
+    printf("LibC: round(%f) -> %f\n", x, result);
+    return result;
 }
 
-// Wide character functions (basic implementation)
-size_t libc_wcslen(const wchar_t* s) {
-    if (!s) return 0;
-    LIBC_STATS_INCREMENT(string_operations);
-    return wcslen(s);
-}
-
-wchar_t* libc_wcscpy(wchar_t* dest, const wchar_t* src) {
-    if (!dest || !src) return dest;
-    LIBC_STATS_INCREMENT(string_operations);
-    return wcscpy(dest, src);
-}
-
-int libc_wcscmp(const wchar_t* s1, const wchar_t* s2) {
-    if (!s1 || !s2) return 0;
-    LIBC_STATS_INCREMENT(string_operations);
-    return wcscmp(s1, s2);
+double libc_trunc(double x) {
+    double result = trunc(x);
+    printf("LibC: trunc(%f) -> %f\n", x, result);
+    return result;
 }
 
 double libc_remainder(double x, double y) {
@@ -1248,12 +1043,12 @@ void libc_print_error_stats(void) {
 // LibC Function Implementations
 // ===============================================
 
-// Memory management functions (T3.2 optimized)
+// Memory management functions
 void* libc_malloc(size_t size) {
     void* ptr = malloc(size);
     if (ptr) {
-        LIBC_STATS_INCREMENT(malloc_count);
-        LIBC_STATS_ADD(total_allocated, size);
+        malloc_count++;
+        total_allocated += size;
     }
     return ptr;
 }
@@ -1261,15 +1056,15 @@ void* libc_malloc(size_t size) {
 void libc_free(void* ptr) {
     if (ptr) {
         free(ptr);
-        LIBC_STATS_INCREMENT(free_count);
+        free_count++;
     }
 }
 
 void* libc_calloc(size_t num, size_t size) {
     void* ptr = calloc(num, size);
     if (ptr) {
-        LIBC_STATS_INCREMENT(calloc_count);
-        LIBC_STATS_ADD(total_allocated, (num * size));
+        malloc_count++;
+        total_allocated += (num * size);
     }
     return ptr;
 }
@@ -1277,8 +1072,8 @@ void* libc_calloc(size_t num, size_t size) {
 void* libc_realloc(void* ptr, size_t size) {
     void* new_ptr = realloc(ptr, size);
     if (new_ptr && !ptr) {
-        LIBC_STATS_INCREMENT(realloc_count);
-        LIBC_STATS_ADD(total_allocated, size);
+        malloc_count++;
+        total_allocated += size;
     }
     return new_ptr;
 }
@@ -1368,39 +1163,7 @@ static LibCFunction libc_functions[] = {
     {"snprintf", libc_snprintf, "int(char*,size_t,const char*,...)"},
     {"puts", libc_puts, "int(const char*)"},
     {"putchar", libc_putchar, "int(int)"},
-
-    // T3.2 Enhanced memory functions
-    {"malloc_enhanced", libc_malloc_enhanced, "void*(size_t)"},
-    {"free_enhanced", libc_free_enhanced, "void(void*)"},
-
-    // T3.2 Additional string functions
-    {"strdup", libc_strdup, "char*(const char*)"},
-    {"strndup", libc_strndup, "char*(const char*,size_t)"},
-    {"strchr", libc_strchr, "char*(const char*,int)"},
-    {"strrchr", libc_strrchr, "char*(const char*,int)"},
-    {"strstr", libc_strstr, "char*(const char*,const char*)"},
-
-    // T3.2 Wide character functions
-    {"wcslen", libc_wcslen, "size_t(const wchar_t*)"},
-    {"wcscpy", libc_wcscpy, "wchar_t*(wchar_t*,const wchar_t*)"},
-    {"wcscmp", libc_wcscmp, "int(const wchar_t*,const wchar_t*)"},
-
-    // T3.2 Enhanced math functions
-    {"sin", libc_sin, "double(double)"},
-    {"cos", libc_cos, "double(double)"},
-    {"tan", libc_tan, "double(double)"},
-    {"round", libc_round, "double(double)"},
-    {"trunc", libc_trunc, "double(double)"},
-    {"floor", libc_floor, "double(double)"},
-    {"ceil", libc_ceil, "double(double)"},
-    {"llabs", libc_llabs, "long long(long long)"},
-
-    // T3.2 Performance and statistics functions
-    {"libc_get_module_stats", libc_get_module_stats, "void(LibcModuleStats*)"},
-    {"libc_print_performance_report", libc_print_performance_report, "void(void)"},
-    {"libc_reset_stats", libc_reset_stats, "void(void)"},
-    {"libc_set_debug_mode", libc_set_debug_mode, "void(bool)"},
-
+    
     {NULL, NULL, NULL} // Terminator
 };
 
@@ -1413,33 +1176,20 @@ int libc_native_init(void) {
         return 0; // Already initialized
     }
     
-    printf("LibC Module: Initializing T3.2 Enhanced libc_%s_%d.native\n",
+    printf("LibC Module: Initializing libc_%s_%d.native\n", 
            libc_info.arch, libc_info.bits);
     printf("Architecture: %s %d-bit\n", libc_info.arch, libc_info.bits);
     printf("API Version: %u\n", libc_info.api_version);
-
+    
     // Count functions
     libc_info.function_count = 0;
     for (int i = 0; libc_functions[i].name != NULL; i++) {
         libc_info.function_count++;
     }
-
-    printf("LibC Module: ✅ T3.2 Registered %u functions\n", libc_info.function_count);
-    printf("LibC Module: ✅ T3.2 Enhanced memory management with %dMB pool\n", MEMORY_POOL_SIZE / (1024*1024));
-    printf("LibC Module: ✅ T3.2 Free block caching (%d max blocks)\n", MAX_CACHED_BLOCKS);
-    printf("LibC Module: ✅ T3.2 Performance statistics and monitoring\n");
-    printf("LibC Module: ✅ T3.2 Configurable debug output (default: OFF)\n");
-    printf("LibC Module: ✅ T3.2 Extended C99 function support\n");
-
-    // T3.2: Initialize enhanced statistics
-    memset(&g_libc_stats, 0, sizeof(LibcModuleStats));
-    memset(g_free_blocks, 0, sizeof(g_free_blocks));
-    g_free_block_count = 0;
-    g_pool_offset = 0;
-    libc_debug_mode = false;  // Default to quiet mode for performance
-
+    
+    printf("LibC Module: Registered %u functions\n", libc_info.function_count);
+    
     libc_initialized = true;
-    printf("LibC Module: T3.2 Enhanced initialization completed\n");
     return 0;
 }
 
@@ -1447,13 +1197,15 @@ void libc_native_cleanup(void) {
     if (!libc_initialized) {
         return;
     }
-
-    printf("LibC Module: T3.2 Cleaning up libc_%s_%d.native\n",
+    
+    printf("LibC Module: Cleaning up libc_%s_%d.native\n",
            libc_info.arch, libc_info.bits);
-
-    // T3.2: Print comprehensive performance report
-    libc_print_performance_report();
-
+    printf("Memory Statistics:\n");
+    printf("  Malloc calls: %llu\n", malloc_count);
+    printf("  Free calls: %llu\n", free_count);
+    printf("  Total allocated: %llu bytes\n", total_allocated);
+    printf("  Potential leaks: %llu allocations\n", malloc_count - free_count);
+    
     libc_initialized = false;
 }
 
@@ -1476,9 +1228,9 @@ const LibCModuleInfo* libc_native_get_info(void) {
 }
 
 void libc_native_get_stats(uint64_t* malloc_calls, uint64_t* free_calls, uint64_t* total_alloc) {
-    if (malloc_calls) *malloc_calls = g_libc_stats.malloc_count;
-    if (free_calls) *free_calls = g_libc_stats.free_count;
-    if (total_alloc) *total_alloc = g_libc_stats.total_allocated;
+    if (malloc_calls) *malloc_calls = malloc_count;
+    if (free_calls) *free_calls = free_count;
+    if (total_alloc) *total_alloc = total_allocated;
 }
 
 // ===============================================
