@@ -1127,6 +1127,7 @@ typedef struct {
 // 词法分析器
 typedef struct {
     const char* source;
+    size_t source_length;  // 添加源码长度字段
     int current;
     int line;
     int column;
@@ -1512,6 +1513,7 @@ static PipelineState pipeline_state = {0};
 // 初始化词法分析器
 static void init_lexer(Lexer* lexer, const char* source) {
     lexer->source = source;
+    lexer->source_length = source ? strlen(source) : 0;  // 只计算一次长度
     lexer->current = 0;
     lexer->line = 1;
     lexer->column = 1;
@@ -1532,13 +1534,44 @@ static Token* create_token(TokenType type, const char* value, int line, int colu
 
 // 简化的词法分析
 static bool tokenize(const char* source, Token*** tokens, int* token_count) {
+    if (!source || !tokens || !token_count) {
+        return false;
+    }
+
+    printf("Tokenize: Starting tokenization of %zu bytes\n", strlen(source));
+    printf("Tokenize: Source preview: '%.30s%s'\n", source, strlen(source) > 30 ? "..." : "");
+
     Lexer lexer;
+    printf("Tokenize: Initializing lexer...\n");
     init_lexer(&lexer, source);
-    
-    Token** token_array = malloc(1024 * sizeof(Token*));
+    printf("Tokenize: Lexer initialized, starting main loop\n");
+
+    int capacity = 1024;
+    Token** token_array = malloc(capacity * sizeof(Token*));
+    if (!token_array) {
+        return false;
+    }
     int count = 0;
     
     while (lexer.source[lexer.current] != '\0') {
+        // 检查是否需要扩展数组
+        if (count >= capacity - 1) {
+            capacity *= 2;
+            Token** new_array = realloc(token_array, capacity * sizeof(Token*));
+            if (!new_array) {
+                // 清理已分配的tokens
+                for (int i = 0; i < count; i++) {
+                    if (token_array[i]) {
+                        if (token_array[i]->value) free(token_array[i]->value);
+                        free(token_array[i]);
+                    }
+                }
+                free(token_array);
+                return false;
+            }
+            token_array = new_array;
+        }
+
         char c = lexer.source[lexer.current];
         
         // 跳过空白字符
@@ -1560,14 +1593,14 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
             int start = lexer.current + 1;
             lexer.current++; // 跳过开始的引号
 
-            while (lexer.current < strlen(lexer.source) && lexer.source[lexer.current] != '"') {
+            while (lexer.current < lexer.source_length && lexer.source[lexer.current] != '"') {
                 if (lexer.source[lexer.current] == '\\') {
                     lexer.current++; // 跳过转义字符
                 }
                 lexer.current++;
             }
 
-            if (lexer.current < strlen(lexer.source)) {
+            if (lexer.current < lexer.source_length) {
                 char* value = malloc(lexer.current - start + 1);
                 strncpy(value, &lexer.source[start], lexer.current - start);
                 value[lexer.current - start] = '\0';
@@ -1584,14 +1617,14 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
             int start = lexer.current + 1;
             lexer.current++; // 跳过开始的单引号
 
-            while (lexer.current < strlen(lexer.source) && lexer.source[lexer.current] != '\'') {
+            while (lexer.current < lexer.source_length && lexer.source[lexer.current] != '\'') {
                 if (lexer.source[lexer.current] == '\\') {
                     lexer.current++; // 跳过转义字符
                 }
                 lexer.current++;
             }
 
-            if (lexer.current < strlen(lexer.source)) {
+            if (lexer.current < lexer.source_length) {
                 char* value = malloc(lexer.current - start + 1);
                 strncpy(value, &lexer.source[start], lexer.current - start);
                 value[lexer.current - start] = '\0';
@@ -1663,16 +1696,16 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
         }
         
         // 识别数字（包括整数和浮点数）
-        if (isdigit(c) || (c == '.' && lexer.current + 1 < strlen(lexer.source) && isdigit(lexer.source[lexer.current + 1]))) {
+        if (isdigit(c) || (c == '.' && lexer.current + 1 < lexer.source_length && isdigit(lexer.source[lexer.current + 1]))) {
             int start = lexer.current;
             bool has_dot = false;
             bool has_exp = false;
 
             // 处理十六进制数字
-            if (c == '0' && lexer.current + 1 < strlen(lexer.source) &&
+            if (c == '0' && lexer.current + 1 < lexer.source_length &&
                 (lexer.source[lexer.current + 1] == 'x' || lexer.source[lexer.current + 1] == 'X')) {
                 lexer.current += 2; // 跳过 "0x"
-                while (lexer.current < strlen(lexer.source) &&
+                while (lexer.current < lexer.source_length &&
                        (isdigit(lexer.source[lexer.current]) ||
                         (lexer.source[lexer.current] >= 'a' && lexer.source[lexer.current] <= 'f') ||
                         (lexer.source[lexer.current] >= 'A' && lexer.source[lexer.current] <= 'F'))) {
@@ -1680,7 +1713,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
             } else {
                 // 处理十进制数字
-                while (lexer.current < strlen(lexer.source)) {
+                while (lexer.current < lexer.source_length) {
                     char ch = lexer.source[lexer.current];
 
                     if (isdigit(ch)) {
@@ -1692,7 +1725,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                         has_exp = true;
                         lexer.current++;
                         // 处理指数符号
-                        if (lexer.current < strlen(lexer.source) &&
+                        if (lexer.current < lexer.source_length &&
                             (lexer.source[lexer.current] == '+' || lexer.source[lexer.current] == '-')) {
                             lexer.current++;
                         }
@@ -1703,7 +1736,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
             }
 
             // 处理数字后缀 (L, U, F等)
-            while (lexer.current < strlen(lexer.source)) {
+            while (lexer.current < lexer.source_length) {
                 char ch = lexer.source[lexer.current];
                 if (ch == 'L' || ch == 'l' || ch == 'U' || ch == 'u' || ch == 'F' || ch == 'f') {
                     lexer.current++;
@@ -1724,7 +1757,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
         // 识别符号和运算符
         switch (c) {
             case '+':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_PLUS_ASSIGN, "+=", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1732,10 +1765,10 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '-':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_MINUS_ASSIGN, "-=", lexer.line, lexer.column);
                     lexer.current++;
-                } else if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '>') {
+                } else if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '>') {
                     token_array[count++] = create_token(TOKEN_ARROW, "->", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1743,7 +1776,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '*':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_STAR_ASSIGN, "*=", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1751,7 +1784,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '/':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_SLASH_ASSIGN, "/=", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1759,7 +1792,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '%':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_PERCENT_ASSIGN, "%=", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1767,7 +1800,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '=':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_EQ, "==", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1775,7 +1808,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '!':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_NE, "!=", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1783,10 +1816,10 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '<':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_LE, "<=", lexer.line, lexer.column);
                     lexer.current++;
-                } else if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '<') {
+                } else if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '<') {
                     token_array[count++] = create_token(TOKEN_LSHIFT, "<<", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1794,10 +1827,10 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '>':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '=') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '=') {
                     token_array[count++] = create_token(TOKEN_GE, ">=", lexer.line, lexer.column);
                     lexer.current++;
-                } else if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '>') {
+                } else if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '>') {
                     token_array[count++] = create_token(TOKEN_RSHIFT, ">>", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1805,7 +1838,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '&':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '&') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '&') {
                     token_array[count++] = create_token(TOKEN_AND, "&&", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -1813,7 +1846,7 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
                 }
                 break;
             case '|':
-                if (lexer.current + 1 < strlen(lexer.source) && lexer.source[lexer.current + 1] == '|') {
+                if (lexer.current + 1 < lexer.source_length && lexer.source[lexer.current + 1] == '|') {
                     token_array[count++] = create_token(TOKEN_OR, "||", lexer.line, lexer.column);
                     lexer.current++;
                 } else {
@@ -5849,13 +5882,21 @@ static bool vm_execute(VMContext* ctx) {
 // ===============================================
 
 // 编译C源码为ASTC
-static bool pipeline_compile(const char* source_code, CompileOptions* options) {
+bool pipeline_compile(const char* source_code, CompileOptions* options) {
+    printf("Pipeline: ENTRY - pipeline_compile called\n");
+    printf("Pipeline: source_code pointer: %p\n", (void*)source_code);
+    printf("Pipeline: options pointer: %p\n", (void*)options);
+
     if (!source_code) {
+        printf("Pipeline: ERROR - Source code is NULL\n");
         strcpy(pipeline_state.error_message, "Source code is NULL");
         return false;
     }
 
+    printf("Pipeline: Source code is valid, checking length...\n");
+
     printf("Pipeline: Starting compilation of %zu bytes of source code\n", strlen(source_code));
+    printf("Pipeline: Source code preview: '%.50s%s'\n", source_code, strlen(source_code) > 50 ? "..." : "");
 
     // 安全地清理之前的状态
     if (pipeline_state.source_code) {
@@ -5891,7 +5932,12 @@ static bool pipeline_compile(const char* source_code, CompileOptions* options) {
     // 词法分析
     Token** tokens = NULL;
     int token_count = 0;
-    if (!tokenize(source_code, &tokens, &token_count)) {
+
+    printf("Pipeline: About to call tokenize function...\n");
+    bool tokenize_result = tokenize(source_code, &tokens, &token_count);
+    printf("Pipeline: tokenize returned %s\n", tokenize_result ? "true" : "false");
+
+    if (!tokenize_result) {
         strcpy(pipeline_state.error_message, "Tokenization failed");
         return false;
     }
@@ -6018,7 +6064,7 @@ static bool pipeline_execute(void) {
 }
 
 // 编译并执行
-static bool pipeline_compile_and_run(const char* source_code, CompileOptions* options) {
+bool pipeline_compile_and_run(const char* source_code, CompileOptions* options) {
     if (!pipeline_compile(source_code, options)) {
         return false;
     }
@@ -6027,7 +6073,7 @@ static bool pipeline_compile_and_run(const char* source_code, CompileOptions* op
 }
 
 // 获取错误信息
-static const char* pipeline_get_error(void) {
+const char* pipeline_get_error(void) {
     return pipeline_state.error_message;
 }
 
@@ -6072,7 +6118,7 @@ static const uint8_t* pipeline_get_bytecode(size_t* size) {
 }
 
 // 获取ASTC字节码程序
-static ASTCBytecodeProgram* pipeline_get_astc_program(void) {
+ASTCBytecodeProgram* pipeline_get_astc_program(void) {
     return (ASTCBytecodeProgram*)pipeline_state.astc_program;
 }
 
