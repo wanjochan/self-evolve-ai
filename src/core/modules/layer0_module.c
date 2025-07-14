@@ -78,6 +78,14 @@ static MemoryBlock* memory_pools[MEMORY_POOL_COUNT] = {NULL};
 // 内存池统计
 static MemoryPoolStats pool_stats[MEMORY_POOL_COUNT] = {{0}};
 
+// 优化：添加简单的性能统计
+static struct {
+    uint64_t total_alloc_count;
+    uint64_t total_free_count;
+    uint64_t total_allocated_bytes;
+    uint64_t total_freed_bytes;
+} layer0_perf_stats = {0};
+
 // ===============================================
 // 架构检测部分 (from utils_module.c)
 // ===============================================
@@ -172,12 +180,19 @@ static void* memory_alloc_pool(size_t size, MemoryPoolType pool) {
         pool = MEMORY_POOL_GENERAL;
     }
     
+    // 优化：16字节对齐
+    size_t aligned_size = (size + 15) & ~15;
+    
     // 分配内存块
-    MemoryBlock* block = malloc(sizeof(MemoryBlock) + size);
+    MemoryBlock* block = malloc(sizeof(MemoryBlock) + aligned_size);
     if (!block) return NULL;
     
-    block->size = size;
+    block->size = aligned_size;
     add_to_pool(block, pool);
+    
+    // 优化：更新性能统计
+    layer0_perf_stats.total_alloc_count++;
+    layer0_perf_stats.total_allocated_bytes += aligned_size;
     
     return block->data;
 }
@@ -192,6 +207,11 @@ static void memory_free(void* ptr) {
     if (!ptr) return;
     
     MemoryBlock* block = get_block(ptr);
+    
+    // 优化：更新性能统计
+    layer0_perf_stats.total_free_count++;
+    layer0_perf_stats.total_freed_bytes += block->size;
+    
     remove_from_pool(block);
     free(block);
 }
@@ -472,6 +492,24 @@ static char* std_strcpy(char* dest, const char* src) {
 static int std_strcmp(const char* str1, const char* str2) {
     if (!str1 || !str2) return 0;
     return strcmp(str1, str2);
+}
+
+// 优化：打印layer0性能统计
+static void layer0_print_performance_stats(void) {
+    printf("\n=== Layer0 性能统计 ===\n");
+    printf("总分配次数: %lu\n", layer0_perf_stats.total_alloc_count);
+    printf("总释放次数: %lu\n", layer0_perf_stats.total_free_count);
+    printf("总分配字节: %lu\n", layer0_perf_stats.total_allocated_bytes);
+    printf("总释放字节: %lu\n", layer0_perf_stats.total_freed_bytes);
+    
+    if (layer0_perf_stats.total_alloc_count > 0) {
+        printf("平均分配大小: %.2f bytes\n", 
+               (double)layer0_perf_stats.total_allocated_bytes / layer0_perf_stats.total_alloc_count);
+    }
+    
+    uint64_t current_usage = layer0_perf_stats.total_allocated_bytes - layer0_perf_stats.total_freed_bytes;
+    printf("当前内存使用: %lu bytes\n", current_usage);
+    printf("=====================\n\n");
 }
 
 // ===============================================

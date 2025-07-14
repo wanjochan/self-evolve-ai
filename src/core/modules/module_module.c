@@ -26,13 +26,13 @@ typedef int bool;
 // ===============================================
 
 // 最大可加载模块数
-#define MAX_MODULES 64
+#define MAX_MODULES 128                 // 优化：从64增加到128
 
 // 每个模块最大依赖数
-#define MAX_DEPENDENCIES 16
+#define MAX_DEPENDENCIES 32             // 优化：从16增加到32
 
 // 符号缓存哈希表大小
-#define SYMBOL_CACHE_SIZE 256
+#define SYMBOL_CACHE_SIZE 512           // 优化：从256增加到512
 
 // ===============================================
 // .native文件格式定义
@@ -707,10 +707,11 @@ static int resolve_dependencies(Module* module) {
 }
 
 // 符号哈希函数
+// 优化：使用更好的哈希函数 (djb2算法)
 static unsigned char symbol_hash(const char* symbol) {
-    unsigned char hash = 0;
+    uint32_t hash = 5381;
     for (const char* p = symbol; *p; p++) {
-        hash = hash * 31 + *p;
+        hash = ((hash << 5) + hash) + *p; // hash * 33 + c
     }
     return hash % SYMBOL_CACHE_SIZE;
 }
