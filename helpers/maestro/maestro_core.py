@@ -74,6 +74,11 @@ class MaestroCore:
     
     def find_window(self):
         """查找窗口"""
+        # 如果没有提供窗口标题，则跳过查找
+        if not self.window_title:
+            logger.debug("未提供窗口标题，跳过查找窗口")
+            return False
+            
         # 使用平台抽象层查找窗口
         result = self._window_manager.find_window(self.window_title)
         
