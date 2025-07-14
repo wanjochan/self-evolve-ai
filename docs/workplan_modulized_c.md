@@ -1,7 +1,7 @@
-# 工作计划 modulied_c
+# 工作计划 modulized_c
 
 ## 工作流信息
-- 工作ID: modulied_c
+- 工作ID: modulized_c
 - 创建时间: 2025-01-14
 - 状态: 进行中 (0%)
 - 描述: 完善模块化C核心层 - 测试用例和代码优化
