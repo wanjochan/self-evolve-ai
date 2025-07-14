@@ -5850,45 +5850,107 @@ static bool vm_execute(VMContext* ctx) {
 
 // 编译C源码为ASTC
 static bool pipeline_compile(const char* source_code, CompileOptions* options) {
-    if (!source_code) return false;
-    
-    // 清理之前的状态
-    if (pipeline_state.source_code) free(pipeline_state.source_code);
-    if (pipeline_state.ast_root) ast_free(pipeline_state.ast_root);
-    if (pipeline_state.assembly_code) free(pipeline_state.assembly_code);
-    if (pipeline_state.bytecode) free(pipeline_state.bytecode);
-    
+    if (!source_code) {
+        strcpy(pipeline_state.error_message, "Source code is NULL");
+        return false;
+    }
+
+    printf("Pipeline: Starting compilation of %zu bytes of source code\n", strlen(source_code));
+
+    // 安全地清理之前的状态
+    if (pipeline_state.source_code) {
+        free(pipeline_state.source_code);
+        pipeline_state.source_code = NULL;
+    }
+    if (pipeline_state.ast_root) {
+        ast_free(pipeline_state.ast_root);
+        pipeline_state.ast_root = NULL;
+    }
+    if (pipeline_state.assembly_code) {
+        free(pipeline_state.assembly_code);
+        pipeline_state.assembly_code = NULL;
+    }
+    if (pipeline_state.bytecode) {
+        free(pipeline_state.bytecode);
+        pipeline_state.bytecode = NULL;
+    }
+
+    // 重置状态
+    pipeline_state.bytecode_size = 0;
+    memset(pipeline_state.error_message, 0, sizeof(pipeline_state.error_message));
+
     // 保存源码
     pipeline_state.source_code = strdup(source_code);
-    
+    if (!pipeline_state.source_code) {
+        strcpy(pipeline_state.error_message, "Failed to allocate memory for source code");
+        return false;
+    }
+
+    printf("Pipeline: Starting tokenization...\n");
+
     // 词法分析
-    Token** tokens;
-    int token_count;
+    Token** tokens = NULL;
+    int token_count = 0;
     if (!tokenize(source_code, &tokens, &token_count)) {
         strcpy(pipeline_state.error_message, "Tokenization failed");
         return false;
     }
-    
+
+    if (!tokens || token_count <= 0) {
+        strcpy(pipeline_state.error_message, "No tokens generated");
+        return false;
+    }
+
+    printf("Pipeline: Tokenization completed, %d tokens generated\n", token_count);
+
+    printf("Pipeline: Starting parsing...\n");
+
     // 语法分析
     pipeline_state.ast_root = parse_program(tokens, token_count);
     if (!pipeline_state.ast_root) {
-        strcpy(pipeline_state.error_message, "Parsing failed");
+        strcpy(pipeline_state.error_message, "Parsing failed - AST root is NULL");
+        // 清理tokens
+        for (int i = 0; i < token_count; i++) {
+            if (tokens[i] && tokens[i]->value) free(tokens[i]->value);
+            if (tokens[i]) free(tokens[i]);
+        }
+        free(tokens);
         return false;
     }
-    
+
+    printf("Pipeline: Parsing completed successfully\n");
+
+    printf("Pipeline: Starting ASTC bytecode generation...\n");
+
     // ASTC字节码生成 (新的c2astc流程)
     ASTCBytecodeProgram* astc_program = astc_bytecode_create();
     if (!astc_program) {
         strcpy(pipeline_state.error_message, "Failed to create ASTC bytecode program");
+        // 清理tokens
+        for (int i = 0; i < token_count; i++) {
+            if (tokens[i] && tokens[i]->value) free(tokens[i]->value);
+            if (tokens[i]) free(tokens[i]);
+        }
+        free(tokens);
         return false;
     }
+
+    printf("Pipeline: ASTC bytecode program created, generating from AST...\n");
 
     // 从AST生成ASTC字节码
     if (generate_astc_bytecode_from_ast(pipeline_state.ast_root, astc_program) != 0) {
         strcpy(pipeline_state.error_message, "ASTC bytecode generation failed");
         astc_bytecode_free(astc_program);
+        // 清理tokens
+        for (int i = 0; i < token_count; i++) {
+            if (tokens[i] && tokens[i]->value) free(tokens[i]->value);
+            if (tokens[i]) free(tokens[i]);
+        }
+        free(tokens);
         return false;
     }
+
+    printf("Pipeline: ASTC bytecode generation completed\n");
 
     // 保存ASTC字节码程序
     if (pipeline_state.astc_program) {

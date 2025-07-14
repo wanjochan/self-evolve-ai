@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <setjmp.h>
+#include <signal.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,6 +21,19 @@
 // Include core components
 #include "../src/core/astc.h"
 #include "../src/core/module.h"
+
+// Global error recovery point for signal handling
+static jmp_buf error_recovery_point;
+static volatile sig_atomic_t signal_received = 0;
+
+// Signal handler for SIGSEGV and other errors
+static void signal_handler(int sig) {
+    signal_received = sig;
+    longjmp(error_recovery_point, sig);
+}
+
+// Forward declarations
+static int compile_c_to_astc_simplified(const char* c_file, const char* astc_file, const char* source_code);
 
 /**
  * Print usage information
@@ -240,11 +255,32 @@ int compile_c_to_astc(const char* c_file, const char* astc_file) {
     // 尝试调用pipeline函数，如果失败则回退
     bool compile_result = false;
     bool call_succeeded = true;
-    
-    // 使用信号处理来捕获段错误
-    printf("c2astc: Warning: Dynamic loading may not work correctly\n");
-    printf("c2astc: Falling back to simplified compiler for safety\n");
-    call_succeeded = false;
+
+    // 实际调用pipeline_compile函数
+    printf("c2astc: Calling pipeline_compile with source code...\n");
+    fflush(stdout);
+
+    // 设置信号处理器来捕获段错误
+    signal(SIGSEGV, signal_handler);
+    signal(SIGBUS, signal_handler);
+    signal(SIGFPE, signal_handler);
+
+    // 使用setjmp/longjmp机制来安全调用动态加载的函数
+    if (setjmp(error_recovery_point) == 0) {
+        // 正常执行路径
+        compile_result = pipeline_compile(source_code, &options);
+        call_succeeded = true;
+        printf("c2astc: Pipeline compilation %s\n", compile_result ? "succeeded" : "failed");
+    } else {
+        // 异常恢复路径
+        printf("c2astc: Pipeline call caused signal %d, falling back to simplified compiler\n", signal_received);
+        call_succeeded = false;
+    }
+
+    // 恢复默认信号处理器
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
+    signal(SIGFPE, SIG_DFL);
     
     if (!call_succeeded || !compile_result) {
         if (!call_succeeded) {
