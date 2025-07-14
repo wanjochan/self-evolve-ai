@@ -87,10 +87,10 @@ print_status() {
     local message=$2
     if [ "$VERBOSE_MODE" = true ]; then
         case "$status" in
-            "INFO")  echo -e "${BLUE}[INFO]${NC} $message" ;;
-            "WARN")  echo -e "${YELLOW}[WARN]${NC} $message" ;;
-            "ERROR") echo -e "${RED}[ERROR]${NC} $message" ;;
-            "OK")    echo -e "${GREEN}[OK]${NC} $message" ;;
+            "INFO")  echo -e "${BLUE}[INFO]${NC} $message" >&2 ;;
+            "WARN")  echo -e "${YELLOW}[WARN]${NC} $message" >&2 ;;
+            "ERROR") echo -e "${RED}[ERROR]${NC} $message" >&2 ;;
+            "OK")    echo -e "${GREEN}[OK]${NC} $message" >&2 ;;
         esac
     fi
 }
@@ -311,6 +311,8 @@ try_gcc_compilation() {
 
 # Parse command line options for the wrapper itself
 parse_wrapper_options() {
+    local remaining_args=()
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --c99-verbose)
@@ -361,32 +363,82 @@ parse_wrapper_options() {
                 exit 0
                 ;;
             *)
-                # Not a wrapper option, pass through
-                break
+                # Not a wrapper option, add to remaining args
+                remaining_args+=("$1")
+                shift
                 ;;
         esac
     done
-    
+
     # Return remaining arguments
-    echo "$@"
+    printf '%s\n' "${remaining_args[@]}"
 }
 
 # Main compilation function
 main() {
-    # Parse wrapper-specific options
-    local remaining_args
-    remaining_args=$(parse_wrapper_options "$@")
-    
+    # Parse wrapper-specific options first
+    local args=("$@")
+    local remaining_args=()
+
+    # Simple argument parsing
+    for arg in "${args[@]}"; do
+        case "$arg" in
+            --c99-verbose)
+                VERBOSE_MODE=true
+                ;;
+            --c99-no-fallback)
+                ENABLE_FALLBACK=false
+                ;;
+            --c99-tcc-only)
+                COMPATIBILITY_MODE=true
+                ;;
+            --c99-performance-test)
+                PERFORMANCE_TEST=true
+                VERBOSE_MODE=true
+                ;;
+            --c99-statistics)
+                STATISTICS_MODE=true
+                ;;
+            --c99-log)
+                LOG_COMPILATIONS=true
+                ;;
+            --c99-no-auto-fallback)
+                AUTO_FALLBACK=false
+                ;;
+            --c99-show-stats)
+                if [ -f "$STATS_FILE" ]; then
+                    echo "=== Compilation Statistics ==="
+                    tail -20 "$STATS_FILE"
+                else
+                    echo "No statistics file found"
+                fi
+                exit 0
+                ;;
+            --c99-show-log)
+                if [ -f "$LOG_FILE" ]; then
+                    echo "=== Compilation Log ==="
+                    tail -50 "$LOG_FILE"
+                else
+                    echo "No log file found"
+                fi
+                exit 0
+                ;;
+            *)
+                remaining_args+=("$arg")
+                ;;
+        esac
+    done
+
     print_status "INFO" "C99 wrapper script starting..."
     
     # Force TinyCC mode if requested
     if [ "$COMPATIBILITY_MODE" = true ]; then
         print_status "INFO" "Compatibility mode: using TinyCC only"
         if check_tcc_availability; then
-            try_tcc_compilation $remaining_args
+            try_tcc_compilation "${remaining_args[@]}"
             return $?
         else
-            try_gcc_compilation $remaining_args
+            try_gcc_compilation "${remaining_args[@]}"
             return $?
         fi
     fi
@@ -396,50 +448,50 @@ main() {
         print_status "INFO" "Performance test mode enabled"
         
         # Time C99 compilation
-        if check_c99_availability && should_use_c99 $remaining_args; then
+        if check_c99_availability && should_use_c99 "${remaining_args[@]}"; then
             local start_time=$(date +%s%N)
-            if try_c99_compilation $remaining_args; then
+            if try_c99_compilation "${remaining_args[@]}"; then
                 local end_time=$(date +%s%N)
                 local c99_time=$((($end_time - $start_time) / 1000000))
                 print_status "INFO" "C99 compilation time: ${c99_time}ms"
                 return 0
             fi
         fi
-        
+
         # Time TinyCC compilation
         if check_tcc_availability; then
             local start_time=$(date +%s%N)
-            if try_tcc_compilation $remaining_args; then
+            if try_tcc_compilation "${remaining_args[@]}"; then
                 local end_time=$(date +%s%N)
                 local tcc_time=$((($end_time - $start_time) / 1000000))
                 print_status "INFO" "TinyCC compilation time: ${tcc_time}ms"
                 return 0
             fi
         fi
-        
+
         # Fallback to GCC
-        try_gcc_compilation $remaining_args
+        try_gcc_compilation "${remaining_args[@]}"
         return $?
     fi
     
     # Normal compilation mode
     # Try C99 first if available and suitable
-    if [ "$USE_C99_FIRST" = true ] && check_c99_availability && should_use_c99 $remaining_args; then
-        if try_c99_compilation $remaining_args; then
+    if [ "$USE_C99_FIRST" = true ] && check_c99_availability && should_use_c99 "${remaining_args[@]}"; then
+        if try_c99_compilation "${remaining_args[@]}"; then
             return 0
         fi
     fi
-    
+
     # Fallback to TinyCC if enabled
     if [ "$ENABLE_FALLBACK" = true ] && check_tcc_availability; then
-        if try_tcc_compilation $remaining_args; then
+        if try_tcc_compilation "${remaining_args[@]}"; then
             return 0
         fi
     fi
-    
+
     # Final fallback to GCC
     local result
-    try_gcc_compilation $remaining_args
+    try_gcc_compilation "${remaining_args[@]}"
     result=$?
 
     # Save statistics before exit
