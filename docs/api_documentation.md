@@ -77,6 +77,7 @@ Compiles C source code to ASTC bytecode.
 **Features:**
 - Full C99 support
 - Optimized compilation pipeline
+- Binary ASTC format generation
 - Comprehensive error reporting
 - Fallback mechanisms for stability
 
@@ -138,14 +139,20 @@ int astc_execute(ASTCBytecodeProgram* program);
 
 #### ASTC File Format
 ```c
-// ASTC file header
+// ASTC file header (20 bytes)
 typedef struct {
-    char magic[4];           // "ASTC"
-    uint32_t version;        // Format version
-    uint32_t source_size;    // Source code size
-    uint32_t bytecode_size;  // Bytecode size
-    uint32_t metadata_size;  // Metadata size
+    char magic[4];           // "ASTC" magic number
+    uint32_t version;        // Format version (1)
+    uint32_t flags;          // Flags (0)
+    uint32_t entry_point;    // Entry point (0)
+    uint32_t source_size;    // Source code size in bytes
 } ASTCHeader;
+
+// File structure:
+// 1. ASTCHeader (20 bytes)
+// 2. Source code (source_size bytes)
+// 3. Bytecode size (4 bytes, uint32_t)
+// 4. Bytecode data (bytecode_size bytes)
 ```
 
 ### Module System API

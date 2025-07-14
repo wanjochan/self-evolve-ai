@@ -123,17 +123,20 @@ gdb ./bin/simple_loader
 #### Problem: Invalid ASTC format
 ```bash
 # Symptoms
-Loader: 错误: 无效的ASTC文件格式
+VM: 错误: 无效的ASTC文件格式
 ```
 
 **Solution:**
 ```bash
-# Check file format
-file program.astc
-hexdump -C program.astc | head -2
+# Check file format (should start with "ASTC")
+od -c program.astc | head -2
 
-# Regenerate ASTC file
+# Regenerate ASTC file with direct-linked compiler
 ./bin/c2astc_direct source.c program.astc
+
+# Verify binary format
+od -c program.astc | head -5
+# Should show: A S T C 001 \0 \0 \0 ...
 
 # Use working example
 cp tests/test_minimal.astc program.astc
