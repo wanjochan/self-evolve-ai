@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Maestro核心模块 - 优化版
-减少文件操作，提升智能助理窗口管理和控制功能
+Maestro核心模块 - 跨平台版
+支持Windows和macOS，使用平台抽象层提供统一接口
 """
 
 import os
@@ -11,13 +11,14 @@ import sys
 import time
 import json
 import logging
+import platform
 from pathlib import Path
 import datetime
-import win32gui
-import win32con
-import win32api
 from typing import List, Dict, Any, Tuple, Optional, Union
 import numpy as np
+
+# Import platform-specific implementations
+from maestro.platform import input_controller, window_capture
 
 try:
     from PIL import Image
@@ -31,13 +32,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('maestro_core')
 
 class MaestroCore:
-    """Maestro核心类 - 优化版"""
+    """Maestro核心类 - 跨平台版"""
     
     # 缓存有效期（秒）
     CACHE_EXPIRY = 30
     
     def __init__(self, window_title="Visual Studio Code", debug_mode=False):
-        """初始化Maestro核心
+        """初始Maestro核心
         
         Args:
             window_title: 窗口标题
@@ -48,7 +49,11 @@ class MaestroCore:
         
         self.window_title = window_title
         self.debug_mode = debug_mode
-        self.hwnd = None
+        
+        # 初始化平台抽象层
+        self._window_manager = window_capture.get_window_manager()
+        self._screen_capture = window_capture.get_screen_capture(self._window_manager)
+        self._input_controller = input_controller.get_input_controller()
         
         # 缓存
         self._ui_cache = {}
@@ -63,26 +68,19 @@ class MaestroCore:
         # 查找窗口
         self.find_window()
         
-        # 初始化UI元素
-        if self.hwnd:
+        # 初始UI元素
+        if self._window_manager.has_window_handle():
             self._initialize_ui_elements()
     
     def find_window(self):
         """查找窗口"""
-        def callback(hwnd, windows):
-            if win32gui.IsWindowVisible(hwnd):
-                title = win32gui.GetWindowText(hwnd)
-                if self.window_title.lower() in title.lower():
-                    windows.append((hwnd, title))
-            return True
+        # 使用平台抽象层查找窗口
+        result = self._window_manager.find_window(self.window_title)
         
-        windows = []
-        win32gui.EnumWindows(callback, windows)
-        
-        if windows:
-            self.hwnd = windows[0][0]
-            self.window_title = windows[0][1]
-            logger.info(f"找到窗口: {self.window_title} (HWND: {self.hwnd})")
+        if result:
+            # 更新窗口标题为实际找到的标题
+            self.window_title = self._window_manager.get_window_title()
+            logger.info(f"找到窗口: {self.window_title}")
             return True
         else:
             logger.warning(f"未找到窗口: {self.window_title}")
@@ -145,9 +143,10 @@ class MaestroCore:
     def _use_default_ui_elements(self):
         """使用默认UI元素位置"""
         # 获取窗口大小
-        if self.hwnd:
-            try:
-                left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+        try:
+            if self._window_manager.has_window_handle():
+                # 获取窗口矩形
+                left, top, right, bottom = self._window_manager.get_window_rect()
                 width = right - left
                 height = bottom - top
                 
@@ -177,8 +176,8 @@ class MaestroCore:
                 logger.info(f"使用默认发送按钮: {self.send_button}")
                 
                 return True
-            except Exception as e:
-                logger.error(f"获取窗口大小失败: {e}")
+        except Exception as e:
+            logger.error(f"获取窗口大小失败: {e}")
         
         # 如果无法获取窗口大小，使用固定值
         self.dialog_area = (500, 300, 800, 600)
@@ -189,49 +188,29 @@ class MaestroCore:
     
     def capture_window(self):
         """捕获窗口截图"""
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法捕获截图")
             return None
         
         try:
             # 获取窗口位置和大小
-            left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+            left, top, right, bottom = self._window_manager.get_window_rect()
             self._window_rect = (left, top, right, bottom)
-            width = right - left
-            height = bottom - top
             
-            # 如果没有PIL，无法捕获截图
+            # 如果没有PIL，无法处理截图
             if not HAS_DEPENDENCIES:
-                logger.warning("缺少PIL库，无法捕获截图")
+                logger.warning("缺少PIL库，无法处理截图")
                 return None
             
-            # 创建设备上下文
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32gui.CreateDCFromHandle(hwndDC)
-            saveDC = win32gui.CreateCompatibleDC(mfcDC)
+            # 使用平台抽象层捕获窗口
+            img = self._screen_capture.capture()
             
-            # 创建位图
-            saveBitMap = win32gui.CreateCompatibleBitmap(mfcDC, width, height)
-            win32gui.SelectObject(saveDC, saveBitMap)
-            
-            # 复制窗口内容到位图
-            win32gui.BitBlt(saveDC, 0, 0, width, height, mfcDC, 0, 0, win32con.SRCCOPY)
-            
-            # 转换为PIL Image
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = Image.frombuffer(
-                'RGB',
-                (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
-                bmpstr, 'raw', 'BGRX', 0, 1)
-            
+            if img is None:
+                logger.error("捕获窗口失败")
+                return None
+                
             # 转换为numpy数组
             image = np.array(img)
-            
-            # 清理资源
-            win32gui.DeleteObject(saveBitMap)
-            win32gui.DeleteDC(saveDC)
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
             
             # 如果是调试模式，保存截图
             if self.debug_mode:
@@ -247,29 +226,28 @@ class MaestroCore:
     
     def activate_window(self):
         """激活窗口"""
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法激活")
             return False
         
         try:
-            win32gui.SetForegroundWindow(self.hwnd)
+            result = self._window_manager.activate_window()
             time.sleep(0.2)  # 减少等待时间
             logger.debug("窗口已激活")
-            return True
+            return result
         except Exception as e:
             logger.error(f"激活窗口失败: {e}")
             return False
     
-    def click(self, x, y, button="left", double_click=False):
+    def click_position(self, x, y, button="left"):
         """点击指定位置
         
         Args:
-            x: X坐标（窗口内相对坐标）
-            y: Y坐标（窗口内相对坐标）
-            button: 鼠标按钮，可选值为"left"、"right"、"middle"
-            double_click: 是否双击
+            x: 相对于窗口左上角的x坐标
+            y: 相对于窗口左上角的y坐标
+            button: 鼠标按钮，"left"或"right"
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法点击")
             return False
         
@@ -279,44 +257,23 @@ class MaestroCore:
         
         try:
             # 获取窗口位置
-            if not self._window_rect:
-                left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
-                self._window_rect = (left, top, right, bottom)
-            else:
-                left, top, right, bottom = self._window_rect
+            left, top, right, bottom = self._window_manager.get_window_rect()
             
-            # 计算屏幕坐标
+            # 计算全屏坐标
             screen_x = left + x
             screen_y = top + y
             
-            # 设置鼠标位置
-            win32api.SetCursorPos((screen_x, screen_y))
+            # 使用平台抽象层移动鼠标并点击
+            self._input_controller.move_to(screen_x, screen_y)
             time.sleep(0.1)
             
-            # 根据按钮类型设置事件标志
-            if button == "right":
-                down_event = win32con.MOUSEEVENTF_RIGHTDOWN
-                up_event = win32con.MOUSEEVENTF_RIGHTUP
-            elif button == "middle":
-                down_event = win32con.MOUSEEVENTF_MIDDLEDOWN
-                up_event = win32con.MOUSEEVENTF_MIDDLEUP
-            else:  # 默认为左键
-                down_event = win32con.MOUSEEVENTF_LEFTDOWN
-                up_event = win32con.MOUSEEVENTF_LEFTUP
-            
             # 点击
-            win32api.mouse_event(down_event, 0, 0, 0, 0)
-            time.sleep(0.05)
-            win32api.mouse_event(up_event, 0, 0, 0, 0)
+            if button.lower() == "left":
+                self._input_controller.click(button="left")
+            elif button.lower() == "right":
+                self._input_controller.click(button="right")
             
-            # 如果是双击，再点击一次
-            if double_click:
-                time.sleep(0.05)
-                win32api.mouse_event(down_event, 0, 0, 0, 0)
-                time.sleep(0.05)
-                win32api.mouse_event(up_event, 0, 0, 0, 0)
-            
-            logger.debug(f"点击位置: 窗口坐标({x}, {y}), 屏幕坐标({screen_x}, {screen_y})")
+            logger.debug(f"点击位置: ({x}, {y}) 按钮: {button}")
             return True
         except Exception as e:
             logger.error(f"点击位置失败: {e}")
@@ -324,25 +281,29 @@ class MaestroCore:
     
     def click_input_area(self):
         """点击输入区域"""
-        if not self.input_area:
-            logger.warning("未找到输入区域，无法点击")
+        if not self._window_manager.has_window_handle() or not self.input_area:
+            logger.warning("未找到窗口或输入区域，无法点击")
             return False
         
-        x = (self.input_area[0] + self.input_area[2]) // 2
-        y = (self.input_area[1] + self.input_area[3]) // 2
+        # 计算输入区域中心点
+        x1, y1, x2, y2 = self.input_area
+        x = (x1 + x2) // 2
+        y = (y1 + y2) // 2
         
-        return self.click(x, y)
+        return self.click_position(x, y)
     
     def click_send_button(self):
         """点击发送按钮"""
-        if not self.send_button:
-            logger.warning("未找到发送按钮，无法点击")
+        if not self._window_manager.has_window_handle() or not self.send_button:
+            logger.warning("未找到窗口或发送按钮，无法点击")
             return False
         
-        x = (self.send_button[0] + self.send_button[2]) // 2
-        y = (self.send_button[1] + self.send_button[3]) // 2
+        # 计算发送按钮中心点
+        x1, y1, x2, y2 = self.send_button
+        x = (x1 + x2) // 2
+        y = (y1 + y2) // 2
         
-        return self.click(x, y)
+        return self.click_position(x, y)
     
     def type_text(self, text):
         """输入文本
@@ -350,7 +311,7 @@ class MaestroCore:
         Args:
             text: 要输入的文本
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法输入文本")
             return False
         
@@ -359,51 +320,24 @@ class MaestroCore:
             return False
         
         try:
-            # 使用剪贴板粘贴文本（更快更可靠）
-            if HAS_DEPENDENCIES:
-                pyperclip.copy(text)
-                
-                # 按下Ctrl+V
-                win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-                time.sleep(0.05)
-                win32api.keybd_event(ord('V'), 0, 0, 0)
-                time.sleep(0.05)
-                win32api.keybd_event(ord('V'), 0, win32con.KEYEVENTF_KEYUP, 0)
-                time.sleep(0.05)
-                win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-                
-                logger.debug(f"粘贴文本: {text[:50]}...")
+            # 尝试使用剪贴板
+            try:
+                # 获取剪贴板管理器
+                clipboard_manager = input_controller.get_clipboard_manager()
+                original_clipboard = clipboard_manager.get_text()
+                clipboard_manager.set_text(text)
+                time.sleep(0.1)
+                self.press_hotkey("ctrl+v")
+                time.sleep(0.1)
+                clipboard_manager.set_text(original_clipboard)  # 恢复剪贴板
                 return True
-            else:
-                # 逐字符输入（较慢）
-                for c in text:
-                    try:
-                        # 使用VkKeyScan获取虚拟键码
-                        vk = win32api.VkKeyScan(c)
-                        if vk == -1:
-                            continue  # 跳过无法映射的字符
-                        
-                        # 提取虚拟键码和修饰键信息
-                        vk_code = vk & 0xFF
-                        shift_state = (vk >> 8) & 0xFF
-                        
-                        # 如果需要按下Shift键
-                        if shift_state & 1:
-                            win32api.keybd_event(win32con.VK_SHIFT, 0, 0, 0)
-                        
-                        # 按下并释放字符键
-                        win32api.keybd_event(vk_code, 0, 0, 0)
-                        time.sleep(0.01)
-                        win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
-                        
-                        # 如果按下了Shift键，释放它
-                        if shift_state & 1:
-                            win32api.keybd_event(win32con.VK_SHIFT, 0, win32con.KEYEVENTF_KEYUP, 0)
-                    except Exception as e:
-                        logger.warning(f"输入字符 '{c}' 失败: {e}")
-                
-                logger.debug(f"输入文本: {text[:50]}...")
-                return True
+            except Exception as e:
+                logger.warning(f"使用剪贴板输入文本失败: {e}")
+            
+            # 如果剪贴板方法失败，尝试直接输入
+            self._input_controller.type_text(text)
+            logger.debug(f"输入文本: {text[:50]}...")
+            return True
         except Exception as e:
             logger.error(f"输入文本失败: {e}")
             return False
@@ -414,7 +348,7 @@ class MaestroCore:
         Args:
             key: 按键名称，如"enter"、"tab"、"escape"等
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法按键")
             return False
         
@@ -423,53 +357,8 @@ class MaestroCore:
             return False
         
         try:
-            # 映射按键名称到虚拟键码
-            key_map = {
-                "enter": win32con.VK_RETURN,
-                "tab": win32con.VK_TAB,
-                "escape": win32con.VK_ESCAPE,
-                "space": win32con.VK_SPACE,
-                "backspace": win32con.VK_BACK,
-                "delete": win32con.VK_DELETE,
-                "up": win32con.VK_UP,
-                "down": win32con.VK_DOWN,
-                "left": win32con.VK_LEFT,
-                "right": win32con.VK_RIGHT,
-                "home": win32con.VK_HOME,
-                "end": win32con.VK_END,
-                "pageup": win32con.VK_PRIOR,
-                "pagedown": win32con.VK_NEXT,
-                "f1": win32con.VK_F1,
-                "f2": win32con.VK_F2,
-                "f3": win32con.VK_F3,
-                "f4": win32con.VK_F4,
-                "f5": win32con.VK_F5,
-                "f6": win32con.VK_F6,
-                "f7": win32con.VK_F7,
-                "f8": win32con.VK_F8,
-                "f9": win32con.VK_F9,
-                "f10": win32con.VK_F10,
-                "f11": win32con.VK_F11,
-                "f12": win32con.VK_F12,
-            }
-            
-            # 获取虚拟键码
-            vk_code = key_map.get(key.lower())
-            if vk_code is None:
-                if len(key) == 1:
-                    vk_code = win32api.VkKeyScan(key)
-                    if vk_code == -1:
-                        logger.warning(f"无法映射按键: {key}")
-                        return False
-                    vk_code = vk_code & 0xFF
-                else:
-                    logger.warning(f"未知按键: {key}")
-                    return False
-            
-            # 按下并释放按键
-            win32api.keybd_event(vk_code, 0, 0, 0)
-            time.sleep(0.05)
-            win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # 使用平台抽象层按键
+            self._input_controller.key_tap(key)
             
             logger.debug(f"按下按键: {key}")
             return True
@@ -483,7 +372,7 @@ class MaestroCore:
         Args:
             hotkey: 组合键，如"ctrl+c"、"alt+tab"等
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法按组合键")
             return False
         
@@ -492,36 +381,8 @@ class MaestroCore:
             return False
         
         try:
-            # 解析组合键
-            keys = hotkey.lower().split("+")
-            
-            # 映射修饰键
-            modifier_map = {
-                "ctrl": win32con.VK_CONTROL,
-                "control": win32con.VK_CONTROL,
-                "alt": win32con.VK_MENU,
-                "shift": win32con.VK_SHIFT,
-                "win": win32con.VK_LWIN,
-                "windows": win32con.VK_LWIN
-            }
-            
-            # 按下修饰键
-            modifiers = []
-            for key in keys[:-1]:
-                vk_code = modifier_map.get(key)
-                if vk_code:
-                    win32api.keybd_event(vk_code, 0, 0, 0)
-                    modifiers.append(vk_code)
-                else:
-                    logger.warning(f"未知修饰键: {key}")
-            
-            # 按下主键
-            main_key = keys[-1]
-            self.press_key(main_key)
-            
-            # 释放修饰键（按相反顺序）
-            for vk_code in reversed(modifiers):
-                win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+            # 使用平台抽象层按组合键
+            self._input_controller.hotkey(hotkey)
             
             logger.debug(f"按下组合键: {hotkey}")
             return True
@@ -535,7 +396,7 @@ class MaestroCore:
         Args:
             message: 要发送的消息
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法发送消息")
             return False
         
@@ -568,7 +429,7 @@ class MaestroCore:
     
     def get_dialog_content(self):
         """获取对话内容"""
-        if not self.hwnd or not self.dialog_area:
+        if not self._window_manager.has_window_handle() or not self.dialog_area:
             logger.warning("未找到窗口或对话区域，无法获取对话内容")
             return None
         
@@ -603,7 +464,7 @@ class MaestroCore:
             timeout: 超时时间（秒）
             check_interval: 检查间隔（秒）
         """
-        if not self.hwnd:
+        if not self._window_manager.has_window_handle():
             logger.warning("未找到窗口，无法等待响应")
             return None
         
@@ -679,7 +540,7 @@ def main():
     """命令行入口"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Maestro核心模块")
+    parser = argparse.ArgumentParser(description="Maestro核心模块 - 跨平台版")
     parser.add_argument("--window", "-w", default="Visual Studio Code", help="窗口标题")
     parser.add_argument("--message", "-m", help="要发送的消息")
     parser.add_argument("--task", "-t", help="要执行的任务")
@@ -691,7 +552,7 @@ def main():
     # 创建Maestro核心实例
     maestro = MaestroCore(window_title=args.window, debug_mode=args.debug)
     
-    if not maestro.hwnd:
+    if not maestro._window_manager.has_window_handle():
         print(f"未找到窗口: {args.window}")
         return
     
