@@ -10,7 +10,13 @@
 - **Stage 3: 架构创新进化** - AI发现超越人类设计的新架构（等主人通知才开始）
 - **Stage 4: 通用智能涌现** - 完全自主的计算模式创新（等主人通知才开始）
 
-## 工作模式 - 三条支线独立运作
+## 工作模式 - 多条支线并行运作
+
+### 设计支线 (Design Track)
+- **职责**: 架构设计、技术选型、演进规划
+- **工作流**: 基于项目愿景制定阶段性设计方案，协同workflow.md的标准开发流程
+- **输出**: 架构文档、技术方案、演进路线图
+- **独立性**: 前瞻性规划，为开发支线提供设计指导
 
 ### 开发支线 (Development Track)
 - **职责**: 核心功能开发、架构设计、代码实现
@@ -31,7 +37,7 @@
 - **独立性**: 基于开发和测试支线的输出进行评估，提供客观反馈
 
 ### 支线协作机制
-- **异步协作**: 三条支线可以异步进行，不互相阻塞
+- **异步协作**: 多条支线可以异步进行，不互相阻塞
 - **定期同步**: 通过报告和文档进行信息同步
 - **质量闭环**: 测试支线发现问题 → 开发支线修复 → 审阅支线验证
 - **持续改进**: 审阅支线的建议反馈到开发和测试支线
@@ -39,22 +45,18 @@
 ## 核心设计
 
 ```
-Layer 1 Loader: simple_loader  //执行入口，架构检测和模块加载
+Layer 1 Loader: simple_loader  //执行入口，架构检测和模块加载，后面这个 loader 会升级为跨平台统一loader（参考 cosmopolitan）
     //使用模块系统加载pipeline模块执行ASTC程序
-    Module* pipeline = load_module("./pipeline");  // 自动解析为 pipeline_{arch}_{bits}.native
+    Module* pipeline = load_module("./pipeline");  // 自动解析为 ./pipeline_{arch}_{bits}.native
     return pipeline->sym("pipeline_execute")(program.astc, argv[], env[]);  //示意伪代码
 
 Layer 2 Runtime: {module}_{arch}_{bits}.native  // .native原生字节码模块系统
     - pipeline_{arch}_{bits}.native: 编译流水线 + VM执行 (核心运行时)
-    - layer0_{arch}_{bits}.native: 基础功能 (内存、工具、libdl)
+    - layer0_{arch}_{bits}.native: 基础功能 (内存、工具、libdl等)
     - compiler_{arch}_{bits}.native: JIT编译 + FFI接口
-    - libc_{arch}_{bits}.native: C99标准库支持
+    - libc_{arch}_{bits}.native: C99标准库支持，有两版，一版是操作系统转发（尽量先做），另一版是完整自己实现（以后做）
     
 Layer 3 Program: {program}.astc //用户程序ASTC字节码，架构无关中间表示
-    c99:
-        return c99_compile(c_file_name, argv[])
-    evolver0:
-        return evolve() //基于c99进入stage2的开发,TODO
 ```
 
 layer-loader:
@@ -62,7 +64,7 @@ layer-loader:
 自动检测当前硬件架构和操作系统
 动态选择和加载对应架构的模块
 转发命令行参数和环境变量还有结果
-未来可以参考cosmopolitan项目实现跨架构的统一loader
+未来可能参考cosmopolitan项目实现跨架构的统一loader
 
 layer-runtime:
 模块化原生字节码系统,针对特定架构 arch+bits
@@ -266,51 +268,27 @@ void* ptr = ((void*(*)(size_t))malloc_func)(1024);
 #### 开发支线 (Development Track)
 ```
 dev roadmap (by human master)
+- cc.sh                        # 先使用 tinycc，等我们自己的 c99成熟就切换；
 - src/core/                    # our modulized-c core layer
+- src/c99/                     # 参考tinycc实现的多架构 c99 编译工具链。成熟后替换tinycc
+- build c99 with c99           # c99自举
+- c99 cross build              # 多架构交叉编译
 - layer 1 loader (simple_loader)
 - layer 2 native module (pipeline, layer0, compiler, libc), will be loaded by mmap() 
-- layer 3 program (c99 windows 64 x86)
-- build tcc with c99 // test c99 working good
-- layer 3 program c99 supports cross build
+- layer 3 program (evolver0，我们的 AI进化程序)
 - cross build layer 1 loader (linux, macos)
-- cross build layer 2 vm (arm, riscv, mips, etc.)
-- build loader2 with c99 (then start to be free from tinycc)
+- cross build layer 2
+- cross build layer 3
 ```
 
-#### 测试支线 (Testing Track)
-```
-test roadmap (continuous quality assurance)
-- 建立完整的测试脚本体系 ✅ (prd_0_1_0 已完成)
-- Layer 1 Loader测试覆盖 ✅
-- Layer 2 Native Module测试覆盖 ✅  
-- Layer 3 Program测试覆盖 ✅
-- 集成测试和端到端测试 ✅
-- 性能基准测试建立 ✅
-- 错误处理测试完善 ✅
-- 跨平台兼容性测试 (进行中)
-- 自动化测试流水线建立 (待开始)
-```
-
-#### 审阅支线 (Review Track)
-```
-review roadmap (continuous improvement)
-- 代码质量分析框架建立 ✅
-- 架构设计审查机制 (待建立)
-- 开发流程优化建议 (待建立)
-- 测试覆盖度评估 ✅ (prd_0_1_0 已完成)
-- 技术债务识别和管理 (待建立)
-- 最佳实践文档化 (待建立)
-- 决策记录和经验总结 (待建立)
-```
-
-### 测试脚本概述 (PRD Stage 1, work_id=prd_0_1_0)
+### 测试脚本概述 (PRD Stage 1)
 以下是当前测试分支中用于验证三层架构的测试脚本及其覆盖范围：
 - **test_layer1_loader.sh**: 测试 Layer 1 加载器功能，验证 `simple_loader` 是否能正确加载和执行模块，覆盖基础加载机制。
 - **test_layer2_modules.sh**: 测试 Layer 2 模块功能，验证编译器模块、libc 模块等的构建和运行，覆盖核心模块的独立性和依赖管理。
 - **test_layer3_programs.sh**: 测试 Layer 3 程序编译和运行，验证 C99 编译器和相关工具链的端到端功能，覆盖高级程序构建。
 - **test_comprehensive_integration.sh**: 综合集成测试，验证三层架构的整体协作，覆盖从加载到程序执行的完整流程。
 
-这些脚本旨在发现关键问题（如编译器错误、跨平台兼容性问题），为后续开发提供指导。详细测试结果和问题报告见 `TEST_SUMMARY_REPORT.md`。
+这些脚本旨在发现关键问题（如编译器错误、跨平台兼容性问题）
 
 ## 6. 技术经验总结
 
