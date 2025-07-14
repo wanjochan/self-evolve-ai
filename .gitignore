@@ -21,7 +21,7 @@ helpers/*.png
 helpers/*.json
 helpers/maestro/self-evolve-ai_-_Visual_Studio_Code_screenshot.png
 hello
-test_module
+/test_*
 module_test
 bin/*_test
 bin/test_*
