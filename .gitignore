@@ -35,3 +35,4 @@ tests/layer*_results/
 *.astc
 test_*.c
 /test_*
+/debug_*
