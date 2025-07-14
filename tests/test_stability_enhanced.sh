@@ -148,7 +148,7 @@ echo -e "${BLUE}=== 长时间运行稳定性测试 ===${NC}"
 
 # 测试13: 长时间运行测试
 run_test "长时间运行测试" \
-    "timeout 30s bash -c 'while true; do ./bin/simple_loader ./tests/test_minimal.astc > /dev/null 2>&1 || exit 1; done'" \
+    "timeout 30s bash -c 'while true; do ./bin/simple_loader ./tests/test_minimal.astc > /dev/null 2>&1 || exit 1; done'; [ \$? -eq 124 ]" \
     "pass"
 
 echo -e "${BLUE}=== 资源限制测试 ===${NC}"
