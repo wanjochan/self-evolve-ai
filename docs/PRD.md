@@ -291,13 +291,21 @@ dev roadmap (by human master)
 - **test_layer3_programs.sh**: 测试 Layer 3 程序编译和运行，验证 C99 编译器和相关工具链的端到端功能，覆盖高级程序构建。
 - **test_comprehensive_integration.sh**: 综合集成测试，验证三层架构的整体协作，覆盖从加载到程序执行的完整流程。
 
-#### 增强测试套件 (prd_0_2扩展)
+#### 增强测试套件 (prd_0_2/prd_0_3扩展)
 - **test_stability_enhanced.sh**: 增强稳定性测试，包括重复加载、并发访问、长时间运行、边界条件等稳定性验证。
 - **test_performance_benchmark.sh**: 性能基准测试，建立模块加载、编译执行、内存使用等性能基线数据。
 - **test_error_handling_enhanced.sh**: 增强错误处理测试，验证文件系统错误、参数错误、模块错误等异常情况的处理能力。
 - **test_c99_enhanced.sh**: C99编译器综合测试套件，提供95%功能覆盖率（相比原始40%大幅提升）。涵盖编译器可用性、详细verbose模式验证、全面参数传递测试、错误处理验证、ASTC文件格式验证和边界条件测试等6个核心类别，确保c99.sh脚本的生产环境可靠性。
 
-这些脚本旨在发现关键问题（如编译器错误、跨平台兼容性问题、稳定性问题、性能瓶颈）
+#### 专项测试套件 (prd_0_3新增)
+- **c99_compliance_test.sh**: C99标准合规性测试，验证编译器对C99标准的支持程度。
+- **code_quality_analysis.sh**: 代码质量分析测试，检查代码风格、复杂度、潜在问题等。
+- **performance_test.sh**: 基础性能测试，测量编译和执行性能指标。
+- **safe_integration_test.sh**: 安全集成测试，在受控环境中验证系统集成。
+- **safe_performance_test.sh**: 安全性能测试，在安全约束下进行性能验证。
+- **test_cross_platform_compilation.sh**: 跨平台编译测试，验证不同架构和平台的编译兼容性。
+
+这些脚本旨在发现关键问题（如编译器错误、跨平台兼容性问题、稳定性问题、性能瓶颈、代码质量问题）
 
 ## 6. 技术经验总结
 

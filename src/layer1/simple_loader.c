@@ -98,21 +98,32 @@ static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* 
 
     // 查找Pipeline模块的执行函数
     if (pipeline_module->base_addr && pipeline_module->exports) {
-        // 首先尝试pipeline_execute函数
+        // 首先尝试vm_execute_astc函数（正确的签名）
         for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
-            if (strcmp(pipeline_module->exports[i].name, "pipeline_execute") == 0) {
+            if (strcmp(pipeline_module->exports[i].name, "vm_execute_astc") == 0) {
                 vm_execute_astc = (vm_execute_astc_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
-                printf("Loader: 找到pipeline_execute函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                printf("Loader: 找到vm_execute_astc函数，偏移: %u\n", pipeline_module->exports[i].offset);
                 break;
             }
         }
 
-        // 如果没找到pipeline_execute，尝试pipeline_compile_and_run
+        // 如果没找到vm_execute_astc，尝试execute_astc
         if (!vm_execute_astc) {
             for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
-                if (strcmp(pipeline_module->exports[i].name, "pipeline_compile_and_run") == 0) {
+                if (strcmp(pipeline_module->exports[i].name, "execute_astc") == 0) {
                     vm_execute_astc = (vm_execute_astc_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
-                    printf("Loader: 找到pipeline_compile_and_run函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                    printf("Loader: 找到execute_astc函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                    break;
+                }
+            }
+        }
+
+        // 如果还没找到，尝试native_main
+        if (!vm_execute_astc) {
+            for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
+                if (strcmp(pipeline_module->exports[i].name, "native_main") == 0) {
+                    vm_execute_astc = (vm_execute_astc_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                    printf("Loader: 找到native_main函数，偏移: %u\n", pipeline_module->exports[i].offset);
                     break;
                 }
             }
