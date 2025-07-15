@@ -94,7 +94,9 @@ static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* 
 
     // 尝试查找vm_execute_astc函数
     typedef int (*vm_execute_astc_func_t)(const char*, int, char**);
+    typedef int (*pipeline_compile_and_run_func_t)(const char*, void*);
     vm_execute_astc_func_t vm_execute_astc = NULL;
+    pipeline_compile_and_run_func_t pipeline_compile_and_run = NULL;
 
     // 查找Pipeline模块的执行函数
     if (pipeline_module->base_addr && pipeline_module->exports) {
@@ -129,6 +131,15 @@ static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* 
             }
         }
 
+        // 同时查找pipeline_compile_and_run函数作为备选
+        for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
+            if (strcmp(pipeline_module->exports[i].name, "pipeline_compile_and_run") == 0) {
+                pipeline_compile_and_run = (pipeline_compile_and_run_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                printf("Loader: 找到pipeline_compile_and_run函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                break;
+            }
+        }
+
         if (vm_execute_astc) {
             printf("Loader: 找到Pipeline模块的执行函数\n");
             printf("Loader: 三层架构执行:\n");
@@ -139,7 +150,28 @@ static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* 
             printf("Loader: 即将调用Pipeline模块函数...\n");
             fflush(stdout);  // 确保输出被刷新
 
+            // 先测试一个简单的函数调用来验证模块是否正确加载
+            typedef int (*test_func_t)(void);
+            test_func_t test_func = NULL;
+
+            for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
+                if (strcmp(pipeline_module->exports[i].name, "test_export_function") == 0) {
+                    test_func = (test_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                    printf("Loader: 找到test_export_function函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                    break;
+                }
+            }
+
+            if (test_func) {
+                printf("Loader: 测试调用test_export_function...\n");
+                fflush(stdout);
+                int test_result = test_func();
+                printf("Loader: test_export_function返回值: %d\n", test_result);
+            }
+
             // 调用Pipeline模块的执行函数
+            printf("Loader: 现在调用vm_execute_astc...\n");
+            fflush(stdout);
             int result = vm_execute_astc(astc_file, argc, argv);
 
             printf("Loader: Pipeline模块执行完成，返回值: %d\n", result);
@@ -179,8 +211,8 @@ static LoadedModule* load_native_module(const char* module_path) {
     size_t file_size = st.st_size;
     printf("Loader: 模块文件大小: %zu 字节\n", file_size);
     
-    // 映射文件到内存
-    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    // 映射文件到内存（添加执行权限）
+    void* mapped = mmap(NULL, file_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, 0);
     close(fd);
     
     if (mapped == MAP_FAILED) {

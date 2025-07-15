@@ -258,41 +258,79 @@ int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
     header.header_size = sizeof(NativeHeader);
     header.code_size = obj_size; // 简化：直接使用目标文件作为代码
     header.data_size = 0;
-    header.export_count = 7; // 固定导出7个函数
+    // 扩展导出表以包含更多函数
+    #define EXPORT_COUNT 16
+    header.export_count = EXPORT_COUNT;
     header.export_offset = sizeof(NativeHeader) + obj_size;
 
     // 创建导出表
-    ExportEntry exports[7];
+    ExportEntry exports[EXPORT_COUNT];
     memset(exports, 0, sizeof(exports));
 
-    // 定义导出函数 - 使用pipeline模块的实际函数
-    strcpy(exports[0].name, "pipeline_compile");
+    // 定义导出函数 - 包含所有pipeline模块函数
+    strcpy(exports[0].name, "vm_execute_astc");
     exports[0].offset = 0;
     exports[0].size = 100;
 
-    strcpy(exports[1].name, "pipeline_get_error");
+    strcpy(exports[1].name, "execute_astc");
     exports[1].offset = 128;
     exports[1].size = 50;
 
-    strcpy(exports[2].name, "pipeline_get_astc_program");
+    strcpy(exports[2].name, "native_main");
     exports[2].offset = 256;
     exports[2].size = 50;
 
-    strcpy(exports[3].name, "pipeline_execute");
+    strcpy(exports[3].name, "pipeline_compile");
     exports[3].offset = 384;
-    exports[3].size = 20;
+    exports[3].size = 100;
 
-    strcpy(exports[4].name, "pipeline_compile_and_run");
+    strcpy(exports[4].name, "pipeline_execute");
     exports[4].offset = 512;
     exports[4].size = 20;
 
-    strcpy(exports[5].name, "pipeline_astc2native");
+    strcpy(exports[5].name, "pipeline_compile_and_run");
     exports[5].offset = 640;
     exports[5].size = 20;
 
-    strcpy(exports[6].name, "pipeline_get_assembly");
+    strcpy(exports[6].name, "pipeline_astc2native");
     exports[6].offset = 768;
     exports[6].size = 20;
+
+    strcpy(exports[7].name, "pipeline_get_error");
+    exports[7].offset = 896;
+    exports[7].size = 50;
+
+    strcpy(exports[8].name, "pipeline_get_assembly");
+    exports[8].offset = 1024;
+    exports[8].size = 20;
+
+    strcpy(exports[9].name, "pipeline_get_astc_program");
+    exports[9].offset = 1152;
+    exports[9].size = 50;
+
+    strcpy(exports[10].name, "create_vm_context");
+    exports[10].offset = 1280;
+    exports[10].size = 50;
+
+    strcpy(exports[11].name, "destroy_vm_context");
+    exports[11].offset = 1408;
+    exports[11].size = 50;
+
+    strcpy(exports[12].name, "vm_load_astc_program");
+    exports[12].offset = 1536;
+    exports[12].size = 50;
+
+    strcpy(exports[13].name, "vm_execute");
+    exports[13].offset = 1664;
+    exports[13].size = 50;
+
+    strcpy(exports[14].name, "pipeline_get_bytecode");
+    exports[14].offset = 1792;
+    exports[14].size = 50;
+
+    strcpy(exports[15].name, "test_export_function");
+    exports[15].offset = 1920;
+    exports[15].size = 20;
 
     // 写入.native文件
     FILE* output = fopen(output_file, "wb");
@@ -316,7 +354,7 @@ int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
     }
 
     // 写入导出表
-    if (fwrite(exports, sizeof(ExportEntry), 7, output) != 7) {
+    if (fwrite(exports, sizeof(ExportEntry), EXPORT_COUNT, output) != EXPORT_COUNT) {
         printf("c2native: 错误: 写入导出表失败\n");
         fclose(output);
         return -1;
