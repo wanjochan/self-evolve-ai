@@ -82,92 +82,62 @@ typedef struct {
 } ASTCHeader;
 
 /**
- * 内置VM实现 - 作为fallback
+ * 执行Pipeline模块中的ASTC程序
  */
-static int builtin_vm_execute_astc(const char* astc_file, int argc, char* argv[]) {
-    printf("VM: 执行ASTC文件 %s (内置VM)\n", astc_file);
-    
-    // 打开ASTC文件
-    FILE* file = fopen(astc_file, "rb");
-    if (!file) {
-        printf("VM: 错误: 无法打开ASTC文件 %s\n", astc_file);
+static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* astc_file, int argc, char* argv[]) {
+    if (!pipeline_module || !astc_file) {
+        printf("Loader: 错误: 无效的参数\n");
         return -1;
     }
 
-    // 读取头部
-    ASTCHeader header;
-    if (fread(&header, sizeof(ASTCHeader), 1, file) != 1) {
-        printf("VM: 错误: 读取ASTC头部失败\n");
-        fclose(file);
-        return -1;
-    }
+    printf("Loader: 通过Pipeline模块执行ASTC程序: %s\n", astc_file);
 
-    // 验证魔数
-    if (memcmp(header.magic, "ASTC", 4) != 0) {
-        printf("VM: 错误: 无效的ASTC文件格式\n");
-        fclose(file);
-        return -1;
-    }
+    // 尝试查找vm_execute_astc函数
+    typedef int (*vm_execute_astc_func_t)(const char*, int, char**);
+    vm_execute_astc_func_t vm_execute_astc = NULL;
 
-    printf("VM: ASTC文件版本: %u\n", header.version);
-    printf("VM: 源码大小: %u 字节\n", header.source_size);
-
-    // 跳过源码部分
-    fseek(file, header.source_size, SEEK_CUR);
-
-    // 读取字节码大小
-    uint32_t bytecode_size;
-    if (fread(&bytecode_size, sizeof(uint32_t), 1, file) != 1) {
-        printf("VM: 错误: 读取字节码大小失败\n");
-        fclose(file);
-        return -1;
-    }
-
-    printf("VM: 字节码大小: %u 字节\n", bytecode_size);
-
-    // 读取字节码
-    uint8_t* bytecode = malloc(bytecode_size);
-    if (!bytecode) {
-        printf("VM: 错误: 内存分配失败\n");
-        fclose(file);
-        return -1;
-    }
-
-    if (fread(bytecode, 1, bytecode_size, file) != bytecode_size) {
-        printf("VM: 错误: 读取字节码失败\n");
-        free(bytecode);
-        fclose(file);
-        return -1;
-    }
-
-    fclose(file);
-
-    printf("\n=== 执行ASTC程序 ===\n");
-    
-    // 简单的字节码解释器
-    for (size_t i = 0; i < bytecode_size; i++) {
-        uint8_t opcode = bytecode[i];
-        
-        switch (opcode) {
-            case 0x61: // VM_OP_PRINT
-                printf("Hello World from VM!\n");
+    // 查找Pipeline模块的执行函数
+    if (pipeline_module->base_addr && pipeline_module->exports) {
+        // 首先尝试pipeline_execute函数
+        for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
+            if (strcmp(pipeline_module->exports[i].name, "pipeline_execute") == 0) {
+                vm_execute_astc = (vm_execute_astc_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                printf("Loader: 找到pipeline_execute函数，偏移: %u\n", pipeline_module->exports[i].offset);
                 break;
-            case 0xFF: // VM_OP_EXIT
-                printf("=== 程序正常退出 ===\n");
-                free(bytecode);
-                return 0;
-            default:
-                // 忽略其他指令
-                break;
+            }
+        }
+
+        // 如果没找到pipeline_execute，尝试pipeline_compile_and_run
+        if (!vm_execute_astc) {
+            for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
+                if (strcmp(pipeline_module->exports[i].name, "pipeline_compile_and_run") == 0) {
+                    vm_execute_astc = (vm_execute_astc_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                    printf("Loader: 找到pipeline_compile_and_run函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                    break;
+                }
+            }
+        }
+
+        if (vm_execute_astc) {
+            printf("Loader: 找到Pipeline模块的执行函数\n");
+            printf("Loader: 三层架构执行:\n");
+            printf("  Layer 1: simple_loader (当前程序)\n");
+            printf("  Layer 2: Pipeline模块\n");
+            printf("  Layer 3: %s (ASTC程序)\n", astc_file);
+
+            printf("Loader: 即将调用Pipeline模块函数...\n");
+            fflush(stdout);  // 确保输出被刷新
+
+            // 调用Pipeline模块的执行函数
+            int result = vm_execute_astc(astc_file, argc, argv);
+
+            printf("Loader: Pipeline模块执行完成，返回值: %d\n", result);
+            return result;
         }
     }
-    
-    printf("=== 执行完成 ===\n");
-    
-    // 释放资源
-    free(bytecode);
-    
-    return 0;
+
+    printf("Loader: 错误: 无法找到Pipeline模块的执行函数\n");
+    return -1;
 }
 
 /**
@@ -175,13 +145,17 @@ static int builtin_vm_execute_astc(const char* astc_file, int argc, char* argv[]
  */
 static LoadedModule* load_native_module(const char* module_path) {
     printf("Loader: 尝试加载模块 %s\n", module_path);
-    
+    fflush(stdout);
+
     // 打开文件
     int fd = open(module_path, O_RDONLY);
     if (fd == -1) {
         printf("Loader: 警告: 无法打开模块文件 %s: %s\n", module_path, strerror(errno));
         return NULL;
     }
+
+    printf("Loader: 文件打开成功，fd=%d\n", fd);
+    fflush(stdout);
     
     // 获取文件大小
     struct stat st;
@@ -319,19 +293,40 @@ int main(int argc, char* argv[]) {
 
     printf("Loader: Pipeline模块路径: %s\n", pipeline_module_path);
 
-    // 暂时跳过Pipeline模块以避免段错误，直接使用内置VM
-    printf("Loader: 警告: 跳过Pipeline模块（避免段错误），使用内置VM\n");
-    
-    // Fallback到内置VM
-    printf("Loader: 使用内置VM执行ASTC程序...\n");
-    printf("Loader: 三层架构执行:\n");
-    printf("  Layer 1: simple_loader (当前程序)\n");
-    printf("  Layer 2: 内置VM (fallback)\n");
-    printf("  Layer 3: %s (ASTC程序)\n", astc_file);
-    
-    int result = builtin_vm_execute_astc(astc_file, argc - 1, argv + 1);
-    
-    printf("Loader: 内置VM执行完成，返回值: %d\n", result);
-    
+    // 尝试加载Pipeline模块
+    printf("Loader: 正在加载Pipeline模块...\n");
+    fflush(stdout);
+
+    LoadedModule* pipeline_module = load_native_module(pipeline_module_path);
+
+    if (!pipeline_module) {
+        printf("Loader: 错误: 无法加载Pipeline模块 %s\n", pipeline_module_path);
+        printf("Loader: 这可能是因为Pipeline模块存在问题或文件不存在\n");
+        printf("Loader: 请检查Pipeline模块是否正确构建\n");
+        return -1;
+    }
+
+    printf("Loader: Pipeline模块加载成功\n");
+    fflush(stdout);
+
+    // 通过Pipeline模块执行ASTC程序
+    printf("Loader: 准备调用Pipeline模块执行函数...\n");
+    int result = execute_astc_via_pipeline(pipeline_module, astc_file, argc - 1, argv + 1);
+    printf("Loader: Pipeline模块调用返回，结果: %d\n", result);
+
+    // 清理资源
+    if (pipeline_module) {
+        if (pipeline_module->base_addr) {
+            munmap(pipeline_module->base_addr, pipeline_module->size);
+        }
+        if (pipeline_module->header) {
+            free(pipeline_module->header);
+        }
+        if (pipeline_module->exports) {
+            free(pipeline_module->exports);
+        }
+        free(pipeline_module);
+    }
+
     return result;
 }
