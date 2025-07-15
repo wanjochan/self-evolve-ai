@@ -36,3 +36,6 @@ tests/layer*_results/
 test_*.c
 /test_*
 /debug_*
+
+# Core dump files
+/core.*
