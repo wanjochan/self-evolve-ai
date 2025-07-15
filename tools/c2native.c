@@ -32,10 +32,10 @@ typedef struct {
     uint32_t size;
 } SymbolInfo;
 
-// 从目标文件中提取符号信息
-static int extract_symbols(const char* obj_file, SymbolInfo* symbols, int max_symbols) {
+// 从共享库中提取符号信息
+static int extract_symbols(const char* so_file, SymbolInfo* symbols, int max_symbols) {
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "nm %s | grep ' T ' | head -%d", obj_file, max_symbols);
+    snprintf(cmd, sizeof(cmd), "nm -D %s | grep ' T ' | head -%d", so_file, max_symbols);
 
     FILE* fp = popen(cmd, "r");
     if (!fp) {
@@ -390,12 +390,12 @@ int compile_with_fallback(const char* c_file, const char* output_file, NativeArc
     printf("c2native: 使用回退编译方案...\n");
     printf("c2native: 警告: 这不是正确的三层架构实现\n");
     
-    // 生成临时目标文件名
+    // 生成临时共享库文件名
     char temp_obj_file[512];
-    snprintf(temp_obj_file, sizeof(temp_obj_file), "%s.tmp.o", output_file);
+    snprintf(temp_obj_file, sizeof(temp_obj_file), "%s.tmp.so", output_file);
     
-    // 编译C文件为目标文件
-    printf("c2native: 编译 %s 为目标文件 (架构: %s)...\n", c_file,
+    // 编译C文件为共享库
+    printf("c2native: 编译 %s 为共享库 (架构: %s)...\n", c_file,
            target_arch == NATIVE_ARCH_X86_64 ? "x86_64" :
            target_arch == NATIVE_ARCH_ARM64 ? "arm64" : "x86_32");
     
@@ -416,14 +416,14 @@ int compile_with_fallback(const char* c_file, const char* output_file, NativeArc
     }
     
 #ifdef _WIN32
-    snprintf(command, sizeof(command), 
-        "external\\tcc-win\\tcc\\tcc.exe -c -o \"%s\" \"%s\" "
+    snprintf(command, sizeof(command),
+        "external\\tcc-win\\tcc\\tcc.exe -shared -fPIC -o \"%s\" \"%s\" "
         "-Isrc/core -Isrc/ext %s "
         "-DNDEBUG -O2",
         temp_obj_file, c_file, arch_flags);
 #else
-    snprintf(command, sizeof(command), 
-        "./cc.sh -c -o \"%s\" \"%s\" "
+    snprintf(command, sizeof(command),
+        "./cc.sh -shared -fPIC -o \"%s\" \"%s\" "
         "-Isrc/core -Isrc/ext %s "
         "-DNDEBUG -O2",
         temp_obj_file, c_file, arch_flags);
@@ -437,8 +437,8 @@ int compile_with_fallback(const char* c_file, const char* output_file, NativeArc
         return -1;
     }
     
-    // 从目标文件提取机器码并创建.native文件
-    printf("c2native: 从目标文件提取机器码...\n");
+    // 从共享库文件提取机器码并创建.native文件
+    printf("c2native: 从共享库提取机器码...\n");
 
     // 读取目标文件
     FILE* obj_file = fopen(temp_obj_file, "rb");

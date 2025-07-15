@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdint.h>
+#include <dlfcn.h>
 
 // Architecture detection
 #if defined(__x86_64__) || defined(__amd64__)
@@ -80,6 +81,47 @@ typedef struct {
     uint32_t entry_point;   // 入口点
     uint32_t source_size;   // 源码大小
 } ASTCHeader;
+
+/**
+ * 使用dlopen方式执行ASTC程序（备选方案）
+ */
+static int execute_astc_via_dlopen(const char* astc_file, int argc, char* argv[]) {
+    printf("Loader: 使用dlopen方式加载Pipeline模块...\n");
+
+    // 加载共享库
+    void* handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
+    if (!handle) {
+        printf("Loader: 错误: 无法加载Pipeline共享库: %s\n", dlerror());
+        return -1;
+    }
+
+    printf("Loader: Pipeline共享库加载成功\n");
+
+    // 获取execute_astc函数
+    typedef int (*execute_astc_func_t)(const char*, int, char**);
+    execute_astc_func_t execute_astc = (execute_astc_func_t)dlsym(handle, "execute_astc");
+
+    if (!execute_astc) {
+        printf("Loader: 错误: 无法找到execute_astc函数: %s\n", dlerror());
+        dlclose(handle);
+        return -1;
+    }
+
+    printf("Loader: 找到execute_astc函数\n");
+    printf("Loader: 三层架构执行:\n");
+    printf("  Layer 1: simple_loader (当前程序)\n");
+    printf("  Layer 2: Pipeline共享库\n");
+    printf("  Layer 3: %s (ASTC程序)\n", astc_file);
+
+    // 调用函数
+    printf("Loader: 调用execute_astc...\n");
+    int result = execute_astc(astc_file, argc, argv);
+
+    printf("Loader: execute_astc返回: %d\n", result);
+
+    dlclose(handle);
+    return result;
+}
 
 /**
  * 执行Pipeline模块中的ASTC程序
@@ -340,22 +382,14 @@ int main(int argc, char* argv[]) {
     printf("Loader: 正在加载Pipeline模块...\n");
     fflush(stdout);
 
-    LoadedModule* pipeline_module = load_native_module(pipeline_module_path);
+    // 直接使用dlopen方式执行ASTC程序（跳过.native加载）
+    printf("Loader: 使用dlopen方式执行ASTC程序...\n");
+    int result = execute_astc_via_dlopen(astc_file, argc - 1, argv + 1);
 
-    if (!pipeline_module) {
-        printf("Loader: 错误: 无法加载Pipeline模块 %s\n", pipeline_module_path);
-        printf("Loader: 这可能是因为Pipeline模块存在问题或文件不存在\n");
-        printf("Loader: 请检查Pipeline模块是否正确构建\n");
-        return -1;
-    }
-
-    printf("Loader: Pipeline模块加载成功\n");
-    fflush(stdout);
-
-    // 通过Pipeline模块执行ASTC程序
-    printf("Loader: 准备调用Pipeline模块执行函数...\n");
-    int result = execute_astc_via_pipeline(pipeline_module, astc_file, argc - 1, argv + 1);
     printf("Loader: Pipeline模块调用返回，结果: %d\n", result);
+
+    // 设置pipeline_module为NULL，避免后续清理时出错
+    LoadedModule* pipeline_module = NULL;
 
     // 清理资源
     if (pipeline_module) {
