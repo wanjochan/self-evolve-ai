@@ -266,13 +266,37 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
     func_decl->data.func_decl.has_body = 0;
     func_decl->data.func_decl.body = NULL;
 
-    // Skip type specifiers for now (TODO: parse return type properly)
-    while (parser->current_token &&
-           (parser->current_token->type == TOKEN_INT ||
-            parser->current_token->type == TOKEN_VOID ||
-            parser->current_token->type == TOKEN_CHAR)) {
-        printf("Parser: Skipping type specifier '%s'\n", parser->current_token->value);
+    // Parse return type properly
+    if (parser->current_token &&
+        (parser->current_token->type == TOKEN_INT ||
+         parser->current_token->type == TOKEN_VOID ||
+         parser->current_token->type == TOKEN_CHAR)) {
+
+        // Create return type node
+        struct ASTNode* return_type = parser_create_ast_node(parser, ASTC_PRIMITIVE_TYPE);
+        if (return_type) {
+            // Set type based on token
+            if (parser->current_token->type == TOKEN_INT) {
+                return_type->data.type_specifier.type = ASTC_TYPE_INT;
+            } else if (parser->current_token->type == TOKEN_VOID) {
+                return_type->data.type_specifier.type = ASTC_TYPE_VOID;
+            } else if (parser->current_token->type == TOKEN_CHAR) {
+                return_type->data.type_specifier.type = ASTC_TYPE_CHAR;
+            }
+
+            func_decl->data.func_decl.return_type = return_type;
+            printf("Parser: Parsed return type '%s'\n", parser->current_token->value);
+        }
+
         parser_advance(parser);
+    } else {
+        // Default to int if no type specified
+        struct ASTNode* return_type = parser_create_ast_node(parser, ASTC_PRIMITIVE_TYPE);
+        if (return_type) {
+            return_type->data.type_specifier.type = ASTC_TYPE_INT;
+            func_decl->data.func_decl.return_type = return_type;
+            printf("Parser: Using default return type 'int'\n");
+        }
     }
 
     printf("Parser: Current token after type specifiers: %s '%s'\n",
@@ -292,15 +316,80 @@ struct ASTNode* parser_parse_function_definition(ParserContext* parser) {
 
     // Parse parameter list
     if (parser_expect(parser, TOKEN_LPAREN)) {
-        // Skip to closing paren for now (TODO: parse parameters properly)
-        int paren_count = 1;
-        while (paren_count > 0 && parser->current_token && parser->current_token->type != TOKEN_EOF) {
-            if (parser->current_token->type == TOKEN_LPAREN) {
-                paren_count++;
-            } else if (parser->current_token->type == TOKEN_RPAREN) {
-                paren_count--;
-            }
+        // Parse parameters properly
+        struct ASTNode** params = malloc(16 * sizeof(struct ASTNode*));
+        int param_count = 0;
+        int param_capacity = 16;
+
+        // Check for void parameter list
+        if (parser->current_token && parser->current_token->type == TOKEN_VOID) {
+            printf("Parser: Found void parameter list\n");
             parser_advance(parser);
+        } else {
+            // Parse parameter list
+            while (parser->current_token && parser->current_token->type != TOKEN_RPAREN && parser->current_token->type != TOKEN_EOF) {
+                // Parse parameter as variable declaration
+                struct ASTNode* param = parser_create_ast_node(parser, ASTC_VAR_DECL);
+                if (!param) break;
+
+                // Initialize parameter data
+                param->data.var_decl.name = NULL;
+                param->data.var_decl.type = NULL;
+                param->data.var_decl.initializer = NULL;
+
+                // Parse parameter type
+                if (parser->current_token->type == TOKEN_INT ||
+                    parser->current_token->type == TOKEN_VOID ||
+                    parser->current_token->type == TOKEN_CHAR) {
+
+                    struct ASTNode* param_type = parser_create_ast_node(parser, ASTC_PRIMITIVE_TYPE);
+                    if (param_type) {
+                        if (parser->current_token->type == TOKEN_INT) {
+                            param_type->data.type_specifier.type = ASTC_TYPE_INT;
+                        } else if (parser->current_token->type == TOKEN_VOID) {
+                            param_type->data.type_specifier.type = ASTC_TYPE_VOID;
+                        } else if (parser->current_token->type == TOKEN_CHAR) {
+                            param_type->data.type_specifier.type = ASTC_TYPE_CHAR;
+                        }
+                        param->data.var_decl.type = param_type;
+                    }
+                    parser_advance(parser);
+                }
+
+                // Parse parameter name (optional)
+                if (parser->current_token && parser->current_token->type == TOKEN_IDENTIFIER) {
+                    param->data.var_decl.name = strdup(parser->current_token->value);
+                    printf("Parser: Found parameter '%s'\n", param->data.var_decl.name);
+                    parser_advance(parser);
+                } else {
+                    param->data.var_decl.name = NULL;
+                }
+
+                // Add parameter to list
+                if (param_count >= param_capacity) {
+                    param_capacity *= 2;
+                    params = realloc(params, param_capacity * sizeof(struct ASTNode*));
+                }
+                params[param_count++] = param;
+
+                // Check for comma
+                if (parser->current_token && parser->current_token->type == TOKEN_COMMA) {
+                    parser_advance(parser);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        func_decl->data.func_decl.params = params;
+        func_decl->data.func_decl.param_count = param_count;
+        printf("Parser: Parsed %d parameters\n", param_count);
+
+        // Expect closing parenthesis
+        if (!parser_expect(parser, TOKEN_RPAREN)) {
+            parser_error(parser, "Expected ')' after parameter list");
+            ast_free(func_decl);
+            return NULL;
         }
     }
 
@@ -331,9 +420,14 @@ struct ASTNode* parser_parse_compound_statement(ParserContext* parser) {
     
     struct ASTNode* compound = parser_create_ast_node(parser, ASTC_COMPOUND_STMT);
     if (!compound) return NULL;
-    
+
+    // Initialize compound statement data
+    compound->data.compound_stmt.statements = NULL;
+    compound->data.compound_stmt.statement_count = 0;
+    int stmt_capacity = 0;
+
     parser->scope_depth++;
-    
+
     // Parse statements until closing brace
     while (parser->current_token &&
            parser->current_token->type != TOKEN_RBRACE &&
@@ -341,7 +435,28 @@ struct ASTNode* parser_parse_compound_statement(ParserContext* parser) {
 
         struct ASTNode* stmt = parser_parse_statement(parser);
         if (stmt) {
-            // TODO: Add statement to compound
+            // Add statement to compound statement
+            if (compound->data.compound_stmt.statement_count >= stmt_capacity) {
+                // Expand statements array
+                stmt_capacity = stmt_capacity == 0 ? 8 : stmt_capacity * 2;
+                struct ASTNode** new_statements = realloc(
+                    compound->data.compound_stmt.statements,
+                    stmt_capacity * sizeof(struct ASTNode*)
+                );
+
+                if (!new_statements) {
+                    parser_error(parser, "Memory allocation failed for compound statement");
+                    ast_free(stmt);
+                    ast_free(compound);
+                    return NULL;
+                }
+
+                compound->data.compound_stmt.statements = new_statements;
+            }
+
+            // Add statement to array
+            compound->data.compound_stmt.statements[compound->data.compound_stmt.statement_count++] = stmt;
+            printf("Parser: Added statement to compound (count: %d)\n", compound->data.compound_stmt.statement_count);
         } else {
             // If we can't parse a statement, advance to avoid infinite loop
             parser_advance(parser);
