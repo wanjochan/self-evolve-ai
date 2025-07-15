@@ -185,10 +185,10 @@ test_error_handling "文件描述符限制" \
     "ulimit -n 10; ./bin/simple_loader ./tests/test_minimal.astc" \
     "pass"  # 可能通过，取决于实际FD使用
 
-# 测试14: 进程限制
+# 测试14: 进程限制（使用更安全的限制值）
 test_error_handling "进程数量限制" \
-    "ulimit -u 10; ./bin/simple_loader ./tests/test_minimal.astc" \
-    "pass"  # 可能通过，取决于实际进程使用
+    "ulimit -u 100; ./bin/simple_loader ./tests/test_minimal.astc" \
+    "pass"  # 使用较高的限制值避免系统卡死
 
 echo -e "${BLUE}=== 并发错误处理测试 ===${NC}"
 
