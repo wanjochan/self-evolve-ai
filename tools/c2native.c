@@ -24,6 +24,43 @@
 
 // Include pipeline module interface
 #include "../src/core/astc.h"
+
+// 符号信息结构
+typedef struct {
+    char name[64];
+    uint64_t address;
+    uint32_t size;
+} SymbolInfo;
+
+// 从目标文件中提取符号信息
+static int extract_symbols(const char* obj_file, SymbolInfo* symbols, int max_symbols) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "nm %s | grep ' T ' | head -%d", obj_file, max_symbols);
+
+    FILE* fp = popen(cmd, "r");
+    if (!fp) {
+        printf("c2native: 错误: 无法执行nm命令\n");
+        return -1;
+    }
+
+    int count = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), fp) && count < max_symbols) {
+        uint64_t addr;
+        char type;
+        char name[64];
+
+        if (sscanf(line, "%lx %c %63s", &addr, &type, name) == 3) {
+            strcpy(symbols[count].name, name);
+            symbols[count].address = addr;
+            symbols[count].size = 100; // 默认大小
+            count++;
+        }
+    }
+
+    pclose(fp);
+    return count;
+}
 #include "../src/core/module.h"
 
 #define NATIVE_MAGIC 0x5654414E  // "NATV"
@@ -247,7 +284,8 @@ int compile_with_pipeline(const char* source_code, const char* output_file) {
 
 // 从目标文件创建.native文件
 int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
-                                  const char* output_file, NativeArchitecture target_arch) {
+                                  const char* output_file, NativeArchitecture target_arch,
+                                  const char* obj_file_path) {
     // 创建.native文件头
     NativeHeader header = {0};
     memcpy(header.magic, "NATV", 4);
@@ -258,79 +296,59 @@ int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
     header.header_size = sizeof(NativeHeader);
     header.code_size = obj_size; // 简化：直接使用目标文件作为代码
     header.data_size = 0;
-    // 扩展导出表以包含更多函数
-    #define EXPORT_COUNT 16
-    header.export_count = EXPORT_COUNT;
-    header.export_offset = sizeof(NativeHeader) + obj_size;
+    // 动态提取符号信息
+    SymbolInfo symbols[32];
+    int symbol_count = extract_symbols(obj_file_path, symbols, 32);
+
+    if (symbol_count <= 0) {
+        printf("c2native: 警告: 无法提取符号信息，使用默认导出表\n");
+        symbol_count = 0;
+    }
 
     // 创建导出表
-    ExportEntry exports[EXPORT_COUNT];
+    #define MAX_EXPORTS 32
+    ExportEntry exports[MAX_EXPORTS];
     memset(exports, 0, sizeof(exports));
 
-    // 定义导出函数 - 包含所有pipeline模块函数
-    strcpy(exports[0].name, "vm_execute_astc");
-    exports[0].offset = 0;
-    exports[0].size = 100;
+    int export_count = 0;
 
-    strcpy(exports[1].name, "execute_astc");
-    exports[1].offset = 128;
-    exports[1].size = 50;
+    // 添加关键函数到导出表
+    const char* key_functions[] = {
+        "vm_execute_astc", "execute_astc", "native_main",
+        "pipeline_compile", "pipeline_execute", "pipeline_compile_and_run",
+        "pipeline_astc2native", "pipeline_get_error", "pipeline_get_assembly",
+        "pipeline_get_astc_program", "create_vm_context", "destroy_vm_context",
+        "vm_load_astc_program", "vm_execute", "pipeline_get_bytecode",
+        "test_export_function"
+    };
 
-    strcpy(exports[2].name, "native_main");
-    exports[2].offset = 256;
-    exports[2].size = 50;
+    for (int i = 0; i < sizeof(key_functions)/sizeof(key_functions[0]) && export_count < MAX_EXPORTS; i++) {
+        // 在符号表中查找函数
+        int found = 0;
+        for (int j = 0; j < symbol_count; j++) {
+            if (strcmp(symbols[j].name, key_functions[i]) == 0) {
+                strcpy(exports[export_count].name, key_functions[i]);
+                exports[export_count].offset = (uint32_t)symbols[j].address;
+                exports[export_count].size = symbols[j].size;
+                export_count++;
+                found = 1;
+                printf("c2native: 找到符号 %s 地址: 0x%lx\n", key_functions[i], symbols[j].address);
+                break;
+            }
+        }
 
-    strcpy(exports[3].name, "pipeline_compile");
-    exports[3].offset = 384;
-    exports[3].size = 100;
+        if (!found) {
+            // 如果没找到，使用默认值
+            strcpy(exports[export_count].name, key_functions[i]);
+            exports[export_count].offset = export_count * 128; // 默认偏移
+            exports[export_count].size = 100; // 默认大小
+            export_count++;
+            printf("c2native: 符号 %s 未找到，使用默认偏移: %d\n", key_functions[i], (export_count-1) * 128);
+        }
+    }
 
-    strcpy(exports[4].name, "pipeline_execute");
-    exports[4].offset = 512;
-    exports[4].size = 20;
-
-    strcpy(exports[5].name, "pipeline_compile_and_run");
-    exports[5].offset = 640;
-    exports[5].size = 20;
-
-    strcpy(exports[6].name, "pipeline_astc2native");
-    exports[6].offset = 768;
-    exports[6].size = 20;
-
-    strcpy(exports[7].name, "pipeline_get_error");
-    exports[7].offset = 896;
-    exports[7].size = 50;
-
-    strcpy(exports[8].name, "pipeline_get_assembly");
-    exports[8].offset = 1024;
-    exports[8].size = 20;
-
-    strcpy(exports[9].name, "pipeline_get_astc_program");
-    exports[9].offset = 1152;
-    exports[9].size = 50;
-
-    strcpy(exports[10].name, "create_vm_context");
-    exports[10].offset = 1280;
-    exports[10].size = 50;
-
-    strcpy(exports[11].name, "destroy_vm_context");
-    exports[11].offset = 1408;
-    exports[11].size = 50;
-
-    strcpy(exports[12].name, "vm_load_astc_program");
-    exports[12].offset = 1536;
-    exports[12].size = 50;
-
-    strcpy(exports[13].name, "vm_execute");
-    exports[13].offset = 1664;
-    exports[13].size = 50;
-
-    strcpy(exports[14].name, "pipeline_get_bytecode");
-    exports[14].offset = 1792;
-    exports[14].size = 50;
-
-    strcpy(exports[15].name, "test_export_function");
-    exports[15].offset = 1920;
-    exports[15].size = 20;
+    header.export_count = export_count;
+    header.export_offset = sizeof(NativeHeader) + obj_size;
 
     // 写入.native文件
     FILE* output = fopen(output_file, "wb");
@@ -354,7 +372,7 @@ int create_native_file_from_object(const uint8_t* obj_data, size_t obj_size,
     }
 
     // 写入导出表
-    if (fwrite(exports, sizeof(ExportEntry), EXPORT_COUNT, output) != EXPORT_COUNT) {
+    if (fwrite(exports, sizeof(ExportEntry), export_count, output) != export_count) {
         printf("c2native: 错误: 写入导出表失败\n");
         fclose(output);
         return -1;
@@ -452,7 +470,7 @@ int compile_with_fallback(const char* c_file, const char* output_file, NativeArc
 
     // 创建.native文件
     printf("c2native: 创建.native文件...\n");
-    if (create_native_file_from_object(obj_data, obj_size, output_file, target_arch) != 0) {
+    if (create_native_file_from_object(obj_data, obj_size, output_file, target_arch, temp_obj_file) != 0) {
         printf("c2native: 错误: 创建.native文件失败\n");
         free(obj_data);
         remove(temp_obj_file);

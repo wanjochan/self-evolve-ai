@@ -151,22 +151,22 @@ static int execute_astc_via_pipeline(LoadedModule* pipeline_module, const char* 
             fflush(stdout);  // 确保输出被刷新
 
             // 先测试一个简单的函数调用来验证模块是否正确加载
-            typedef int (*test_func_t)(void);
-            test_func_t test_func = NULL;
+            typedef const char* (*get_error_func_t)(void);
+            get_error_func_t get_error_func = NULL;
 
             for (uint32_t i = 0; i < pipeline_module->header->export_count; i++) {
-                if (strcmp(pipeline_module->exports[i].name, "test_export_function") == 0) {
-                    test_func = (test_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
-                    printf("Loader: 找到test_export_function函数，偏移: %u\n", pipeline_module->exports[i].offset);
+                if (strcmp(pipeline_module->exports[i].name, "pipeline_get_error") == 0) {
+                    get_error_func = (get_error_func_t)((char*)pipeline_module->base_addr + pipeline_module->exports[i].offset);
+                    printf("Loader: 找到pipeline_get_error函数，偏移: %u\n", pipeline_module->exports[i].offset);
                     break;
                 }
             }
 
-            if (test_func) {
-                printf("Loader: 测试调用test_export_function...\n");
+            if (get_error_func) {
+                printf("Loader: 测试调用pipeline_get_error...\n");
                 fflush(stdout);
-                int test_result = test_func();
-                printf("Loader: test_export_function返回值: %d\n", test_result);
+                const char* error_msg = get_error_func();
+                printf("Loader: pipeline_get_error返回值: %s\n", error_msg ? error_msg : "(null)");
             }
 
             // 调用Pipeline模块的执行函数
