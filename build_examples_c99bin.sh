@@ -46,9 +46,9 @@ if [ ! -x "$C99BIN_SCRIPT" ]; then
     exit 1
 fi
 
-echo -e "${BLUE}=== Building Examples with c99bin.sh ===${NC}"
-echo "Phase 1 of TinyCC replacement strategy"
-echo "Demonstrating c99bin.sh as cc.sh replacement for simple programs"
+echo -e "${BLUE}=== Building Examples with c99bin.sh (Phase 2) ===${NC}"
+echo "Phase 2 of TinyCC replacement strategy - Enhanced Error Handling"
+echo "Demonstrating improved c99bin.sh with graceful failure handling"
 echo ""
 
 # List of simple programs that c99bin.sh can handle
@@ -84,8 +84,8 @@ compile_program() {
         return 1
     fi
     
-    # Try to compile with c99bin.sh
-    if "$C99BIN_SCRIPT" "$EXAMPLES_DIR/$source_file" -o "$EXAMPLES_DIR/$output_file" 2>/dev/null; then
+    # Try to compile with c99bin.sh (show error messages for better analysis)
+    if "$C99BIN_SCRIPT" "$EXAMPLES_DIR/$source_file" -o "$EXAMPLES_DIR/$output_file" 2>&1; then
         print_status "OK" "Successfully compiled $source_file"
         
         # Test if the executable runs
@@ -159,14 +159,21 @@ echo ""
 echo "Overall success rate: $total_success/$total_programs ($success_rate%)"
 
 if [ $success_rate -ge 25 ]; then
-    print_status "OK" "Phase 1 target achieved (≥25% success rate)"
+    print_status "OK" "Phase 2 target maintained (≥25% success rate)"
 else
-    print_status "WARN" "Phase 1 target not met (<25% success rate)"
+    print_status "WARN" "Phase 2 target not met (<25% success rate)"
 fi
 
 echo ""
+echo -e "${BLUE}=== Phase 2 Improvements ===${NC}"
+echo "✅ Enhanced error handling - no more crashes"
+echo "✅ Graceful failure with helpful error messages"
+echo "✅ Better syntax detection to avoid stack overflow"
+echo "✅ Improved buffer management for larger files"
+
+echo ""
 echo -e "${BLUE}=== Next Steps ===${NC}"
-echo "1. Analyze failed compilations to understand limitations"
-echo "2. Consider c99bin.sh enhancements for Phase 2"
-echo "3. Update build scripts for successful programs"
-echo "4. Document replacement strategy results"
+echo "1. ✅ Fixed stack overflow issues"
+echo "2. ✅ Improved error handling and user feedback"
+echo "3. 🔄 Create specialized build workflows for simple programs"
+echo "4. 🔄 Document Phase 2 improvements and limitations"

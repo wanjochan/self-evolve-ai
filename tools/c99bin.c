@@ -524,6 +524,29 @@ int generate_dynamic_linking_info(const char* output_file, const ProgramAnalysis
 
 
 /**
+ * 检查是否包含不支持的复杂语法 (简化版，只检查最明显的复杂语法)
+ */
+int check_unsupported_syntax(const char* content) {
+    // 只检查最严重的复杂语法，避免误报
+    const char* unsupported[] = {
+        "struct {", "union {", "enum {",
+        "typedef struct", "typedef union",
+        "for(", "while(", "do{", "switch(",
+        "malloc(", "free(", "sizeof(",
+        "->", "++", "--",
+        NULL
+    };
+
+    for (int i = 0; unsupported[i] != NULL; i++) {
+        if (strstr(content, unsupported[i])) {
+            printf("⚠️  Warning: Found unsupported syntax '%s'\n", unsupported[i]);
+            return 1;  // 发现不支持的语法
+        }
+    }
+    return 0;  // 语法简单，可以处理
+}
+
+/**
  * 解析C源码并分析程序类型
  */
 int parse_c_source(const char* source_file, ProgramAnalysis* analysis) {
@@ -541,11 +564,20 @@ int parse_c_source(const char* source_file, ProgramAnalysis* analysis) {
         return -1;
     }
 
-    char line[256];
-    char full_content[4096] = {0};
+    char line[512];  // 增加行缓冲区大小
+    char full_content[8192] = {0};  // 增加总缓冲区大小
+    size_t content_len = 0;
 
     while (fgets(line, sizeof(line), f)) {
-        strcat(full_content, line);
+        // 安全的字符串拼接，防止缓冲区溢出
+        size_t line_len = strlen(line);
+        if (content_len + line_len < sizeof(full_content) - 1) {
+            strcat(full_content, line);
+            content_len += line_len;
+        } else {
+            printf("⚠️  Warning: Source file too large, truncating analysis\n");
+            break;
+        }
 
         // 检查main函数
         if (strstr(line, "int main")) {
@@ -591,6 +623,14 @@ int parse_c_source(const char* source_file, ProgramAnalysis* analysis) {
 
     if (!analysis->has_main) {
         printf("❌ No main function found in source file\n");
+        return -1;
+    }
+
+    // 检查是否包含不支持的复杂语法
+    if (check_unsupported_syntax(full_content)) {
+        printf("❌ Source file contains complex syntax not supported by c99bin\n");
+        printf("💡 Suggestion: Use cc.sh for complex C programs\n");
+        printf("💡 c99bin is designed for simple printf-based programs\n");
         return -1;
     }
 
