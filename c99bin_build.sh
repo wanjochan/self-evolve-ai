@@ -114,6 +114,7 @@ declare -a modules=(
     "pipeline_utils:src/core/modules/pipeline_utils.c"
     "pipeline_frontend:src/core/modules/pipeline_frontend.c"
     "compiler_module:src/core/modules/compiler_module.c"
+    "libc_module:src/core/modules/libc_module.c"
     "c99bin_module:src/core/modules/c99bin_module.c"
 )
 

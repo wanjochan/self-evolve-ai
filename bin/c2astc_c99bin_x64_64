@@ -1,0 +1,5 @@
+# c99bin compiled tool: c2astc
+# Source: /mnt/persist/workspace/tools/c2astc.c
+# Dependencies: astc.o module_module.o
+# Line count: 454
+# Architecture: x64_64

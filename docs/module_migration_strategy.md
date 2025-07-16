@@ -11,12 +11,13 @@
 
 | 模块名 | 文件 | 行数 | c99bin兼容性 | 状态 |
 |--------|------|------|-------------|------|
-| astc | src/core/astc.c | 292 | ✅ 兼容 | 可直接迁移 |
-| layer0_module | src/core/modules/layer0_module.c | 645 | ✅ 兼容 | 可直接迁移 |
-| pipeline_utils | src/core/modules/pipeline_utils.c | 167 | ✅ 兼容 | 可直接迁移 |
-| pipeline_frontend | src/core/modules/pipeline_frontend.c | 1076 | ⚠️ 复杂 | 需要GCC后备 |
-| compiler_module | src/core/modules/compiler_module.c | 1445 | ⚠️ 复杂 | 需要GCC后备 |
-| c99bin_module | src/core/modules/c99bin_module.c | 2205 | ⚠️ 复杂 | 需要GCC后备 |
+| astc | src/core/astc.c | 292 | ✅ 兼容 | ✅ 已迁移 |
+| layer0_module | src/core/modules/layer0_module.c | 645 | ✅ 兼容 | ✅ 已迁移 |
+| pipeline_utils | src/core/modules/pipeline_utils.c | 167 | ✅ 兼容 | ✅ 已迁移 |
+| pipeline_frontend | src/core/modules/pipeline_frontend.c | 1076 | ⚠️ 复杂 | ✅ GCC后备完成 |
+| compiler_module | src/core/modules/compiler_module.c | 1445 | ⚠️ 复杂 | ✅ GCC后备完成 |
+| libc_module | src/core/modules/libc_module.c | 1631 | ⚠️ 复杂 | ✅ GCC后备完成 |
+| c99bin_module | src/core/modules/c99bin_module.c | 2205 | ⚠️ 复杂 | ✅ GCC后备完成 |
 
 ### 迁移能力评估
 
@@ -42,11 +43,12 @@
 
 **结果**: 3/6模块可直接用c99bin编译
 
-### Phase 2: 混合编译系统 (当前阶段)
+### Phase 2: 混合编译系统 (已完成) ✅
 - ✅ 创建c99bin_build.sh构建脚本
 - ✅ 实现智能编译选择 (c99bin优先，GCC后备)
-- ✅ 支持所有模块编译 (6/6成功)
-- 📝 建立迁移基础设施
+- ✅ 支持所有模块编译 (7/7成功)
+- ✅ 建立迁移基础设施
+- ✅ T4.1.2 compiler_module和libc_module迁移完成
 
 ### Phase 3: 依赖解析增强 (下一步)
 - 🔧 增强c99bin的依赖处理能力
@@ -99,9 +101,9 @@ c99bin_build.sh
 
 ### 迁移统计
 ```
-总模块数: 6
-c99bin编译: 3 (50%)
-GCC后备: 3 (50%)
+总模块数: 7
+c99bin编译: 3 (43%)
+GCC后备: 4 (57%)
 编译成功率: 100%
 ```
 
