@@ -13,6 +13,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "../module.h"
 #include "pipeline_common.h"
@@ -54,6 +56,13 @@ typedef struct {
 static C99BinState c99bin_state = {0};
 
 // ===============================================
+// 前向声明
+// ===============================================
+
+C99BinResult c99bin_generate_elf(const uint8_t* machine_code, size_t code_size, const char* output_file);
+C99BinResult c99bin_generate_pe(const uint8_t* machine_code, size_t code_size, const char* output_file);
+
+// ===============================================
 // 核心编译接口
 // ===============================================
 
@@ -71,46 +80,139 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
 
     printf("C99Bin Module: Compiling %s to %s\n", source_file, output_file);
 
-    // T2.1 - 集成pipeline前端解析
+    // T2.1.1 - 集成pipeline前端解析 (完整实现)
+    printf("C99Bin Module: Phase 1 - Loading source file...\n");
+
+    // 读取源文件
+    FILE* source_fp = fopen(source_file, "r");
+    if (!source_fp) {
+        snprintf(c99bin_state.error_message, sizeof(c99bin_state.error_message),
+                "Cannot open source file: %s", source_file);
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    // 获取文件大小
+    fseek(source_fp, 0, SEEK_END);
+    long source_size = ftell(source_fp);
+    fseek(source_fp, 0, SEEK_SET);
+
+    // 分配内存并读取源码
+    char* source_code = malloc(source_size + 1);
+    if (!source_code) {
+        fclose(source_fp);
+        strcpy(c99bin_state.error_message, "Memory allocation failed for source code");
+        return C99BIN_ERROR_MEMORY_ALLOC;
+    }
+
+    fread(source_code, 1, source_size, source_fp);
+    source_code[source_size] = '\0';
+    fclose(source_fp);
+
+    printf("C99Bin Module: Source loaded (%ld bytes)\n", source_size);
+    c99bin_state.source_code = source_code;
+
+    // T2.1.2 - 使用pipeline前端进行词法和语法分析
     if (c99bin_state.pipeline_module) {
-        printf("C99Bin Module: Using pipeline frontend for parsing...\n");
+        printf("C99Bin Module: Phase 2 - Using pipeline frontend for parsing...\n");
 
         // 调用pipeline模块的前端编译函数
-        void* frontend_compile = c99bin_state.pipeline_module->sym(c99bin_state.pipeline_module, "frontend_compile");
+        ASTNode* (*frontend_compile)(const char*) =
+            (ASTNode* (*)(const char*))c99bin_state.pipeline_module->sym(c99bin_state.pipeline_module, "frontend_compile");
+
         if (frontend_compile) {
-            printf("C99Bin Module: Found frontend_compile function\n");
-            // TODO: 调用frontend_compile并获取AST
+            printf("C99Bin Module: Found frontend_compile function, parsing AST...\n");
+            c99bin_state.ast_root = frontend_compile(source_code);
+
+            if (c99bin_state.ast_root) {
+                printf("C99Bin Module: ✅ AST generation successful\n");
+            } else {
+                strcpy(c99bin_state.error_message, "Frontend parsing failed - invalid C syntax");
+                c99bin_state.source_code = NULL;  // 避免double free
+                free(source_code);
+                return C99BIN_ERROR_PARSE_FAILED;
+            }
         } else {
-            printf("C99Bin Module: frontend_compile function not found\n");
+            printf("C99Bin Module: ⚠️ frontend_compile function not found, using fallback\n");
+            strcpy(c99bin_state.error_message, "Pipeline frontend not available");
+            c99bin_state.source_code = NULL;  // 避免double free
+            free(source_code);
+            return C99BIN_ERROR_PARSE_FAILED;
         }
     } else {
-        printf("C99Bin Module: Pipeline module not available, using fallback parser\n");
-        // TODO: 实现简单的fallback解析器
+        printf("C99Bin Module: ❌ Pipeline module not available\n");
+        strcpy(c99bin_state.error_message, "Pipeline module dependency missing");
+        c99bin_state.source_code = NULL;  // 避免double free
+        free(source_code);
+        return C99BIN_ERROR_PARSE_FAILED;
     }
 
-    // T3.1 - 实现AST到机器码的直接生成
+    // T2.1.3 - 使用compiler模块进行AST到机器码生成
     if (c99bin_state.compiler_module) {
-        printf("C99Bin Module: Using compiler JIT for code generation...\n");
+        printf("C99Bin Module: Phase 3 - Using compiler JIT for code generation...\n");
 
-        // 调用compiler模块的JIT编译函数
-        void* jit_compile = c99bin_state.compiler_module->sym(c99bin_state.compiler_module, "jit_compile");
-        if (jit_compile) {
-            printf("C99Bin Module: Found jit_compile function\n");
-            // TODO: 调用jit_compile生成机器码
+        // 查找JIT编译函数
+        int (*jit_compile_ast)(ASTNode*, uint8_t**, size_t*) =
+            (int (*)(ASTNode*, uint8_t**, size_t*))c99bin_state.compiler_module->sym(c99bin_state.compiler_module, "jit_compile_ast");
+
+        if (jit_compile_ast) {
+            printf("C99Bin Module: Found jit_compile_ast function, generating machine code...\n");
+
+            int result = jit_compile_ast(c99bin_state.ast_root,
+                                       &c99bin_state.machine_code,
+                                       &c99bin_state.machine_code_size);
+
+            if (result == 0 && c99bin_state.machine_code && c99bin_state.machine_code_size > 0) {
+                printf("C99Bin Module: ✅ Machine code generation successful (%zu bytes)\n",
+                       c99bin_state.machine_code_size);
+            } else {
+                strcpy(c99bin_state.error_message, "JIT compilation failed - unsupported AST structure");
+                return C99BIN_ERROR_CODEGEN_FAILED;
+            }
         } else {
-            printf("C99Bin Module: jit_compile function not found\n");
+            printf("C99Bin Module: ⚠️ jit_compile_ast function not found, trying alternative...\n");
+
+            // 尝试查找通用的JIT编译函数
+            int (*jit_compile)(void*, uint8_t**, size_t*) =
+                (int (*)(void*, uint8_t**, size_t*))c99bin_state.compiler_module->sym(c99bin_state.compiler_module, "jit_compile");
+
+            if (jit_compile) {
+                printf("C99Bin Module: Using generic jit_compile function...\n");
+                int result = jit_compile(c99bin_state.ast_root,
+                                       &c99bin_state.machine_code,
+                                       &c99bin_state.machine_code_size);
+
+                if (result == 0 && c99bin_state.machine_code) {
+                    printf("C99Bin Module: ✅ Generic JIT compilation successful (%zu bytes)\n",
+                           c99bin_state.machine_code_size);
+                } else {
+                    strcpy(c99bin_state.error_message, "Generic JIT compilation failed");
+                    return C99BIN_ERROR_CODEGEN_FAILED;
+                }
+            } else {
+                strcpy(c99bin_state.error_message, "No suitable JIT compiler function found");
+                return C99BIN_ERROR_CODEGEN_FAILED;
+            }
         }
     } else {
-        printf("C99Bin Module: Compiler module not available, using fallback codegen\n");
-        // TODO: 实现简单的fallback代码生成器
+        printf("C99Bin Module: ❌ Compiler module not available\n");
+        strcpy(c99bin_state.error_message, "Compiler module dependency missing");
+        return C99BIN_ERROR_CODEGEN_FAILED;
     }
 
-    // T4.1 - 实现ELF文件格式生成
-    printf("C99Bin Module: Generating ELF executable...\n");
-    // TODO: 实现ELF文件生成
+    // T2.1.4 - 实现ELF文件格式生成
+    printf("C99Bin Module: Phase 4 - Generating ELF executable...\n");
 
-    strcpy(c99bin_state.error_message, "Implementation in progress");
-    return C99BIN_ERROR_CODEGEN_FAILED;
+    C99BinResult elf_result = c99bin_generate_elf(c99bin_state.machine_code,
+                                                  c99bin_state.machine_code_size,
+                                                  output_file);
+
+    if (elf_result == C99BIN_SUCCESS) {
+        printf("C99Bin Module: ✅ ELF executable generated successfully: %s\n", output_file);
+        return C99BIN_SUCCESS;
+    } else {
+        printf("C99Bin Module: ❌ ELF generation failed: %s\n", c99bin_state.error_message);
+        return elf_result;
+    }
 }
 
 /**
@@ -125,17 +227,134 @@ C99BinResult c99bin_generate_elf(const uint8_t* machine_code, size_t code_size, 
         strcpy(c99bin_state.error_message, "Invalid ELF generation parameters");
         return C99BIN_ERROR_INVALID_INPUT;
     }
-    
-    printf("C99Bin Module: Generating ELF file %s (%zu bytes)\n", output_file, code_size);
-    
-    // TODO: T4.1 - 实现完整的ELF文件格式生成
-    // 1. ELF文件头
-    // 2. 程序头表
-    // 3. 代码段
-    // 4. 入口点设置
-    
-    strcpy(c99bin_state.error_message, "ELF generation not implemented yet");
-    return C99BIN_ERROR_CODEGEN_FAILED;
+
+    printf("C99Bin Module: Generating ELF file %s (%zu bytes machine code)\n", output_file, code_size);
+
+    // ELF64 文件头结构
+    typedef struct {
+        unsigned char e_ident[16];    // ELF标识
+        uint16_t e_type;              // 文件类型
+        uint16_t e_machine;           // 机器类型
+        uint32_t e_version;           // 版本
+        uint64_t e_entry;             // 入口点地址
+        uint64_t e_phoff;             // 程序头表偏移
+        uint64_t e_shoff;             // 节头表偏移
+        uint32_t e_flags;             // 标志
+        uint16_t e_ehsize;            // ELF头大小
+        uint16_t e_phentsize;         // 程序头表条目大小
+        uint16_t e_phnum;             // 程序头表条目数
+        uint16_t e_shentsize;         // 节头表条目大小
+        uint16_t e_shnum;             // 节头表条目数
+        uint16_t e_shstrndx;          // 字符串表索引
+    } __attribute__((packed)) Elf64_Ehdr;
+
+    // ELF64 程序头结构
+    typedef struct {
+        uint32_t p_type;              // 段类型
+        uint32_t p_flags;             // 段标志
+        uint64_t p_offset;            // 文件偏移
+        uint64_t p_vaddr;             // 虚拟地址
+        uint64_t p_paddr;             // 物理地址
+        uint64_t p_filesz;            // 文件中大小
+        uint64_t p_memsz;             // 内存中大小
+        uint64_t p_align;             // 对齐
+    } __attribute__((packed)) Elf64_Phdr;
+
+    // 计算文件布局
+    const uint64_t base_addr = 0x400000;           // 标准加载地址
+    const size_t elf_header_size = sizeof(Elf64_Ehdr);
+    const size_t program_header_size = sizeof(Elf64_Phdr);
+    const size_t headers_size = elf_header_size + program_header_size;
+    const uint64_t code_offset = (headers_size + 0xF) & ~0xF;  // 16字节对齐
+    const uint64_t entry_point = base_addr + code_offset;
+
+    // 创建ELF文件头
+    Elf64_Ehdr elf_header = {0};
+
+    // ELF标识
+    elf_header.e_ident[0] = 0x7F;  // ELF魔数
+    elf_header.e_ident[1] = 'E';
+    elf_header.e_ident[2] = 'L';
+    elf_header.e_ident[3] = 'F';
+    elf_header.e_ident[4] = 2;     // 64位
+    elf_header.e_ident[5] = 1;     // 小端
+    elf_header.e_ident[6] = 1;     // ELF版本
+    elf_header.e_ident[7] = 0;     // System V ABI
+
+    // 文件头字段
+    elf_header.e_type = 2;         // ET_EXEC (可执行文件)
+    elf_header.e_machine = 0x3E;   // EM_X86_64
+    elf_header.e_version = 1;      // EV_CURRENT
+    elf_header.e_entry = entry_point;
+    elf_header.e_phoff = elf_header_size;
+    elf_header.e_shoff = 0;        // 无节头表
+    elf_header.e_flags = 0;
+    elf_header.e_ehsize = elf_header_size;
+    elf_header.e_phentsize = program_header_size;
+    elf_header.e_phnum = 1;        // 一个程序头
+    elf_header.e_shentsize = 0;
+    elf_header.e_shnum = 0;
+    elf_header.e_shstrndx = 0;
+
+    // 创建程序头
+    Elf64_Phdr program_header = {0};
+    program_header.p_type = 1;     // PT_LOAD
+    program_header.p_flags = 5;    // PF_R | PF_X (可读可执行)
+    program_header.p_offset = 0;
+    program_header.p_vaddr = base_addr;
+    program_header.p_paddr = base_addr;
+    program_header.p_filesz = code_offset + code_size;
+    program_header.p_memsz = code_offset + code_size;
+    program_header.p_align = 0x1000;  // 4KB对齐
+
+    // 写入ELF文件
+    FILE* elf_file = fopen(output_file, "wb");
+    if (!elf_file) {
+        snprintf(c99bin_state.error_message, sizeof(c99bin_state.error_message),
+                "Cannot create ELF file: %s", output_file);
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    // 写入ELF头
+    if (fwrite(&elf_header, sizeof(elf_header), 1, elf_file) != 1) {
+        fclose(elf_file);
+        strcpy(c99bin_state.error_message, "Failed to write ELF header");
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    // 写入程序头
+    if (fwrite(&program_header, sizeof(program_header), 1, elf_file) != 1) {
+        fclose(elf_file);
+        strcpy(c99bin_state.error_message, "Failed to write program header");
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    // 填充到代码偏移位置
+    size_t current_pos = elf_header_size + program_header_size;
+    while (current_pos < code_offset) {
+        fputc(0, elf_file);
+        current_pos++;
+    }
+
+    // 写入机器码
+    if (fwrite(machine_code, 1, code_size, elf_file) != code_size) {
+        fclose(elf_file);
+        strcpy(c99bin_state.error_message, "Failed to write machine code");
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    fclose(elf_file);
+
+    // 设置可执行权限
+    if (chmod(output_file, 0755) != 0) {
+        strcpy(c99bin_state.error_message, "Failed to set executable permissions");
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    printf("C99Bin Module: ✅ ELF file generated successfully\n");
+    printf("C99Bin Module: Entry point: 0x%lx, Code size: %zu bytes\n", entry_point, code_size);
+
+    return C99BIN_SUCCESS;
 }
 
 /**
@@ -299,21 +518,33 @@ static int c99bin_init(void) {
  */
 static void c99bin_cleanup(void) {
     printf("C99Bin Module: Cleaning up...\n");
-    
-    // 清理分配的内存
+
+    // 清理分配的内存 (安全检查)
     if (c99bin_state.source_code) {
         free(c99bin_state.source_code);
         c99bin_state.source_code = NULL;
     }
-    
+
     if (c99bin_state.machine_code) {
         free(c99bin_state.machine_code);
         c99bin_state.machine_code = NULL;
+        c99bin_state.machine_code_size = 0;
     }
-    
+
+    // 清理AST (如果存在)
+    if (c99bin_state.ast_root) {
+        // TODO: 实现AST清理函数
+        // ast_free(c99bin_state.ast_root);
+        c99bin_state.ast_root = NULL;
+    }
+
     // 重置状态
-    memset(&c99bin_state, 0, sizeof(C99BinState));
-    
+    c99bin_state.initialized = false;
+    c99bin_state.pipeline_module = NULL;
+    c99bin_state.compiler_module = NULL;
+    c99bin_state.layer0_module = NULL;
+    c99bin_state.error_message[0] = '\0';
+
     printf("C99Bin Module: Cleanup completed\n");
 }
 
