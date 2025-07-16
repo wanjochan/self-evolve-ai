@@ -61,13 +61,30 @@ static C99BinState c99bin_state = {0};
 
 C99BinResult c99bin_generate_elf(const uint8_t* machine_code, size_t code_size, const char* output_file);
 C99BinResult c99bin_generate_pe(const uint8_t* machine_code, size_t code_size, const char* output_file);
+C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_code, size_t* object_size);
+C99BinResult c99bin_link_objects(uint8_t** object_codes, size_t* object_sizes, int object_count, const char* output_file);
+
+// ===============================================
+// 多文件编译支持结构
+// ===============================================
+
+typedef struct {
+    char** source_files;           // 源文件列表
+    int source_count;              // 源文件数量
+    ASTNode** ast_nodes;           // 对应的AST节点
+    uint8_t** object_codes;        // 对应的目标代码
+    size_t* object_sizes;          // 目标代码大小
+    char** object_files;           // 目标文件路径 (.o文件)
+} MultiFileProject;
+
+static MultiFileProject multi_project = {0};
 
 // ===============================================
 // 核心编译接口
 // ===============================================
 
 /**
- * 编译C源码到可执行文件
+ * 编译C源码到可执行文件 (单文件版本)
  * @param source_file C源码文件路径
  * @param output_file 输出可执行文件路径
  * @return C99BinResult 编译结果
@@ -216,6 +233,89 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
 }
 
 /**
+ * 编译单个源文件到目标代码 (不生成可执行文件)
+ * @param source_file C源码文件路径
+ * @param object_code 输出的目标代码指针
+ * @param object_size 输出的目标代码大小
+ * @return C99BinResult 编译结果
+ */
+C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_code, size_t* object_size) {
+    if (!source_file || !object_code || !object_size) {
+        strcpy(c99bin_state.error_message, "Invalid input parameters for object compilation");
+        return C99BIN_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99Bin Module: Compiling %s to object code...\n", source_file);
+
+    // 读取源文件
+    FILE* source_fp = fopen(source_file, "r");
+    if (!source_fp) {
+        snprintf(c99bin_state.error_message, sizeof(c99bin_state.error_message),
+                "Cannot open source file: %s", source_file);
+        return C99BIN_ERROR_FILE_IO;
+    }
+
+    // 获取文件大小
+    fseek(source_fp, 0, SEEK_END);
+    long source_size = ftell(source_fp);
+    fseek(source_fp, 0, SEEK_SET);
+
+    // 分配内存并读取源码
+    char* source_code = malloc(source_size + 1);
+    if (!source_code) {
+        fclose(source_fp);
+        strcpy(c99bin_state.error_message, "Memory allocation failed for source code");
+        return C99BIN_ERROR_MEMORY_ALLOC;
+    }
+
+    fread(source_code, 1, source_size, source_fp);
+    source_code[source_size] = '\0';
+    fclose(source_fp);
+
+    // 使用pipeline前端进行解析
+    if (c99bin_state.pipeline_module) {
+        ASTNode* (*frontend_compile)(const char*) =
+            (ASTNode* (*)(const char*))c99bin_state.pipeline_module->sym(c99bin_state.pipeline_module, "frontend_compile");
+
+        if (frontend_compile) {
+            ASTNode* ast_root = frontend_compile(source_code);
+
+            if (ast_root) {
+                // 使用compiler模块生成目标代码
+                if (c99bin_state.compiler_module) {
+                    int (*jit_compile_ast)(ASTNode*, uint8_t**, size_t*) =
+                        (int (*)(ASTNode*, uint8_t**, size_t*))c99bin_state.compiler_module->sym(c99bin_state.compiler_module, "jit_compile_ast");
+
+                    if (jit_compile_ast) {
+                        int result = jit_compile_ast(ast_root, object_code, object_size);
+
+                        if (result == 0 && *object_code && *object_size > 0) {
+                            printf("C99Bin Module: ✅ Object code generation successful (%zu bytes)\n", *object_size);
+                            free(source_code);
+                            return C99BIN_SUCCESS;
+                        } else {
+                            strcpy(c99bin_state.error_message, "Object code generation failed");
+                            free(source_code);
+                            return C99BIN_ERROR_CODEGEN_FAILED;
+                        }
+                    }
+                }
+                strcpy(c99bin_state.error_message, "Compiler module not available for object generation");
+            } else {
+                strcpy(c99bin_state.error_message, "Frontend parsing failed for object compilation");
+            }
+        } else {
+            strcpy(c99bin_state.error_message, "Frontend compile function not found");
+        }
+    } else {
+        strcpy(c99bin_state.error_message, "Pipeline module not available for object compilation");
+    }
+
+    free(source_code);
+    return C99BIN_ERROR_PARSE_FAILED;
+}
+
+/**
  * 生成ELF可执行文件
  * @param machine_code 机器码数据
  * @param code_size 机器码大小
@@ -355,6 +455,134 @@ C99BinResult c99bin_generate_elf(const uint8_t* machine_code, size_t code_size, 
     printf("C99Bin Module: Entry point: 0x%lx, Code size: %zu bytes\n", entry_point, code_size);
 
     return C99BIN_SUCCESS;
+}
+
+/**
+ * 链接多个目标代码到可执行文件
+ * @param object_codes 目标代码数组
+ * @param object_sizes 目标代码大小数组
+ * @param object_count 目标代码数量
+ * @param output_file 输出可执行文件路径
+ * @return C99BinResult 链接结果
+ */
+C99BinResult c99bin_link_objects(uint8_t** object_codes, size_t* object_sizes, int object_count, const char* output_file) {
+    if (!object_codes || !object_sizes || object_count <= 0 || !output_file) {
+        strcpy(c99bin_state.error_message, "Invalid parameters for object linking");
+        return C99BIN_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99Bin Module: Linking %d object files to %s\n", object_count, output_file);
+
+    // 计算总的代码大小
+    size_t total_size = 0;
+    for (int i = 0; i < object_count; i++) {
+        total_size += object_sizes[i];
+        printf("C99Bin Module: Object %d: %zu bytes\n", i, object_sizes[i]);
+    }
+
+    printf("C99Bin Module: Total linked code size: %zu bytes\n", total_size);
+
+    // 分配内存用于合并的代码
+    uint8_t* linked_code = malloc(total_size);
+    if (!linked_code) {
+        strcpy(c99bin_state.error_message, "Memory allocation failed for linked code");
+        return C99BIN_ERROR_MEMORY_ALLOC;
+    }
+
+    // 简化的链接：直接拼接所有目标代码
+    size_t offset = 0;
+    for (int i = 0; i < object_count; i++) {
+        memcpy(linked_code + offset, object_codes[i], object_sizes[i]);
+        offset += object_sizes[i];
+    }
+
+    printf("C99Bin Module: Code linking completed, generating ELF...\n");
+
+    // 生成ELF可执行文件
+    C99BinResult result = c99bin_generate_elf(linked_code, total_size, output_file);
+
+    free(linked_code);
+
+    if (result == C99BIN_SUCCESS) {
+        printf("C99Bin Module: ✅ Multi-file linking successful: %s\n", output_file);
+    } else {
+        printf("C99Bin Module: ❌ Multi-file linking failed: %s\n", c99bin_state.error_message);
+    }
+
+    return result;
+}
+
+/**
+ * 多文件编译到可执行文件
+ * @param source_files 源文件路径数组
+ * @param source_count 源文件数量
+ * @param output_file 输出可执行文件路径
+ * @return C99BinResult 编译结果
+ */
+C99BinResult c99bin_compile_multiple_files(const char** source_files, int source_count, const char* output_file) {
+    if (!source_files || source_count <= 0 || !output_file) {
+        strcpy(c99bin_state.error_message, "Invalid parameters for multi-file compilation");
+        return C99BIN_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99Bin Module: Multi-file compilation (%d files) to %s\n", source_count, output_file);
+
+    // 初始化多文件项目结构
+    multi_project.source_files = malloc(source_count * sizeof(char*));
+    multi_project.object_codes = malloc(source_count * sizeof(uint8_t*));
+    multi_project.object_sizes = malloc(source_count * sizeof(size_t));
+    multi_project.source_count = source_count;
+
+    if (!multi_project.source_files || !multi_project.object_codes || !multi_project.object_sizes) {
+        strcpy(c99bin_state.error_message, "Memory allocation failed for multi-file project");
+        return C99BIN_ERROR_MEMORY_ALLOC;
+    }
+
+    // 编译每个源文件到目标代码
+    for (int i = 0; i < source_count; i++) {
+        multi_project.source_files[i] = strdup(source_files[i]);
+
+        printf("C99Bin Module: Compiling file %d/%d: %s\n", i + 1, source_count, source_files[i]);
+
+        C99BinResult result = c99bin_compile_to_object(source_files[i],
+                                                      &multi_project.object_codes[i],
+                                                      &multi_project.object_sizes[i]);
+
+        if (result != C99BIN_SUCCESS) {
+            printf("C99Bin Module: ❌ Failed to compile %s\n", source_files[i]);
+            // 清理已分配的内存
+            for (int j = 0; j <= i; j++) {
+                if (multi_project.source_files[j]) free(multi_project.source_files[j]);
+                if (j < i && multi_project.object_codes[j]) free(multi_project.object_codes[j]);
+            }
+            free(multi_project.source_files);
+            free(multi_project.object_codes);
+            free(multi_project.object_sizes);
+            return result;
+        }
+
+        printf("C99Bin Module: ✅ Compiled %s (%zu bytes object code)\n",
+               source_files[i], multi_project.object_sizes[i]);
+    }
+
+    // 链接所有目标代码
+    printf("C99Bin Module: Linking %d object files...\n", source_count);
+
+    C99BinResult link_result = c99bin_link_objects(multi_project.object_codes,
+                                                   multi_project.object_sizes,
+                                                   source_count,
+                                                   output_file);
+
+    // 清理内存
+    for (int i = 0; i < source_count; i++) {
+        if (multi_project.source_files[i]) free(multi_project.source_files[i]);
+        if (multi_project.object_codes[i]) free(multi_project.object_codes[i]);
+    }
+    free(multi_project.source_files);
+    free(multi_project.object_codes);
+    free(multi_project.object_sizes);
+
+    return link_result;
 }
 
 /**
