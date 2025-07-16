@@ -93,6 +93,36 @@ static void c99bin_diagnostic_summary(void);
 static void c99bin_perform_semantic_checks(ASTNode* ast);
 static void c99bin_check_ast_node(ASTNode* node, int depth);
 
+// T3.2.3 - 调试信息生成系统
+typedef struct {
+    char* filename;                // 源文件名
+    int line_count;                // 总行数
+    bool debug_enabled;            // 是否启用调试信息
+    bool generate_symbols;         // 是否生成符号表
+    bool generate_line_numbers;    // 是否生成行号信息
+
+    // 符号表信息
+    char** function_names;         // 函数名列表
+    int* function_lines;           // 函数起始行号
+    int function_count;            // 函数数量
+
+    // 行号映射
+    int* source_lines;             // 源代码行号
+    size_t* code_offsets;          // 对应的代码偏移
+    int line_mapping_count;        // 行号映射数量
+} C99BinDebugInfo;
+
+static C99BinDebugInfo c99bin_debug_info = {0};
+
+// 调试信息函数声明
+static void c99bin_debug_init(const char* filename, bool enable_debug);
+static void c99bin_debug_cleanup(void);
+static void c99bin_debug_add_function(const char* name, int line);
+static void c99bin_debug_add_line_mapping(int source_line, size_t code_offset);
+static void c99bin_debug_generate_symbols(ASTNode* ast);
+static void c99bin_debug_write_info(const char* output_file);
+static void c99bin_debug_collect_symbols(ASTNode* node);
+
 // ===============================================
 // 多文件编译支持结构
 // ===============================================
@@ -159,6 +189,10 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
     // T3.2.2 - 初始化诊断系统
     printf("C99Bin Module: Phase 1.5 - Initializing diagnostics...\n");
     c99bin_diagnostic_init(source_file, source_code);
+
+    // T3.2.3 - 初始化调试信息系统 (默认启用)
+    printf("C99Bin Module: Phase 1.6 - Initializing debug info...\n");
+    c99bin_debug_init(source_file, true);
     c99bin_state.source_code = source_code;
 
     // T2.1.2 - 使用pipeline前端进行词法和语法分析
@@ -259,9 +293,14 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
     if (elf_result == C99BIN_SUCCESS) {
         printf("C99Bin Module: ✅ ELF executable generated successfully: %s\n", output_file);
 
+        // T3.2.3 - 写入调试信息
+        printf("C99Bin Module: Phase 5 - Writing debug information...\n");
+        c99bin_debug_write_info(output_file);
+
         // T3.2.2 - 打印诊断摘要
         c99bin_diagnostic_summary();
         c99bin_diagnostic_cleanup();
+        c99bin_debug_cleanup();
 
         return C99BIN_SUCCESS;
     } else {
@@ -270,6 +309,7 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
         // T3.2.2 - 打印诊断摘要（即使失败）
         c99bin_diagnostic_summary();
         c99bin_diagnostic_cleanup();
+        c99bin_debug_cleanup();
 
         return elf_result;
     }
@@ -327,6 +367,10 @@ C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_
                 // T3.2.2 - 执行语义分析和诊断检查
                 printf("C99Bin Module: Phase 2.3 - Performing semantic analysis...\n");
                 c99bin_perform_semantic_checks(ast_root);
+
+                // T3.2.3 - 生成调试符号信息
+                printf("C99Bin Module: Phase 2.4 - Generating debug symbols...\n");
+                c99bin_debug_generate_symbols(ast_root);
 
                 // T3.2.1 - 应用AST优化 (默认优化级别1)
                 printf("C99Bin Module: Phase 2.5 - Applying AST optimizations...\n");
@@ -1344,6 +1388,290 @@ static void c99bin_check_ast_node(ASTNode* node, int depth) {
             // 对于其他节点类型，暂时不进行特殊检查
             break;
     }
+}
+
+// ===============================================
+// T3.2.3 - 调试信息生成系统实现
+// ===============================================
+
+/**
+ * 初始化调试信息系统
+ * @param filename 源文件名
+ * @param enable_debug 是否启用调试信息
+ */
+static void c99bin_debug_init(const char* filename, bool enable_debug) {
+    // 清理之前的状态
+    c99bin_debug_cleanup();
+
+    // 设置基本信息
+    if (filename) {
+        c99bin_debug_info.filename = strdup(filename);
+    }
+
+    c99bin_debug_info.debug_enabled = enable_debug;
+    c99bin_debug_info.generate_symbols = enable_debug;
+    c99bin_debug_info.generate_line_numbers = enable_debug;
+
+    // 初始化数组
+    c99bin_debug_info.function_names = NULL;
+    c99bin_debug_info.function_lines = NULL;
+    c99bin_debug_info.function_count = 0;
+
+    c99bin_debug_info.source_lines = NULL;
+    c99bin_debug_info.code_offsets = NULL;
+    c99bin_debug_info.line_mapping_count = 0;
+
+    if (enable_debug) {
+        printf("C99Bin Debug: Debug information generation enabled for %s\n",
+               filename ? filename : "<unknown>");
+    }
+}
+
+/**
+ * 清理调试信息系统
+ */
+static void c99bin_debug_cleanup(void) {
+    if (c99bin_debug_info.filename) {
+        free(c99bin_debug_info.filename);
+        c99bin_debug_info.filename = NULL;
+    }
+
+    // 清理函数信息
+    if (c99bin_debug_info.function_names) {
+        for (int i = 0; i < c99bin_debug_info.function_count; i++) {
+            if (c99bin_debug_info.function_names[i]) {
+                free(c99bin_debug_info.function_names[i]);
+            }
+        }
+        free(c99bin_debug_info.function_names);
+        c99bin_debug_info.function_names = NULL;
+    }
+
+    if (c99bin_debug_info.function_lines) {
+        free(c99bin_debug_info.function_lines);
+        c99bin_debug_info.function_lines = NULL;
+    }
+
+    // 清理行号映射
+    if (c99bin_debug_info.source_lines) {
+        free(c99bin_debug_info.source_lines);
+        c99bin_debug_info.source_lines = NULL;
+    }
+
+    if (c99bin_debug_info.code_offsets) {
+        free(c99bin_debug_info.code_offsets);
+        c99bin_debug_info.code_offsets = NULL;
+    }
+
+    c99bin_debug_info.function_count = 0;
+    c99bin_debug_info.line_mapping_count = 0;
+    c99bin_debug_info.debug_enabled = false;
+}
+
+/**
+ * 添加函数符号信息
+ * @param name 函数名
+ * @param line 函数起始行号
+ */
+static void c99bin_debug_add_function(const char* name, int line) {
+    if (!c99bin_debug_info.debug_enabled || !name) {
+        return;
+    }
+
+    // 扩展数组
+    c99bin_debug_info.function_names = realloc(c99bin_debug_info.function_names,
+                                              (c99bin_debug_info.function_count + 1) * sizeof(char*));
+    c99bin_debug_info.function_lines = realloc(c99bin_debug_info.function_lines,
+                                              (c99bin_debug_info.function_count + 1) * sizeof(int));
+
+    if (!c99bin_debug_info.function_names || !c99bin_debug_info.function_lines) {
+        printf("C99Bin Debug: ⚠️ Memory allocation failed for function symbol\n");
+        return;
+    }
+
+    // 添加函数信息
+    c99bin_debug_info.function_names[c99bin_debug_info.function_count] = strdup(name);
+    c99bin_debug_info.function_lines[c99bin_debug_info.function_count] = line;
+    c99bin_debug_info.function_count++;
+
+    printf("C99Bin Debug: Added function symbol: %s at line %d\n", name, line);
+}
+
+/**
+ * 添加行号映射
+ * @param source_line 源代码行号
+ * @param code_offset 代码偏移
+ */
+static void c99bin_debug_add_line_mapping(int source_line, size_t code_offset) {
+    if (!c99bin_debug_info.debug_enabled) {
+        return;
+    }
+
+    // 扩展数组
+    c99bin_debug_info.source_lines = realloc(c99bin_debug_info.source_lines,
+                                            (c99bin_debug_info.line_mapping_count + 1) * sizeof(int));
+    c99bin_debug_info.code_offsets = realloc(c99bin_debug_info.code_offsets,
+                                            (c99bin_debug_info.line_mapping_count + 1) * sizeof(size_t));
+
+    if (!c99bin_debug_info.source_lines || !c99bin_debug_info.code_offsets) {
+        printf("C99Bin Debug: ⚠️ Memory allocation failed for line mapping\n");
+        return;
+    }
+
+    // 添加映射信息
+    c99bin_debug_info.source_lines[c99bin_debug_info.line_mapping_count] = source_line;
+    c99bin_debug_info.code_offsets[c99bin_debug_info.line_mapping_count] = code_offset;
+    c99bin_debug_info.line_mapping_count++;
+
+    printf("C99Bin Debug: Added line mapping: line %d -> offset 0x%zx\n", source_line, code_offset);
+}
+
+/**
+ * 从AST生成符号信息
+ * @param ast AST根节点
+ */
+static void c99bin_debug_generate_symbols(ASTNode* ast) {
+    if (!c99bin_debug_info.debug_enabled || !ast) {
+        return;
+    }
+
+    printf("C99Bin Debug: Generating symbol information from AST...\n");
+
+    // 递归遍历AST收集符号信息
+    c99bin_debug_collect_symbols(ast);
+
+    printf("C99Bin Debug: Symbol generation completed (%d functions found)\n",
+           c99bin_debug_info.function_count);
+}
+
+/**
+ * 递归收集符号信息
+ * @param node AST节点
+ */
+static void c99bin_debug_collect_symbols(ASTNode* node) {
+    if (!node) return;
+
+    switch (node->type) {
+        case ASTC_FUNC_DECL: {
+            // 收集函数符号
+            if (node->data.func_decl.name) {
+                c99bin_debug_add_function(node->data.func_decl.name, node->line);
+            }
+
+            // 递归处理函数体
+            if (node->data.func_decl.body) {
+                c99bin_debug_collect_symbols(node->data.func_decl.body);
+            }
+            break;
+        }
+
+        case ASTC_COMPOUND_STMT: {
+            // 处理复合语句中的所有语句
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                if (node->data.compound_stmt.statements[i]) {
+                    c99bin_debug_collect_symbols(node->data.compound_stmt.statements[i]);
+                }
+            }
+            break;
+        }
+
+        case ASTC_IF_STMT: {
+            // 处理if语句的各个分支
+            if (node->data.if_stmt.condition) {
+                c99bin_debug_collect_symbols(node->data.if_stmt.condition);
+            }
+            if (node->data.if_stmt.then_branch) {
+                c99bin_debug_collect_symbols(node->data.if_stmt.then_branch);
+            }
+            if (node->data.if_stmt.else_branch) {
+                c99bin_debug_collect_symbols(node->data.if_stmt.else_branch);
+            }
+            break;
+        }
+
+        case ASTC_BINARY_OP: {
+            // 处理二元操作的操作数
+            if (node->data.binary_op.left) {
+                c99bin_debug_collect_symbols(node->data.binary_op.left);
+            }
+            if (node->data.binary_op.right) {
+                c99bin_debug_collect_symbols(node->data.binary_op.right);
+            }
+            break;
+        }
+
+        case ASTC_RETURN_STMT: {
+            // 处理return语句的值
+            if (node->data.return_stmt.value) {
+                c99bin_debug_collect_symbols(node->data.return_stmt.value);
+            }
+            break;
+        }
+
+        default:
+            // 对于其他节点类型，暂时不处理
+            break;
+    }
+}
+
+/**
+ * 写入调试信息到文件
+ * @param output_file 输出文件路径
+ */
+static void c99bin_debug_write_info(const char* output_file) {
+    if (!c99bin_debug_info.debug_enabled || !output_file) {
+        return;
+    }
+
+    // 生成调试信息文件名
+    char debug_file[512];
+    snprintf(debug_file, sizeof(debug_file), "%s.debug", output_file);
+
+    FILE* fp = fopen(debug_file, "w");
+    if (!fp) {
+        printf("C99Bin Debug: ⚠️ Failed to create debug file: %s\n", debug_file);
+        return;
+    }
+
+    printf("C99Bin Debug: Writing debug information to %s\n", debug_file);
+
+    // 写入文件头
+    fprintf(fp, "# C99Bin Debug Information\n");
+    fprintf(fp, "# Generated for: %s\n", c99bin_debug_info.filename ? c99bin_debug_info.filename : "<unknown>");
+    fprintf(fp, "# Format: Simple text-based debug info\n\n");
+
+    // 写入符号表
+    if (c99bin_debug_info.function_count > 0) {
+        fprintf(fp, "[SYMBOLS]\n");
+        for (int i = 0; i < c99bin_debug_info.function_count; i++) {
+            fprintf(fp, "FUNCTION %s %d\n",
+                   c99bin_debug_info.function_names[i],
+                   c99bin_debug_info.function_lines[i]);
+        }
+        fprintf(fp, "\n");
+    }
+
+    // 写入行号映射
+    if (c99bin_debug_info.line_mapping_count > 0) {
+        fprintf(fp, "[LINE_NUMBERS]\n");
+        for (int i = 0; i < c99bin_debug_info.line_mapping_count; i++) {
+            fprintf(fp, "LINE %d 0x%zx\n",
+                   c99bin_debug_info.source_lines[i],
+                   c99bin_debug_info.code_offsets[i]);
+        }
+        fprintf(fp, "\n");
+    }
+
+    // 写入统计信息
+    fprintf(fp, "[STATISTICS]\n");
+    fprintf(fp, "FUNCTIONS %d\n", c99bin_debug_info.function_count);
+    fprintf(fp, "LINE_MAPPINGS %d\n", c99bin_debug_info.line_mapping_count);
+
+    fclose(fp);
+
+    printf("C99Bin Debug: ✅ Debug information written successfully\n");
+    printf("C99Bin Debug: - %d function symbols\n", c99bin_debug_info.function_count);
+    printf("C99Bin Debug: - %d line mappings\n", c99bin_debug_info.line_mapping_count);
 }
 
 /**
