@@ -1,4 +1,4 @@
-Layer 1 Loader 测试结果 - Tue Jul 15 03:01:21 UTC 2025
+Layer 1 Loader 测试结果 - Wed Jul 16 03:34:22 UTC 2025
 ======================================
 [1] 架构检测功能: PASS
 [2] ASTC程序文件存在性检查: PASS
@@ -7,12 +7,12 @@ Layer 1 Loader 测试结果 - Tue Jul 15 03:01:21 UTC 2025
 [5] compiler模块存在性: PASS
 [6] libc模块存在性: PASS
 [7] 不存在的ASTC文件处理: PASS (expected failure)
-[8] 无效的ASTC文件处理: PASS (expected failure)
+[8] 无效的ASTC文件处理: FAIL (unexpected success)
 [9] 示例ASTC程序加载: PASS
 [10] 最小ASTC程序加载: PASS
 
 测试汇总:
 总测试数: 10
-通过: 10
-失败: 0
-成功率: 100%
+通过: 9
+失败: 1
+成功率: 90%
