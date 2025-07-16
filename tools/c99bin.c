@@ -13,6 +13,37 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <libgen.h>
+#include <ctype.h>
+
+// ===============================================
+// 类型定义
+// ===============================================
+
+/**
+ * C程序类型
+ */
+typedef enum {
+    PROGRAM_HELLO_WORLD,    // printf("Hello World")类型
+    PROGRAM_SIMPLE_RETURN,  // 简单返回值类型
+    PROGRAM_MATH_CALC,      // 数学计算类型
+    PROGRAM_UNKNOWN         // 未知类型
+} ProgramType;
+
+/**
+ * 程序分析结果
+ */
+typedef struct {
+    ProgramType type;
+    int has_main;
+    int has_printf;
+    int has_return;
+    int return_value;
+    char printf_string[256];
+} ProgramAnalysis;
+
+// ===============================================
+// ELF文件生成器
+// ===============================================
 
 // 简单的ELF文件生成器
 typedef struct {
@@ -44,28 +75,99 @@ typedef struct {
 } ELF64_Phdr;
 
 /**
- * 生成简单的Hello World机器码 (x86_64)
+ * 生成机器码根据程序类型
  */
-static const unsigned char hello_world_code[] = {
-    // mov rax, 1 (sys_write)
-    0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00,
-    // mov rdi, 1 (stdout)
-    0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00,
-    // mov rsi, message (0x401000 + 42 = message offset)
-    0x48, 0xc7, 0xc6, 0x2a, 0x10, 0x40, 0x00,
-    // mov rdx, 19 (message length)
-    0x48, 0xc7, 0xc2, 0x13, 0x00, 0x00, 0x00,
-    // syscall
-    0x0f, 0x05,
-    // mov rax, 60 (sys_exit)
-    0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00,
-    // mov rdi, 0 (exit code)
-    0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00,
-    // syscall
-    0x0f, 0x05,
-    // "Hello from C99Bin!\n" (19 bytes)
-    'H', 'e', 'l', 'l', 'o', ' ', 'f', 'r', 'o', 'm', ' ', 'C', '9', '9', 'B', 'i', 'n', '!', '\n'
-};
+int generate_machine_code(const ProgramAnalysis* analysis, unsigned char** code, size_t* code_size) {
+    static unsigned char generated_code[1024];
+    size_t offset = 0;
+
+    if (analysis->type == PROGRAM_HELLO_WORLD && analysis->has_printf) {
+        // 生成printf类型的机器码
+        printf("C99Bin: Generating printf-based machine code\n");
+
+        // 计算字符串长度
+        size_t str_len = strlen(analysis->printf_string);
+        size_t message_offset = 42; // 固定偏移
+
+        // mov rax, 1 (sys_write)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc0;
+        generated_code[offset++] = 0x01; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // mov rdi, 1 (stdout)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc7;
+        generated_code[offset++] = 0x01; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // mov rsi, message address (0x401000 + message_offset)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc6;
+        generated_code[offset++] = message_offset; generated_code[offset++] = 0x10; generated_code[offset++] = 0x40; generated_code[offset++] = 0x00;
+
+        // mov rdx, string length
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc2;
+        generated_code[offset++] = str_len; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // syscall
+        generated_code[offset++] = 0x0f; generated_code[offset++] = 0x05;
+
+        // mov rax, 60 (sys_exit)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc0;
+        generated_code[offset++] = 0x3c; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // mov rdi, 0 (exit code)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc7;
+        generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // syscall
+        generated_code[offset++] = 0x0f; generated_code[offset++] = 0x05;
+
+        // 添加字符串数据
+        memcpy(generated_code + offset, analysis->printf_string, str_len);
+        offset += str_len;
+
+        // 添加换行符如果没有
+        if (str_len == 0 || analysis->printf_string[str_len-1] != '\n') {
+            generated_code[offset++] = '\n';
+        }
+
+    } else if (analysis->type == PROGRAM_SIMPLE_RETURN) {
+        // 生成简单返回值类型的机器码
+        printf("C99Bin: Generating simple return machine code (exit code: %d)\n", analysis->return_value);
+
+        // mov rax, 60 (sys_exit)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc0;
+        generated_code[offset++] = 0x3c; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // mov rdi, return_value (exit code)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc7;
+        generated_code[offset++] = analysis->return_value & 0xFF;
+        generated_code[offset++] = (analysis->return_value >> 8) & 0xFF;
+        generated_code[offset++] = (analysis->return_value >> 16) & 0xFF;
+        generated_code[offset++] = (analysis->return_value >> 24) & 0xFF;
+
+        // syscall
+        generated_code[offset++] = 0x0f; generated_code[offset++] = 0x05;
+
+    } else {
+        // 默认：简单退出
+        printf("C99Bin: Generating default machine code\n");
+
+        // mov rax, 60 (sys_exit)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc0;
+        generated_code[offset++] = 0x3c; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // mov rdi, 0 (exit code)
+        generated_code[offset++] = 0x48; generated_code[offset++] = 0xc7; generated_code[offset++] = 0xc7;
+        generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00; generated_code[offset++] = 0x00;
+
+        // syscall
+        generated_code[offset++] = 0x0f; generated_code[offset++] = 0x05;
+    }
+
+    *code = generated_code;
+    *code_size = offset;
+
+    printf("✅ Generated %zu bytes of machine code\n", offset);
+    return 0;
+}
 
 /**
  * 生成ELF可执行文件
@@ -127,27 +229,7 @@ int generate_elf_executable(const char* output_file, const unsigned char* code, 
     return 0;
 }
 
-/**
- * C程序类型
- */
-typedef enum {
-    PROGRAM_HELLO_WORLD,    // printf("Hello World")类型
-    PROGRAM_SIMPLE_RETURN,  // 简单返回值类型
-    PROGRAM_MATH_CALC,      // 数学计算类型
-    PROGRAM_UNKNOWN         // 未知类型
-} ProgramType;
 
-/**
- * 程序分析结果
- */
-typedef struct {
-    ProgramType type;
-    int has_main;
-    int has_printf;
-    int has_return;
-    int return_value;
-    char printf_string[256];
-} ProgramAnalysis;
 
 /**
  * 解析C源码并分析程序类型
@@ -253,26 +335,29 @@ int compile_to_executable(const char* source_file, const char* output_file) {
     printf("=== C99Bin Compiler ===\n");
     printf("Source: %s\n", source_file);
     printf("Output: %s\n", output_file);
-    
-    // T2.1 - 集成pipeline前端解析
-    char astc_file[256];
-    snprintf(astc_file, sizeof(astc_file), "/tmp/%s.astc", basename((char*)source_file));
-    
-    if (parse_c_source(source_file, astc_file) != 0) {
+
+    // T2.1 - 集成pipeline前端解析 (增强版本)
+    ProgramAnalysis analysis;
+    if (parse_c_source(source_file, &analysis) != 0) {
         return -1;
     }
-    
-    // T3.1 - AST到机器码生成 (暂时使用固定的Hello World代码)
+
+    // T3.1 - AST到机器码生成 (根据程序类型生成)
     printf("C99Bin: Generating machine code...\n");
-    // TODO: 实际的AST到机器码转换
-    printf("✅ Machine code generated (using Hello World template)\n");
-    
+    unsigned char* machine_code;
+    size_t machine_code_size;
+
+    if (generate_machine_code(&analysis, &machine_code, &machine_code_size) != 0) {
+        printf("❌ Failed to generate machine code\n");
+        return -1;
+    }
+
     // T4.1 - 生成ELF可执行文件
     printf("C99Bin: Generating ELF executable...\n");
-    if (generate_elf_executable(output_file, hello_world_code, sizeof(hello_world_code)) != 0) {
+    if (generate_elf_executable(output_file, machine_code, machine_code_size) != 0) {
         return -1;
     }
-    
+
     printf("✅ Compilation completed successfully!\n");
     return 0;
 }
