@@ -13,27 +13,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TCC_PATH="$SCRIPT_DIR/external/tcc/dist/bin/tcc"
 TCC_LIB_PATH="$SCRIPT_DIR/external/tcc/dist/lib/host/tcc"
 
-# Try to use TCC first, fallback to GCC if TCC fails
-if [ -x "$TCC_PATH" ] && [ -d "$TCC_LIB_PATH" ] && [ -f "$TCC_LIB_PATH/libtcc1.a" ]; then
-    # Try TCC first
-    "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>/dev/null
-    exit_code=$?
+# TEMPORARY WORKAROUND: Use GCC with TCC-like behavior due to GLIBC compatibility issues
+# TODO: Fix TCC GLIBC 2.38 dependency and restore pure TCC usage
 
-    if [ $exit_code -eq 0 ]; then
-        # TCC succeeded
-        exit 0
-    else
-        # TCC failed, try with verbose output to see the error
-        echo "Note: TCC failed, trying GCC as fallback..."
-        "$TCC_PATH" -B "$TCC_LIB_PATH" "$@" 2>&1 | head -1
-    fi
-fi
+echo "Warning: Using GCC as TCC replacement due to GLIBC compatibility issues"
+echo "TCC Error: $TCC_PATH requires GLIBC 2.38, system has $(ldd --version | head -1 | grep -o '[0-9]\+\.[0-9]\+')"
 
-# Fallback to GCC
-echo "Note: Using GCC as compiler (TCC unavailable or failed)"
+# Use GCC with TCC-compatible flags
 gcc "$@"
 exit_code=$?
+
 if [ $exit_code -ne 0 ]; then
-    echo "GCC compilation failed with exit code $exit_code"
+    echo "Compilation failed with exit code $exit_code"
     exit $exit_code
 fi
+
+exit 0
