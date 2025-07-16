@@ -359,10 +359,14 @@ static CompileResult jit_compile_bytecode(JITCompiler* jit, const uint8_t* bytec
         memcpy(jit->code_buffer + jit->code_size, prologue, sizeof(prologue));
         jit->code_size += sizeof(prologue);
     } else if (jit->target_arch == TARGET_ARM64) {
-        // ARM64 函数序言 (简化版)
+        // ARM64 函数序言 (完整版)
         uint32_t prologue[] = {
-            0xa9bf7bfd,  // stp x29, x30, [sp, #-16]!
-            0x910003fd,  // mov x29, sp
+            0xa9bf7bfd,  // stp x29, x30, [sp, #-16]!  - 保存帧指针和返回地址
+            0x910003fd,  // mov x29, sp                - 设置新的帧指针
+            0xa9bf73f3,  // stp x19, x20, [sp, #-16]!  - 保存被调用者保存寄存器
+            0xa9bf6bf1,  // stp x17, x18, [sp, #-16]!  - 保存更多寄存器
+            0xa9bf63ef,  // stp x15, x16, [sp, #-16]!  - 保存临时寄存器
+            0xd10083ff,  // sub sp, sp, #32            - 为局部变量分配栈空间
         };
 
         if (jit->code_size + sizeof(prologue) > jit->code_capacity) {
@@ -465,18 +469,43 @@ static CompileResult jit_compile_bytecode(JITCompiler* jit, const uint8_t* bytec
                     uint8_t reg2 = bytecode[i + 2];
                     uint8_t dst_reg = bytecode[i + 3];
 
-                    // 简化实现：只支持 rax = rax + rbx
-                    if (reg1 == 0 && reg2 == 1 && dst_reg == 0) {
-                        uint8_t add_instr[] = {0x48, 0x01, 0xd8}; // add rax, rbx
+                    // 完整实现：支持所有寄存器组合的加法运算
+                    uint8_t add_instr[4];
+                    int instr_len = 0;
 
-                        if (jit->code_size + sizeof(add_instr) > jit->code_capacity) {
+                    // REX前缀 (64位操作)
+                    add_instr[instr_len++] = 0x48;
+
+                    // ADD指令操作码
+                    add_instr[instr_len++] = 0x01;
+
+                    // ModR/M字节: 11 reg2 reg1 (reg2 -> reg1, 结果存储到dst_reg)
+                    uint8_t modrm = 0xC0 | (reg2 << 3) | reg1;
+                    add_instr[instr_len++] = modrm;
+
+                    // 如果目标寄存器不同于源寄存器1，需要先移动结果
+                    if (dst_reg != reg1) {
+                        // 生成 MOV dst_reg, reg1 指令
+                        uint8_t mov_instr[] = {0x48, 0x89, (uint8_t)(0xC0 | (reg1 << 3) | dst_reg)};
+
+                        if (jit->code_size + sizeof(mov_instr) + instr_len > jit->code_capacity) {
                             strcpy(jit->error_message, "Code buffer overflow");
                             return COMPILE_ERROR_CODEGEN_FAILED;
                         }
 
-                        memcpy(jit->code_buffer + jit->code_size, add_instr, sizeof(add_instr));
-                        jit->code_size += sizeof(add_instr);
+                        memcpy(jit->code_buffer + jit->code_size, mov_instr, sizeof(mov_instr));
+                        jit->code_size += sizeof(mov_instr);
                     }
+
+                    if (jit->code_size + instr_len > jit->code_capacity) {
+                        strcpy(jit->error_message, "Code buffer overflow");
+                        return COMPILE_ERROR_CODEGEN_FAILED;
+                    }
+
+                    memcpy(jit->code_buffer + jit->code_size, add_instr, instr_len);
+                    jit->code_size += instr_len;
+
+                    printf("JIT: Generated ADD instruction for regs %d + %d -> %d\n", reg1, reg2, dst_reg);
                     i += 4;
                 } else {
                     i++;
@@ -489,18 +518,43 @@ static CompileResult jit_compile_bytecode(JITCompiler* jit, const uint8_t* bytec
                     uint8_t reg2 = bytecode[i + 2];
                     uint8_t dst_reg = bytecode[i + 3];
 
-                    // 简化实现：只支持 rax = rax - rbx
-                    if (reg1 == 0 && reg2 == 1 && dst_reg == 0) {
-                        uint8_t sub_instr[] = {0x48, 0x29, 0xd8}; // sub rax, rbx
+                    // 完整实现：支持所有寄存器组合的减法运算
+                    uint8_t sub_instr[4];
+                    int instr_len = 0;
 
-                        if (jit->code_size + sizeof(sub_instr) > jit->code_capacity) {
+                    // REX前缀 (64位操作)
+                    sub_instr[instr_len++] = 0x48;
+
+                    // SUB指令操作码
+                    sub_instr[instr_len++] = 0x29;
+
+                    // ModR/M字节: 11 reg2 reg1 (reg1 - reg2, 结果存储到dst_reg)
+                    uint8_t modrm = 0xC0 | (reg2 << 3) | reg1;
+                    sub_instr[instr_len++] = modrm;
+
+                    // 如果目标寄存器不同于源寄存器1，需要先移动结果
+                    if (dst_reg != reg1) {
+                        // 生成 MOV dst_reg, reg1 指令
+                        uint8_t mov_instr[] = {0x48, 0x89, (uint8_t)(0xC0 | (reg1 << 3) | dst_reg)};
+
+                        if (jit->code_size + sizeof(mov_instr) + instr_len > jit->code_capacity) {
                             strcpy(jit->error_message, "Code buffer overflow");
                             return COMPILE_ERROR_CODEGEN_FAILED;
                         }
 
-                        memcpy(jit->code_buffer + jit->code_size, sub_instr, sizeof(sub_instr));
-                        jit->code_size += sizeof(sub_instr);
+                        memcpy(jit->code_buffer + jit->code_size, mov_instr, sizeof(mov_instr));
+                        jit->code_size += sizeof(mov_instr);
                     }
+
+                    if (jit->code_size + instr_len > jit->code_capacity) {
+                        strcpy(jit->error_message, "Code buffer overflow");
+                        return COMPILE_ERROR_CODEGEN_FAILED;
+                    }
+
+                    memcpy(jit->code_buffer + jit->code_size, sub_instr, instr_len);
+                    jit->code_size += instr_len;
+
+                    printf("JIT: Generated SUB instruction for regs %d - %d -> %d\n", reg1, reg2, dst_reg);
                     i += 4;
                 } else {
                     i++;
