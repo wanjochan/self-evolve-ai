@@ -98,6 +98,11 @@ bool codegen_translation_unit(CodegenContext* codegen, struct ASTNode* ast);
 bool codegen_function_definition(CodegenContext* codegen, struct ASTNode* func);
 
 /**
+ * Generate global variable declaration
+ */
+bool codegen_global_variable_declaration(CodegenContext* codegen, struct ASTNode* var_decl);
+
+/**
  * Generate statement
  */
 bool codegen_statement(CodegenContext* codegen, struct ASTNode* stmt);

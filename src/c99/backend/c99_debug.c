@@ -193,8 +193,8 @@ bool debug_generate_function(DebugContext* debug, struct ASTNode* func) {
     
     memset(location, 0, sizeof(SourceLocation));
     location->filename = strdup("source.c"); // Placeholder
-    location->line = 1; // TODO: Get from AST node
-    location->column = 1; // TODO: Get from AST node
+    location->line = func ? func->line : 1; // Get from AST node
+    location->column = func ? func->column : 1; // Get from AST node
     location->bytecode_offset = 0; // Will be set during code generation
     
     // Add function information

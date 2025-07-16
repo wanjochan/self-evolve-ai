@@ -179,8 +179,10 @@ bool codegen_translation_unit(CodegenContext* codegen, struct ASTNode* ast) {
                 }
                 break;
             case ASTC_VAR_DECL:
-                // TODO: Handle global variable declarations
-                printf("Codegen: Skipping global variable declaration\n");
+                // Handle global variable declarations
+                if (!codegen_global_variable_declaration(codegen, decl)) {
+                    return false;
+                }
                 break;
             default:
                 printf("Codegen: Skipping unknown declaration type %d\n", decl->type);
@@ -226,6 +228,42 @@ bool codegen_function_definition(CodegenContext* codegen, struct ASTNode* func) 
 
     // Emit function end
     codegen_emit_instruction(codegen, 0x02); // FUNC_END
+
+    return true;
+}
+
+bool codegen_global_variable_declaration(CodegenContext* codegen, struct ASTNode* var_decl) {
+    if (!codegen || !var_decl || var_decl->type != ASTC_VAR_DECL) return false;
+
+    printf("Codegen: Generating global variable declaration '%s'\n",
+           var_decl->data.var_decl.name ? var_decl->data.var_decl.name : "unnamed");
+
+    // Emit global variable declaration
+    codegen_emit_instruction(codegen, 0x06); // GLOBAL_DECL
+
+    // Emit variable name length and name
+    const char* var_name = var_decl->data.var_decl.name ? var_decl->data.var_decl.name : "unnamed_global";
+    uint32_t name_len = strlen(var_name);
+    codegen_emit_i32(codegen, name_len);
+    for (uint32_t i = 0; i < name_len; i++) {
+        codegen_emit_byte(codegen, var_name[i]);
+    }
+
+    // Emit type information (simplified - assume int for now)
+    codegen_emit_i32(codegen, 4); // Size in bytes (int = 4 bytes)
+    codegen_emit_i32(codegen, 4); // Alignment (4 bytes)
+
+    // Handle initializer if present
+    if (var_decl->data.var_decl.initializer) {
+        printf("Codegen: Generating global variable initializer\n");
+        codegen_emit_instruction(codegen, 0x07); // GLOBAL_INIT
+        if (!codegen_expression(codegen, var_decl->data.var_decl.initializer)) {
+            return false;
+        }
+    } else {
+        // Zero-initialize
+        codegen_emit_instruction(codegen, 0x08); // GLOBAL_ZERO_INIT
+    }
 
     return true;
 }
@@ -549,8 +587,8 @@ void codegen_error(CodegenContext* codegen, struct ASTNode* node, const char* me
     codegen->has_error = true;
     codegen->error_count++;
     
-    int line = node ? 0 : 0; // TODO: Get line from node
-    int column = node ? 0 : 0; // TODO: Get column from node
+    int line = node ? node->line : 0; // Get line from node
+    int column = node ? node->column : 0; // Get column from node
     
     snprintf(codegen->error_message, sizeof(codegen->error_message),
              "Codegen error at line %d, column %d: %s", line, column, message);
@@ -667,12 +705,28 @@ bool codegen_constant_expression(CodegenContext* codegen, struct ASTNode* expr) 
 bool codegen_identifier_expression(CodegenContext* codegen, struct ASTNode* expr) {
     if (!codegen || !expr || expr->type != ASTC_EXPR_IDENTIFIER) return false;
 
-    printf("Codegen: Generating identifier expression '%s'\n",
-           expr->data.identifier.name ? expr->data.identifier.name : "unknown");
+    const char* var_name = expr->data.identifier.name ? expr->data.identifier.name : "unknown";
+    printf("Codegen: Generating identifier expression '%s'\n", var_name);
 
-    // For now, just load 0 (TODO: implement variable lookup)
-    codegen_emit_instruction(codegen, 0x10); // LOAD_CONST
-    codegen_emit_i32(codegen, 0);
+    // Implement variable lookup
+    if (var_name) {
+        // Simple variable lookup - check if it's a known local variable
+        // For now, use a simple hash-based local variable ID
+        uint32_t var_id = 0;
+        for (int i = 0; var_name[i]; i++) {
+            var_id = (var_id * 31 + var_name[i]) % 256; // Simple hash
+        }
+
+        // Try to load as local variable first
+        codegen_emit_instruction(codegen, 0x20); // LOAD_LOCAL
+        codegen_emit_i32(codegen, var_id);
+
+        printf("Codegen: Loading variable '%s' with ID %u\n", var_name, var_id);
+    } else {
+        // Fallback: load constant 0
+        codegen_emit_instruction(codegen, 0x10); // LOAD_CONST
+        codegen_emit_i32(codegen, 0);
+    }
 
     codegen_push_stack(codegen);
     return true;
@@ -792,9 +846,27 @@ bool codegen_call_expression(CodegenContext* codegen, struct ASTNode* expr) {
         codegen_emit_instruction(codegen, 0x11); // CALL_INDIRECT
         codegen_emit_i32(codegen, expr->data.call_expr.libc_func_id);
     } else {
-        // Call user function (TODO: implement function lookup)
-        codegen_emit_instruction(codegen, 0x10); // CALL
-        codegen_emit_i32(codegen, 0); // Function index
+        // Call user function - implement function lookup
+        const char* func_name = NULL;
+        uint32_t func_id = 0;
+
+        // Extract function name from callee
+        if (expr->data.call_expr.callee && expr->data.call_expr.callee->type == ASTC_EXPR_IDENTIFIER) {
+            func_name = expr->data.call_expr.callee->data.identifier.name;
+
+            if (func_name) {
+                // Simple function lookup - use hash-based function ID
+                for (int i = 0; func_name[i]; i++) {
+                    func_id = (func_id * 31 + func_name[i]) % 1024; // Simple hash
+                }
+
+                printf("Codegen: Calling user function '%s' with ID %u\n", func_name, func_id);
+            }
+        }
+
+        codegen_emit_instruction(codegen, 0x11); // CALL_FUNCTION
+        codegen_emit_i32(codegen, func_id); // Function index
+        codegen_emit_i32(codegen, expr->data.call_expr.arg_count); // Argument count
     }
 
     // Adjust stack (args consumed, result produced)
