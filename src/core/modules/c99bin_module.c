@@ -13,6 +13,14 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -123,6 +131,46 @@ static void c99bin_debug_generate_symbols(ASTNode* ast);
 static void c99bin_debug_write_info(const char* output_file);
 static void c99bin_debug_collect_symbols(ASTNode* node);
 
+// T3.2.4 - 编译性能优化系统
+typedef struct {
+    bool performance_mode;         // 是否启用性能模式
+    bool enable_caching;           // 是否启用缓存
+    bool enable_parallel;          // 是否启用并行编译
+    int max_threads;               // 最大线程数
+
+    // 性能统计
+    clock_t start_time;            // 编译开始时间
+    clock_t end_time;              // 编译结束时间
+    size_t peak_memory;            // 峰值内存使用
+    size_t current_memory;         // 当前内存使用
+
+    // 缓存信息
+    char* cache_dir;               // 缓存目录
+    int cache_hits;                // 缓存命中次数
+    int cache_misses;              // 缓存未命中次数
+
+    // 编译阶段计时
+    clock_t lexer_time;            // 词法分析时间
+    clock_t parser_time;           // 语法分析时间
+    clock_t semantic_time;         // 语义分析时间
+    clock_t optimization_time;     // 优化时间
+    clock_t codegen_time;          // 代码生成时间
+} C99BinPerformance;
+
+static C99BinPerformance c99bin_performance = {0};
+
+// 性能优化函数声明
+static void c99bin_performance_init(bool enable_performance_mode);
+static void c99bin_performance_cleanup(void);
+static void c99bin_performance_start_timer(void);
+static void c99bin_performance_end_timer(void);
+static void c99bin_performance_start_phase(const char* phase_name);
+static void c99bin_performance_end_phase(const char* phase_name);
+static void c99bin_performance_update_memory(void);
+static void c99bin_performance_print_stats(void);
+static bool c99bin_performance_check_cache(const char* source_file, const char* output_file);
+static void c99bin_performance_save_cache(const char* source_file, const char* output_file);
+
 // ===============================================
 // 多文件编译支持结构
 // ===============================================
@@ -193,6 +241,11 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
     // T3.2.3 - 初始化调试信息系统 (默认启用)
     printf("C99Bin Module: Phase 1.6 - Initializing debug info...\n");
     c99bin_debug_init(source_file, true);
+
+    // T3.2.4 - 初始化性能优化系统 (默认启用)
+    printf("C99Bin Module: Phase 1.7 - Initializing performance optimization...\n");
+    c99bin_performance_init(true);
+    c99bin_performance_start_timer();
     c99bin_state.source_code = source_code;
 
     // T2.1.2 - 使用pipeline前端进行词法和语法分析
@@ -297,19 +350,32 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
         printf("C99Bin Module: Phase 5 - Writing debug information...\n");
         c99bin_debug_write_info(output_file);
 
+        // T3.2.4 - 保存到缓存
+        c99bin_performance_save_cache(source_file, output_file);
+
+        // T3.2.4 - 结束性能计时并打印统计
+        c99bin_performance_end_timer();
+        c99bin_performance_print_stats();
+
         // T3.2.2 - 打印诊断摘要
         c99bin_diagnostic_summary();
         c99bin_diagnostic_cleanup();
         c99bin_debug_cleanup();
+        c99bin_performance_cleanup();
 
         return C99BIN_SUCCESS;
     } else {
         printf("C99Bin Module: ❌ ELF generation failed: %s\n", c99bin_state.error_message);
 
+        // T3.2.4 - 结束性能计时并打印统计（即使失败）
+        c99bin_performance_end_timer();
+        c99bin_performance_print_stats();
+
         // T3.2.2 - 打印诊断摘要（即使失败）
         c99bin_diagnostic_summary();
         c99bin_diagnostic_cleanup();
         c99bin_debug_cleanup();
+        c99bin_performance_cleanup();
 
         return elf_result;
     }
@@ -355,31 +421,43 @@ C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_
     source_code[source_size] = '\0';
     fclose(source_fp);
 
+    // T3.2.4 - 对象编译不使用缓存（因为没有输出文件）
+    printf("C99Bin Module: Object compilation - cache not applicable\n");
+
     // 使用pipeline前端进行解析
+    c99bin_performance_start_phase("Frontend Parsing");
     if (c99bin_state.pipeline_module) {
         ASTNode* (*frontend_compile)(const char*) =
             (ASTNode* (*)(const char*))c99bin_state.pipeline_module->sym(c99bin_state.pipeline_module, "frontend_compile");
 
         if (frontend_compile) {
             ASTNode* ast_root = frontend_compile(source_code);
+            c99bin_performance_end_phase("Frontend Parsing");
 
             if (ast_root) {
                 // T3.2.2 - 执行语义分析和诊断检查
+                c99bin_performance_start_phase("Semantic Analysis");
                 printf("C99Bin Module: Phase 2.3 - Performing semantic analysis...\n");
                 c99bin_perform_semantic_checks(ast_root);
+                c99bin_performance_end_phase("Semantic Analysis");
 
                 // T3.2.3 - 生成调试符号信息
+                c99bin_performance_start_phase("Debug Symbol Generation");
                 printf("C99Bin Module: Phase 2.4 - Generating debug symbols...\n");
                 c99bin_debug_generate_symbols(ast_root);
+                c99bin_performance_end_phase("Debug Symbol Generation");
 
                 // T3.2.1 - 应用AST优化 (默认优化级别1)
+                c99bin_performance_start_phase("AST Optimization");
                 printf("C99Bin Module: Phase 2.5 - Applying AST optimizations...\n");
                 C99BinResult opt_result = c99bin_optimize_ast(ast_root, 1);
                 if (opt_result != C99BIN_SUCCESS) {
                     printf("C99Bin Module: ⚠️ Optimization failed, continuing with unoptimized AST\n");
                 }
+                c99bin_performance_end_phase("AST Optimization");
 
                 // 使用compiler模块生成目标代码
+                c99bin_performance_start_phase("Code Generation");
                 if (c99bin_state.compiler_module) {
                     int (*jit_compile_ast)(ASTNode*, uint8_t**, size_t*) =
                         (int (*)(ASTNode*, uint8_t**, size_t*))c99bin_state.compiler_module->sym(c99bin_state.compiler_module, "jit_compile_ast");
@@ -1672,6 +1750,230 @@ static void c99bin_debug_write_info(const char* output_file) {
     printf("C99Bin Debug: ✅ Debug information written successfully\n");
     printf("C99Bin Debug: - %d function symbols\n", c99bin_debug_info.function_count);
     printf("C99Bin Debug: - %d line mappings\n", c99bin_debug_info.line_mapping_count);
+}
+
+// ===============================================
+// T3.2.4 - 编译性能优化系统实现
+// ===============================================
+
+/**
+ * 初始化性能优化系统
+ * @param enable_performance_mode 是否启用性能模式
+ */
+static void c99bin_performance_init(bool enable_performance_mode) {
+    memset(&c99bin_performance, 0, sizeof(C99BinPerformance));
+
+    c99bin_performance.performance_mode = enable_performance_mode;
+    c99bin_performance.enable_caching = enable_performance_mode;
+    c99bin_performance.enable_parallel = false; // 暂时禁用并行编译
+    c99bin_performance.max_threads = 1;
+
+    // 设置缓存目录
+    c99bin_performance.cache_dir = strdup(".c99bin_cache");
+
+    if (enable_performance_mode) {
+        printf("C99Bin Performance: Performance optimization enabled\n");
+        printf("C99Bin Performance: Caching: %s\n", c99bin_performance.enable_caching ? "ON" : "OFF");
+        printf("C99Bin Performance: Parallel: %s\n", c99bin_performance.enable_parallel ? "ON" : "OFF");
+
+        // 创建缓存目录
+        #ifdef _WIN32
+        _mkdir(c99bin_performance.cache_dir);
+        #else
+        mkdir(c99bin_performance.cache_dir, 0755);
+        #endif
+    }
+}
+
+/**
+ * 清理性能优化系统
+ */
+static void c99bin_performance_cleanup(void) {
+    if (c99bin_performance.cache_dir) {
+        free(c99bin_performance.cache_dir);
+        c99bin_performance.cache_dir = NULL;
+    }
+
+    memset(&c99bin_performance, 0, sizeof(C99BinPerformance));
+}
+
+/**
+ * 开始计时
+ */
+static void c99bin_performance_start_timer(void) {
+    c99bin_performance.start_time = clock();
+    c99bin_performance_update_memory();
+}
+
+/**
+ * 结束计时
+ */
+static void c99bin_performance_end_timer(void) {
+    c99bin_performance.end_time = clock();
+    c99bin_performance_update_memory();
+}
+
+/**
+ * 开始阶段计时
+ * @param phase_name 阶段名称
+ */
+static void c99bin_performance_start_phase(const char* phase_name) {
+    if (!c99bin_performance.performance_mode) return;
+
+    printf("C99Bin Performance: Starting phase: %s\n", phase_name);
+    // 这里可以记录具体阶段的开始时间
+}
+
+/**
+ * 结束阶段计时
+ * @param phase_name 阶段名称
+ */
+static void c99bin_performance_end_phase(const char* phase_name) {
+    if (!c99bin_performance.performance_mode) return;
+
+    printf("C99Bin Performance: Completed phase: %s\n", phase_name);
+    // 这里可以记录具体阶段的结束时间
+}
+
+/**
+ * 更新内存使用统计
+ */
+static void c99bin_performance_update_memory(void) {
+    if (!c99bin_performance.performance_mode) return;
+
+    // 简化的内存统计 - 在实际实现中可以使用更精确的方法
+    #ifdef __linux__
+    FILE* status = fopen("/proc/self/status", "r");
+    if (status) {
+        char line[256];
+        while (fgets(line, sizeof(line), status)) {
+            if (strncmp(line, "VmRSS:", 6) == 0) {
+                size_t memory_kb = 0;
+                sscanf(line, "VmRSS: %zu kB", &memory_kb);
+                c99bin_performance.current_memory = memory_kb * 1024;
+                if (c99bin_performance.current_memory > c99bin_performance.peak_memory) {
+                    c99bin_performance.peak_memory = c99bin_performance.current_memory;
+                }
+                break;
+            }
+        }
+        fclose(status);
+    }
+    #endif
+}
+
+/**
+ * 打印性能统计
+ */
+static void c99bin_performance_print_stats(void) {
+    if (!c99bin_performance.performance_mode) return;
+
+    double compile_time = (double)(c99bin_performance.end_time - c99bin_performance.start_time) / CLOCKS_PER_SEC;
+
+    printf("\n=== C99Bin Performance Statistics ===\n");
+    printf("Total compilation time: %.3f seconds\n", compile_time);
+    printf("Peak memory usage: %.2f MB\n", (double)c99bin_performance.peak_memory / (1024 * 1024));
+    printf("Current memory usage: %.2f MB\n", (double)c99bin_performance.current_memory / (1024 * 1024));
+
+    if (c99bin_performance.enable_caching) {
+        printf("Cache hits: %d\n", c99bin_performance.cache_hits);
+        printf("Cache misses: %d\n", c99bin_performance.cache_misses);
+        if (c99bin_performance.cache_hits + c99bin_performance.cache_misses > 0) {
+            double hit_rate = (double)c99bin_performance.cache_hits /
+                             (c99bin_performance.cache_hits + c99bin_performance.cache_misses) * 100.0;
+            printf("Cache hit rate: %.1f%%\n", hit_rate);
+        }
+    }
+
+    printf("Performance mode: %s\n", c99bin_performance.performance_mode ? "ENABLED" : "DISABLED");
+    printf("=====================================\n");
+}
+
+/**
+ * 检查缓存
+ * @param source_file 源文件路径
+ * @param output_file 输出文件路径
+ * @return 是否找到有效缓存
+ */
+static bool c99bin_performance_check_cache(const char* source_file, const char* output_file) {
+    if (!c99bin_performance.enable_caching || !source_file || !output_file) {
+        return false;
+    }
+
+    // 生成缓存文件路径
+    char cache_file[512];
+    snprintf(cache_file, sizeof(cache_file), "%s/%s.cache",
+             c99bin_performance.cache_dir, source_file);
+
+    // 检查缓存文件是否存在且比源文件新
+    struct stat source_stat, cache_stat;
+    if (stat(source_file, &source_stat) != 0) {
+        return false;
+    }
+
+    if (stat(cache_file, &cache_stat) != 0) {
+        c99bin_performance.cache_misses++;
+        return false;
+    }
+
+    // 检查缓存是否比源文件新
+    if (cache_stat.st_mtime > source_stat.st_mtime) {
+        printf("C99Bin Performance: Cache hit for %s\n", source_file);
+        c99bin_performance.cache_hits++;
+
+        // 复制缓存文件到输出文件
+        FILE* cache_fp = fopen(cache_file, "rb");
+        FILE* output_fp = fopen(output_file, "wb");
+
+        if (cache_fp && output_fp) {
+            char buffer[4096];
+            size_t bytes;
+            while ((bytes = fread(buffer, 1, sizeof(buffer), cache_fp)) > 0) {
+                fwrite(buffer, 1, bytes, output_fp);
+            }
+            fclose(cache_fp);
+            fclose(output_fp);
+            return true;
+        }
+
+        if (cache_fp) fclose(cache_fp);
+        if (output_fp) fclose(output_fp);
+    }
+
+    c99bin_performance.cache_misses++;
+    return false;
+}
+
+/**
+ * 保存到缓存
+ * @param source_file 源文件路径
+ * @param output_file 输出文件路径
+ */
+static void c99bin_performance_save_cache(const char* source_file, const char* output_file) {
+    if (!c99bin_performance.enable_caching || !source_file || !output_file) {
+        return;
+    }
+
+    // 生成缓存文件路径
+    char cache_file[512];
+    snprintf(cache_file, sizeof(cache_file), "%s/%s.cache",
+             c99bin_performance.cache_dir, source_file);
+
+    // 复制输出文件到缓存
+    FILE* output_fp = fopen(output_file, "rb");
+    FILE* cache_fp = fopen(cache_file, "wb");
+
+    if (output_fp && cache_fp) {
+        char buffer[4096];
+        size_t bytes;
+        while ((bytes = fread(buffer, 1, sizeof(buffer), output_fp)) > 0) {
+            fwrite(buffer, 1, bytes, cache_fp);
+        }
+        printf("C99Bin Performance: Cached result for %s\n", source_file);
+    }
+
+    if (output_fp) fclose(output_fp);
+    if (cache_fp) fclose(cache_fp);
 }
 
 /**
