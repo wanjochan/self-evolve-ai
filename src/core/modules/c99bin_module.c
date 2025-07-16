@@ -68,6 +68,31 @@ static bool c99bin_constant_folding_pass(ASTNode* ast);
 static bool c99bin_dead_code_elimination_pass(ASTNode* ast);
 static bool c99bin_advanced_optimization_pass(ASTNode* ast);
 
+// T3.2.2 - 错误诊断和警告系统
+typedef struct {
+    char** source_lines;           // 源代码行数组
+    int source_line_count;         // 源代码行数
+    char* filename;                // 当前文件名
+    bool show_warnings;            // 是否显示警告
+    bool warnings_as_errors;       // 警告作为错误
+    int max_errors;                // 最大错误数
+    int error_count;               // 当前错误数
+    int warning_count;             // 当前警告数
+} C99BinDiagnostics;
+
+static C99BinDiagnostics c99bin_diagnostics = {0};
+
+// 诊断函数声明
+static void c99bin_diagnostic_init(const char* filename, const char* source_code);
+static void c99bin_diagnostic_cleanup(void);
+static void c99bin_diagnostic_error(int line, int column, const char* message, const char* suggestion);
+static void c99bin_diagnostic_warning(int line, int column, const char* message);
+static void c99bin_diagnostic_note(int line, int column, const char* message);
+static void c99bin_diagnostic_print_context(int line, int column, int length);
+static void c99bin_diagnostic_summary(void);
+static void c99bin_perform_semantic_checks(ASTNode* ast);
+static void c99bin_check_ast_node(ASTNode* node, int depth);
+
 // ===============================================
 // 多文件编译支持结构
 // ===============================================
@@ -130,6 +155,10 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
     fclose(source_fp);
 
     printf("C99Bin Module: Source loaded (%ld bytes)\n", source_size);
+
+    // T3.2.2 - 初始化诊断系统
+    printf("C99Bin Module: Phase 1.5 - Initializing diagnostics...\n");
+    c99bin_diagnostic_init(source_file, source_code);
     c99bin_state.source_code = source_code;
 
     // T2.1.2 - 使用pipeline前端进行词法和语法分析
@@ -229,9 +258,19 @@ C99BinResult c99bin_compile_to_executable(const char* source_file, const char* o
 
     if (elf_result == C99BIN_SUCCESS) {
         printf("C99Bin Module: ✅ ELF executable generated successfully: %s\n", output_file);
+
+        // T3.2.2 - 打印诊断摘要
+        c99bin_diagnostic_summary();
+        c99bin_diagnostic_cleanup();
+
         return C99BIN_SUCCESS;
     } else {
         printf("C99Bin Module: ❌ ELF generation failed: %s\n", c99bin_state.error_message);
+
+        // T3.2.2 - 打印诊断摘要（即使失败）
+        c99bin_diagnostic_summary();
+        c99bin_diagnostic_cleanup();
+
         return elf_result;
     }
 }
@@ -285,6 +324,10 @@ C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_
             ASTNode* ast_root = frontend_compile(source_code);
 
             if (ast_root) {
+                // T3.2.2 - 执行语义分析和诊断检查
+                printf("C99Bin Module: Phase 2.3 - Performing semantic analysis...\n");
+                c99bin_perform_semantic_checks(ast_root);
+
                 // T3.2.1 - 应用AST优化 (默认优化级别1)
                 printf("C99Bin Module: Phase 2.5 - Applying AST optimizations...\n");
                 C99BinResult opt_result = c99bin_optimize_ast(ast_root, 1);
@@ -933,6 +976,375 @@ static bool c99bin_advanced_optimization_pass(ASTNode* ast) {
 }
 
 
+
+// ===============================================
+// T3.2.2 - 错误诊断和警告系统实现
+// ===============================================
+
+/**
+ * 初始化诊断系统
+ * @param filename 源文件名
+ * @param source_code 源代码内容
+ */
+static void c99bin_diagnostic_init(const char* filename, const char* source_code) {
+    // 清理之前的状态
+    c99bin_diagnostic_cleanup();
+
+    // 设置文件名
+    if (filename) {
+        c99bin_diagnostics.filename = strdup(filename);
+    }
+
+    // 分割源代码为行
+    if (source_code) {
+        // 计算行数
+        int line_count = 1;
+        for (const char* p = source_code; *p; p++) {
+            if (*p == '\n') line_count++;
+        }
+
+        // 分配行数组
+        c99bin_diagnostics.source_lines = malloc(line_count * sizeof(char*));
+        c99bin_diagnostics.source_line_count = line_count;
+
+        // 分割行
+        const char* line_start = source_code;
+        int current_line = 0;
+
+        for (const char* p = source_code; *p; p++) {
+            if (*p == '\n' || *(p + 1) == '\0') {
+                size_t line_length = p - line_start + (*p != '\n' ? 1 : 0);
+                c99bin_diagnostics.source_lines[current_line] = malloc(line_length + 1);
+                strncpy(c99bin_diagnostics.source_lines[current_line], line_start, line_length);
+                c99bin_diagnostics.source_lines[current_line][line_length] = '\0';
+
+                current_line++;
+                line_start = p + 1;
+            }
+        }
+    }
+
+    // 设置默认选项
+    c99bin_diagnostics.show_warnings = true;
+    c99bin_diagnostics.warnings_as_errors = false;
+    c99bin_diagnostics.max_errors = 20;
+    c99bin_diagnostics.error_count = 0;
+    c99bin_diagnostics.warning_count = 0;
+
+    printf("C99Bin Diagnostics: Initialized for %s (%d lines)\n",
+           filename ? filename : "<unknown>", c99bin_diagnostics.source_line_count);
+}
+
+/**
+ * 清理诊断系统
+ */
+static void c99bin_diagnostic_cleanup(void) {
+    if (c99bin_diagnostics.filename) {
+        free(c99bin_diagnostics.filename);
+        c99bin_diagnostics.filename = NULL;
+    }
+
+    if (c99bin_diagnostics.source_lines) {
+        for (int i = 0; i < c99bin_diagnostics.source_line_count; i++) {
+            if (c99bin_diagnostics.source_lines[i]) {
+                free(c99bin_diagnostics.source_lines[i]);
+            }
+        }
+        free(c99bin_diagnostics.source_lines);
+        c99bin_diagnostics.source_lines = NULL;
+    }
+
+    c99bin_diagnostics.source_line_count = 0;
+    c99bin_diagnostics.error_count = 0;
+    c99bin_diagnostics.warning_count = 0;
+}
+
+/**
+ * 报告错误
+ * @param line 行号 (1-based)
+ * @param column 列号 (1-based)
+ * @param message 错误消息
+ * @param suggestion 建议修复方案
+ */
+static void c99bin_diagnostic_error(int line, int column, const char* message, const char* suggestion) {
+    if (c99bin_diagnostics.error_count >= c99bin_diagnostics.max_errors) {
+        return; // 达到最大错误数
+    }
+
+    c99bin_diagnostics.error_count++;
+
+    // 打印错误信息
+    printf("%s:%d:%d: \033[1;31merror:\033[0m %s\n",
+           c99bin_diagnostics.filename ? c99bin_diagnostics.filename : "<unknown>",
+           line, column, message);
+
+    // 打印源代码上下文
+    c99bin_diagnostic_print_context(line, column, 1);
+
+    // 打印建议
+    if (suggestion) {
+        printf("  \033[1;36mnote:\033[0m %s\n", suggestion);
+    }
+
+    printf("\n");
+}
+
+/**
+ * 报告警告
+ * @param line 行号 (1-based)
+ * @param column 列号 (1-based)
+ * @param message 警告消息
+ */
+static void c99bin_diagnostic_warning(int line, int column, const char* message) {
+    if (!c99bin_diagnostics.show_warnings) {
+        return;
+    }
+
+    c99bin_diagnostics.warning_count++;
+
+    // 如果警告作为错误处理
+    if (c99bin_diagnostics.warnings_as_errors) {
+        c99bin_diagnostic_error(line, column, message, "treat this warning as an error");
+        return;
+    }
+
+    // 打印警告信息
+    printf("%s:%d:%d: \033[1;33mwarning:\033[0m %s\n",
+           c99bin_diagnostics.filename ? c99bin_diagnostics.filename : "<unknown>",
+           line, column, message);
+
+    // 打印源代码上下文
+    c99bin_diagnostic_print_context(line, column, 1);
+
+    printf("\n");
+}
+
+/**
+ * 报告提示信息
+ * @param line 行号 (1-based)
+ * @param column 列号 (1-based)
+ * @param message 提示消息
+ */
+static void c99bin_diagnostic_note(int line, int column, const char* message) {
+    printf("%s:%d:%d: \033[1;36mnote:\033[0m %s\n",
+           c99bin_diagnostics.filename ? c99bin_diagnostics.filename : "<unknown>",
+           line, column, message);
+
+    c99bin_diagnostic_print_context(line, column, 1);
+    printf("\n");
+}
+
+/**
+ * 打印源代码上下文
+ * @param line 行号 (1-based)
+ * @param column 列号 (1-based)
+ * @param length 高亮长度
+ */
+static void c99bin_diagnostic_print_context(int line, int column, int length) {
+    if (!c99bin_diagnostics.source_lines || line < 1 || line > c99bin_diagnostics.source_line_count) {
+        return;
+    }
+
+    // 打印源代码行
+    printf("  %4d | %s\n", line, c99bin_diagnostics.source_lines[line - 1]);
+
+    // 打印指示符
+    printf("       | ");
+    for (int i = 1; i < column; i++) {
+        printf(" ");
+    }
+    printf("\033[1;32m");
+    for (int i = 0; i < length; i++) {
+        printf("^");
+    }
+    printf("\033[0m");
+}
+
+/**
+ * 打印诊断摘要
+ */
+static void c99bin_diagnostic_summary(void) {
+    if (c99bin_diagnostics.error_count > 0 || c99bin_diagnostics.warning_count > 0) {
+        printf("\n=== Compilation Summary ===\n");
+
+        if (c99bin_diagnostics.error_count > 0) {
+            printf("\033[1;31m%d error(s)\033[0m", c99bin_diagnostics.error_count);
+        }
+
+        if (c99bin_diagnostics.warning_count > 0) {
+            if (c99bin_diagnostics.error_count > 0) printf(", ");
+            printf("\033[1;33m%d warning(s)\033[0m", c99bin_diagnostics.warning_count);
+        }
+
+        printf(" generated.\n");
+
+        if (c99bin_diagnostics.error_count > 0) {
+            printf("Compilation \033[1;31mfailed\033[0m due to errors.\n");
+        } else {
+            printf("Compilation \033[1;32msucceeded\033[0m with warnings.\n");
+        }
+    } else {
+        printf("Compilation \033[1;32msucceeded\033[0m with no issues.\n");
+    }
+}
+
+/**
+ * 执行语义分析和诊断检查
+ * @param ast AST根节点
+ */
+static void c99bin_perform_semantic_checks(ASTNode* ast) {
+    if (!ast) {
+        c99bin_diagnostic_error(1, 1, "Empty AST - no code to analyze", "Check if source file is empty");
+        return;
+    }
+
+    printf("C99Bin Module: Performing semantic analysis and diagnostics...\n");
+
+    // 递归检查AST节点
+    c99bin_check_ast_node(ast, 0);
+
+    printf("C99Bin Module: Semantic analysis completed\n");
+}
+
+/**
+ * 检查单个AST节点
+ * @param node AST节点
+ * @param depth 递归深度
+ */
+static void c99bin_check_ast_node(ASTNode* node, int depth) {
+    if (!node) return;
+
+    // 避免过深递归
+    if (depth > 100) {
+        c99bin_diagnostic_warning(node->line, node->column, "Very deep AST structure detected");
+        return;
+    }
+
+    switch (node->type) {
+        case ASTC_FUNC_DECL: {
+            // 检查函数声明
+            if (!node->data.func_decl.name) {
+                c99bin_diagnostic_error(node->line, node->column,
+                                      "Function declaration missing name",
+                                      "Add a function name");
+            } else {
+                // 检查函数名命名规范
+                const char* name = node->data.func_decl.name;
+                if (strlen(name) > 63) {
+                    c99bin_diagnostic_warning(node->line, node->column,
+                                            "Function name is very long (>63 characters)");
+                }
+
+                // 检查是否以下划线开头（可能与系统函数冲突）
+                if (name[0] == '_') {
+                    c99bin_diagnostic_warning(node->line, node->column,
+                                            "Function name starts with underscore (may conflict with system functions)");
+                }
+            }
+
+            // 检查函数体
+            if (node->data.func_decl.body) {
+                c99bin_check_ast_node(node->data.func_decl.body, depth + 1);
+            } else {
+                c99bin_diagnostic_note(node->line, node->column,
+                                     "Function declaration without body (forward declaration)");
+            }
+            break;
+        }
+
+        case ASTC_BINARY_OP: {
+            // 检查二元操作
+            if (!node->data.binary_op.left || !node->data.binary_op.right) {
+                c99bin_diagnostic_error(node->line, node->column,
+                                      "Binary operation missing operand(s)",
+                                      "Check expression syntax");
+            } else {
+                // 检查除零操作
+                if (node->data.binary_op.op == ASTC_OP_DIV &&
+                    node->data.binary_op.right->type == ASTC_EXPR_CONSTANT &&
+                    node->data.binary_op.right->data.constant.int_val == 0) {
+                    c99bin_diagnostic_error(node->line, node->column,
+                                          "Division by zero",
+                                          "Use a non-zero divisor");
+                }
+
+                // 递归检查操作数
+                c99bin_check_ast_node(node->data.binary_op.left, depth + 1);
+                c99bin_check_ast_node(node->data.binary_op.right, depth + 1);
+            }
+            break;
+        }
+
+        case ASTC_IF_STMT: {
+            // 检查if语句
+            if (!node->data.if_stmt.condition) {
+                c99bin_diagnostic_error(node->line, node->column,
+                                      "If statement missing condition",
+                                      "Add a boolean condition");
+            } else {
+                c99bin_check_ast_node(node->data.if_stmt.condition, depth + 1);
+            }
+
+            if (node->data.if_stmt.then_branch) {
+                c99bin_check_ast_node(node->data.if_stmt.then_branch, depth + 1);
+            }
+
+            if (node->data.if_stmt.else_branch) {
+                c99bin_check_ast_node(node->data.if_stmt.else_branch, depth + 1);
+            }
+            break;
+        }
+
+        case ASTC_RETURN_STMT: {
+            // 检查return语句
+            if (node->data.return_stmt.value) {
+                c99bin_check_ast_node(node->data.return_stmt.value, depth + 1);
+            }
+            break;
+        }
+
+        case ASTC_COMPOUND_STMT: {
+            // 检查复合语句
+            for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                if (node->data.compound_stmt.statements[i]) {
+                    c99bin_check_ast_node(node->data.compound_stmt.statements[i], depth + 1);
+                }
+            }
+            break;
+        }
+
+        case ASTC_EXPR_IDENTIFIER: {
+            // 检查标识符
+            if (!node->data.identifier.name) {
+                c99bin_diagnostic_error(node->line, node->column,
+                                      "Empty identifier",
+                                      "Provide a valid identifier name");
+            } else {
+                const char* name = node->data.identifier.name;
+
+                // 检查标识符长度
+                if (strlen(name) > 63) {
+                    c99bin_diagnostic_warning(node->line, node->column,
+                                            "Identifier name is very long (>63 characters)");
+                }
+
+                // 检查是否使用了C关键字作为标识符
+                if (strcmp(name, "auto") == 0 || strcmp(name, "break") == 0 ||
+                    strcmp(name, "case") == 0 || strcmp(name, "char") == 0 ||
+                    strcmp(name, "const") == 0 || strcmp(name, "continue") == 0) {
+                    c99bin_diagnostic_error(node->line, node->column,
+                                          "Using C keyword as identifier",
+                                          "Choose a different identifier name");
+                }
+            }
+            break;
+        }
+
+        default:
+            // 对于其他节点类型，暂时不进行特殊检查
+            break;
+    }
+}
 
 /**
  * 生成PE可执行文件 (Windows)
