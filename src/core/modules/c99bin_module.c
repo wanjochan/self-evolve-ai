@@ -63,6 +63,10 @@ C99BinResult c99bin_generate_elf(const uint8_t* machine_code, size_t code_size, 
 C99BinResult c99bin_generate_pe(const uint8_t* machine_code, size_t code_size, const char* output_file);
 C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_code, size_t* object_size);
 C99BinResult c99bin_link_objects(uint8_t** object_codes, size_t* object_sizes, int object_count, const char* output_file);
+C99BinResult c99bin_optimize_ast(ASTNode* ast, int optimization_level);
+static bool c99bin_constant_folding_pass(ASTNode* ast);
+static bool c99bin_dead_code_elimination_pass(ASTNode* ast);
+static bool c99bin_advanced_optimization_pass(ASTNode* ast);
 
 // ===============================================
 // 多文件编译支持结构
@@ -281,6 +285,13 @@ C99BinResult c99bin_compile_to_object(const char* source_file, uint8_t** object_
             ASTNode* ast_root = frontend_compile(source_code);
 
             if (ast_root) {
+                // T3.2.1 - 应用AST优化 (默认优化级别1)
+                printf("C99Bin Module: Phase 2.5 - Applying AST optimizations...\n");
+                C99BinResult opt_result = c99bin_optimize_ast(ast_root, 1);
+                if (opt_result != C99BIN_SUCCESS) {
+                    printf("C99Bin Module: ⚠️ Optimization failed, continuing with unoptimized AST\n");
+                }
+
                 // 使用compiler模块生成目标代码
                 if (c99bin_state.compiler_module) {
                     int (*jit_compile_ast)(ASTNode*, uint8_t**, size_t*) =
@@ -584,6 +595,344 @@ C99BinResult c99bin_compile_multiple_files(const char** source_files, int source
 
     return link_result;
 }
+
+/**
+ * AST优化功能
+ * @param ast 要优化的AST节点
+ * @param optimization_level 优化级别 (0-3)
+ * @return C99BinResult 优化结果
+ */
+C99BinResult c99bin_optimize_ast(ASTNode* ast, int optimization_level) {
+    if (!ast) {
+        strcpy(c99bin_state.error_message, "Invalid AST for optimization");
+        return C99BIN_ERROR_INVALID_INPUT;
+    }
+
+    if (optimization_level < 0 || optimization_level > 3) {
+        strcpy(c99bin_state.error_message, "Invalid optimization level (must be 0-3)");
+        return C99BIN_ERROR_INVALID_INPUT;
+    }
+
+    printf("C99Bin Module: Applying optimizations (level %d)...\n", optimization_level);
+
+    // 如果优化级别为0，跳过优化
+    if (optimization_level == 0) {
+        printf("C99Bin Module: ✅ No optimization requested (level 0)\n");
+        return C99BIN_SUCCESS;
+    }
+
+    // 应用常量折叠优化
+    if (optimization_level >= 1) {
+        printf("C99Bin Module: Applying constant folding...\n");
+        if (c99bin_constant_folding_pass(ast)) {
+            printf("C99Bin Module: ✅ Constant folding applied\n");
+        } else {
+            printf("C99Bin Module: ⚠️ Constant folding made no changes\n");
+        }
+    }
+
+    // 应用死代码消除
+    if (optimization_level >= 2) {
+        printf("C99Bin Module: Applying dead code elimination...\n");
+        if (c99bin_dead_code_elimination_pass(ast)) {
+            printf("C99Bin Module: ✅ Dead code elimination applied\n");
+        } else {
+            printf("C99Bin Module: ⚠️ Dead code elimination made no changes\n");
+        }
+    }
+
+    // 应用高级优化
+    if (optimization_level >= 3) {
+        printf("C99Bin Module: Applying advanced optimizations...\n");
+        if (c99bin_advanced_optimization_pass(ast)) {
+            printf("C99Bin Module: ✅ Advanced optimizations applied\n");
+        } else {
+            printf("C99Bin Module: ⚠️ Advanced optimizations made no changes\n");
+        }
+    }
+
+    printf("C99Bin Module: ✅ Optimization completed (level %d)\n", optimization_level);
+    return C99BIN_SUCCESS;
+}
+
+/**
+ * 常量折叠优化通道
+ * @param ast AST节点
+ * @return bool 是否进行了优化
+ */
+static bool c99bin_constant_folding_pass(ASTNode* ast) {
+    if (!ast) return false;
+
+    bool optimized = false;
+
+    switch (ast->type) {
+        case ASTC_BINARY_OP: {
+            // 递归优化子节点
+            if (c99bin_constant_folding_pass(ast->data.binary_op.left)) optimized = true;
+            if (c99bin_constant_folding_pass(ast->data.binary_op.right)) optimized = true;
+
+            // 检查是否可以折叠常量
+            if (ast->data.binary_op.left->type == ASTC_EXPR_CONSTANT &&
+                ast->data.binary_op.right->type == ASTC_EXPR_CONSTANT) {
+
+                int left_val = ast->data.binary_op.left->data.constant.int_val;
+                int right_val = ast->data.binary_op.right->data.constant.int_val;
+                int result_val = 0;
+                bool can_fold = true;
+
+                switch (ast->data.binary_op.op) {
+                    case ASTC_OP_ADD:
+                        result_val = left_val + right_val;
+                        break;
+                    case ASTC_OP_SUB:
+                        result_val = left_val - right_val;
+                        break;
+                    case ASTC_OP_MUL:
+                        result_val = left_val * right_val;
+                        break;
+                    case ASTC_OP_DIV:
+                        if (right_val != 0) {
+                            result_val = left_val / right_val;
+                        } else {
+                            can_fold = false; // 避免除零
+                        }
+                        break;
+                    default:
+                        can_fold = false;
+                        break;
+                }
+
+                if (can_fold) {
+                    // 释放原有子节点
+                    ast_free(ast->data.binary_op.left);
+                    ast_free(ast->data.binary_op.right);
+
+                    // 转换为常量节点
+                    ast->type = ASTC_EXPR_CONSTANT;
+                    ast->data.constant.type = ASTC_TYPE_INT;
+                    ast->data.constant.int_val = result_val;
+
+                    printf("C99Bin Module: Folded constant: %d %s %d = %d\n",
+                           left_val,
+                           (ast->data.binary_op.op == ASTC_OP_ADD) ? "+" :
+                           (ast->data.binary_op.op == ASTC_OP_SUB) ? "-" :
+                           (ast->data.binary_op.op == ASTC_OP_MUL) ? "*" : "/",
+                           right_val, result_val);
+
+                    optimized = true;
+                }
+            }
+            break;
+        }
+
+        case ASTC_FUNC_DECL:
+            if (ast->data.func_decl.body) {
+                if (c99bin_constant_folding_pass(ast->data.func_decl.body)) optimized = true;
+            }
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            for (int i = 0; i < ast->data.compound_stmt.statement_count; i++) {
+                if (c99bin_constant_folding_pass(ast->data.compound_stmt.statements[i])) {
+                    optimized = true;
+                }
+            }
+            break;
+
+        case ASTC_IF_STMT:
+            if (c99bin_constant_folding_pass(ast->data.if_stmt.condition)) optimized = true;
+            if (c99bin_constant_folding_pass(ast->data.if_stmt.then_branch)) optimized = true;
+            if (ast->data.if_stmt.else_branch &&
+                c99bin_constant_folding_pass(ast->data.if_stmt.else_branch)) optimized = true;
+            break;
+
+        case ASTC_RETURN_STMT:
+            if (ast->data.return_stmt.value &&
+                c99bin_constant_folding_pass(ast->data.return_stmt.value)) optimized = true;
+            break;
+
+        default:
+            // 对于其他节点类型，暂时不处理
+            break;
+    }
+
+    return optimized;
+}
+
+/**
+ * 死代码消除优化通道
+ * @param ast AST节点
+ * @return bool 是否进行了优化
+ */
+static bool c99bin_dead_code_elimination_pass(ASTNode* ast) {
+    if (!ast) return false;
+
+    bool optimized = false;
+
+    switch (ast->type) {
+        case ASTC_IF_STMT: {
+            // 检查条件是否为常量
+            if (ast->data.if_stmt.condition->type == ASTC_EXPR_CONSTANT) {
+                int condition_val = ast->data.if_stmt.condition->data.constant.int_val;
+
+                if (condition_val != 0) {
+                    // 条件总是真，消除else分支
+                    if (ast->data.if_stmt.else_branch) {
+                        printf("C99Bin Module: Eliminating dead else branch (condition always true)\n");
+                        ast_free(ast->data.if_stmt.else_branch);
+                        ast->data.if_stmt.else_branch = NULL;
+                        optimized = true;
+                    }
+                } else {
+                    // 条件总是假，消除then分支
+                    printf("C99Bin Module: Eliminating dead then branch (condition always false)\n");
+                    ast_free(ast->data.if_stmt.then_branch);
+
+                    if (ast->data.if_stmt.else_branch) {
+                        ast->data.if_stmt.then_branch = ast->data.if_stmt.else_branch;
+                        ast->data.if_stmt.else_branch = NULL;
+                    } else {
+                        // 整个if语句都是死代码，但这里简化处理
+                        ast->data.if_stmt.then_branch = NULL;
+                    }
+                    optimized = true;
+                }
+            }
+
+            // 递归处理子节点
+            if (c99bin_dead_code_elimination_pass(ast->data.if_stmt.condition)) optimized = true;
+            if (ast->data.if_stmt.then_branch &&
+                c99bin_dead_code_elimination_pass(ast->data.if_stmt.then_branch)) optimized = true;
+            if (ast->data.if_stmt.else_branch &&
+                c99bin_dead_code_elimination_pass(ast->data.if_stmt.else_branch)) optimized = true;
+            break;
+        }
+
+        case ASTC_COMPOUND_STMT: {
+            // 检查复合语句中的死代码
+            for (int i = 0; i < ast->data.compound_stmt.statement_count; i++) {
+                if (c99bin_dead_code_elimination_pass(ast->data.compound_stmt.statements[i])) {
+                    optimized = true;
+                }
+
+                // 检查return语句后的死代码
+                if (ast->data.compound_stmt.statements[i]->type == ASTC_RETURN_STMT) {
+                    if (i + 1 < ast->data.compound_stmt.statement_count) {
+                        printf("C99Bin Module: Eliminating %d dead statements after return\n",
+                               ast->data.compound_stmt.statement_count - i - 1);
+
+                        // 释放return后的所有语句
+                        for (int j = i + 1; j < ast->data.compound_stmt.statement_count; j++) {
+                            ast_free(ast->data.compound_stmt.statements[j]);
+                        }
+
+                        // 调整语句数量
+                        ast->data.compound_stmt.statement_count = i + 1;
+                        optimized = true;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+
+        case ASTC_FUNC_DECL:
+            if (ast->data.func_decl.body &&
+                c99bin_dead_code_elimination_pass(ast->data.func_decl.body)) optimized = true;
+            break;
+
+        case ASTC_RETURN_STMT:
+            if (ast->data.return_stmt.value &&
+                c99bin_dead_code_elimination_pass(ast->data.return_stmt.value)) optimized = true;
+            break;
+
+        default:
+            // 对于其他节点类型，暂时不处理
+            break;
+    }
+
+    return optimized;
+}
+
+/**
+ * 高级优化通道
+ * @param ast AST节点
+ * @return bool 是否进行了优化
+ */
+static bool c99bin_advanced_optimization_pass(ASTNode* ast) {
+    if (!ast) return false;
+
+    bool optimized = false;
+
+    // 简化的高级优化：函数内联、循环展开等
+    switch (ast->type) {
+        case ASTC_BINARY_OP: {
+            // 代数简化
+            if (ast->data.binary_op.op == ASTC_OP_MUL) {
+                // x * 1 = x, x * 0 = 0
+                if (ast->data.binary_op.right->type == ASTC_EXPR_CONSTANT) {
+                    int right_val = ast->data.binary_op.right->data.constant.int_val;
+
+                    if (right_val == 1) {
+                        // x * 1 = x
+                        printf("C99Bin Module: Optimizing x * 1 = x\n");
+                        ASTNode* left = ast->data.binary_op.left;
+                        ast_free(ast->data.binary_op.right);
+
+                        // 复制左节点的内容到当前节点
+                        *ast = *left;
+                        free(left); // 只释放节点结构，不释放内容
+                        optimized = true;
+                    } else if (right_val == 0) {
+                        // x * 0 = 0
+                        printf("C99Bin Module: Optimizing x * 0 = 0\n");
+                        ast_free(ast->data.binary_op.left);
+                        ast_free(ast->data.binary_op.right);
+
+                        ast->type = ASTC_EXPR_CONSTANT;
+                        ast->data.constant.type = ASTC_TYPE_INT;
+                        ast->data.constant.int_val = 0;
+                        optimized = true;
+                    }
+                }
+            } else if (ast->data.binary_op.op == ASTC_OP_ADD) {
+                // x + 0 = x
+                if (ast->data.binary_op.right->type == ASTC_EXPR_CONSTANT &&
+                    ast->data.binary_op.right->data.constant.int_val == 0) {
+
+                    printf("C99Bin Module: Optimizing x + 0 = x\n");
+                    ASTNode* left = ast->data.binary_op.left;
+                    ast_free(ast->data.binary_op.right);
+
+                    *ast = *left;
+                    free(left);
+                    optimized = true;
+                }
+            }
+            break;
+        }
+
+        case ASTC_FUNC_DECL:
+            if (ast->data.func_decl.body &&
+                c99bin_advanced_optimization_pass(ast->data.func_decl.body)) optimized = true;
+            break;
+
+        case ASTC_COMPOUND_STMT:
+            for (int i = 0; i < ast->data.compound_stmt.statement_count; i++) {
+                if (c99bin_advanced_optimization_pass(ast->data.compound_stmt.statements[i])) {
+                    optimized = true;
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return optimized;
+}
+
+
 
 /**
  * 生成PE可执行文件 (Windows)
