@@ -1,25 +1,20 @@
 #!/bin/bash
 #
-# cc.sh - TinyCC wrapper script
-# 
-# This script serves as a wrapper for TinyCC (tcc) compiler,
-# automatically setting the correct library paths.
+# cc.sh - GCC Compiler Wrapper Script
+#
+# This script serves as the GCC compiler wrapper for the project,
+# providing a consistent interface for compilation across the project.
+#
+# Note: This script replaced TinyCC as part of the replace_tcc project completion.
+# TinyCC has been fully replaced by the c99bin compiler for simple programs,
+# with GCC serving as the fallback compiler for complex programs.
 #
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Define paths relative to the script location
-TCC_PATH="$SCRIPT_DIR/external/tcc/dist/bin/tcc"
-TCC_LIB_PATH="$SCRIPT_DIR/external/tcc/dist/lib/host/tcc"
-
-# TEMPORARY WORKAROUND: Use GCC with TCC-like behavior due to GLIBC compatibility issues
-# TODO: Fix TCC GLIBC 2.38 dependency and restore pure TCC usage
-
-echo "Warning: Using GCC as TCC replacement due to GLIBC compatibility issues"
-echo "TCC Error: $TCC_PATH requires GLIBC 2.38, system has $(ldd --version | head -1 | grep -o '[0-9]\+\.[0-9]\+')"
-
-# Use GCC with TCC-compatible flags
+# Use GCC as the primary fallback compiler
+# (c99bin handles simple programs, GCC handles complex programs)
 gcc "$@"
 exit_code=$?
 

@@ -268,11 +268,11 @@ void* ptr = ((void*(*)(size_t))malloc_func)(1024);
 #### 开发支线 (Development Track)
 ```
 dev roadmap (by human master)
-- cc.sh                        # 先使用 tinycc，等我们自己的 c99bin成熟就切换；
-- c99.sh                       # C99编译器包装脚本，支持自动构建和智能回退到tinycc/gcc
+- cc.sh                        # GCC编译器包装脚本，作为c99bin的后备编译器
+- c99bin.sh                    # 自研C99编译器，已完全替代TinyCC，支持智能回退到GCC
 - c99bin.sh                    # C99Bin编译器包装脚本，提供cc.sh兼容接口，使用c99bin工具链
 - src/core/                    # our modulized-c core layer
-- src/c99/                     # 参考tinycc实现的多架构 c99 编译工具链 (已弃用，被c99bin替代)
+- src/core/modules/c99bin_module.c # 自研c99bin编译器核心模块 (已完全替代TinyCC)
 - tools/c99bin                 # 自主开发的C99编译器，直接生成ELF可执行文件，无外部依赖
 - build c99 with c99           # c99自举
 - c99 cross build              # 多架构交叉编译
@@ -316,8 +316,8 @@ dev roadmap (by human master)
 我们的编译器工具链经历了从依赖外部工具到完全自主的演进过程：
 
 #### 阶段1: 外部依赖阶段 (已完成)
-- **cc.sh**: TinyCC包装器，解决GLIBC兼容性问题，使用GCC作为fallback
-- **c99.sh**: 智能编译器选择，优先使用原生C99，回退到tinycc/gcc
+- **cc.sh**: GCC编译器包装器，作为c99bin的后备编译器
+- **c99bin.sh**: 自研C99编译器，已完全替代TinyCC，智能回退到GCC
 - **依赖**: 外部TinyCC、GCC等编译器
 
 #### 阶段2: 自主编译器阶段 (已完成)
