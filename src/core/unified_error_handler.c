@@ -372,6 +372,14 @@ int unified_error_system_init(void) {
     return unified_error_manager_init(g_unified_error_manager);
 }
 
+// 设置错误恢复策略
+void unified_error_set_recovery_strategy(UnifiedError* error, ErrorRecoveryStrategy strategy, int max_retries) {
+    if (!error) return;
+
+    error->recovery_strategy = strategy;
+    error->max_retries = max_retries;
+}
+
 // 全局系统清理
 void unified_error_system_cleanup(void) {
     if (g_unified_error_manager) {
