@@ -21,7 +21,7 @@ if [ ! -x "$C99BIN_PATH" ]; then
 fi
 
 # Parse arguments to handle special cases
-COMPILE_MODE=0
+COMPILE_ONLY=0  # -c flag: compile to object file only
 OUTPUT_FILE=""
 SOURCE_FILES=()
 OTHER_ARGS=()
@@ -31,9 +31,8 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -c)
             # Compile only (object file generation)
-            echo "Warning: C99Bin does not support -c flag (object file generation)"
-            echo "C99Bin generates executable files directly"
-            exit 1
+            COMPILE_ONLY=1
+            shift
             ;;
         -o)
             # Output file specification
@@ -121,24 +120,43 @@ if [ ${#SOURCE_FILES[@]} -eq 0 ]; then
     exit 1
 fi
 
+# Handle multiple source files
 if [ ${#SOURCE_FILES[@]} -gt 1 ]; then
-    echo "Error: C99Bin does not support multiple source files"
+    if [ $COMPILE_ONLY -eq 1 ]; then
+        echo "Error: C99Bin does not yet support -c flag with multiple source files"
+        echo "Please compile one file at a time with -c flag"
+        exit 1
+    fi
+    echo "C99Bin: Multi-file compilation mode"
     echo "Found: ${SOURCE_FILES[*]}"
-    echo "Please compile one file at a time"
+    # Multi-file compilation will be implemented later
+    echo "Error: Multi-file compilation not yet implemented"
     exit 1
 fi
 
 # Set default output file if not specified
 if [ -z "$OUTPUT_FILE" ]; then
-    OUTPUT_FILE="a.out"
+    if [ $COMPILE_ONLY -eq 1 ]; then
+        # For -c flag, default to source.o
+        SOURCE_FILE="${SOURCE_FILES[0]}"
+        OUTPUT_FILE="${SOURCE_FILE%.c}.o"
+    else
+        OUTPUT_FILE="a.out"
+    fi
 fi
 
 # Build c99bin command
 SOURCE_FILE="${SOURCE_FILES[0]}"
-C99BIN_CMD=("$C99BIN_PATH" "$SOURCE_FILE" "-o" "$OUTPUT_FILE")
 
-# Show what we're doing
-echo "C99Bin: Compiling $SOURCE_FILE -> $OUTPUT_FILE"
+if [ $COMPILE_ONLY -eq 1 ]; then
+    # Object file compilation
+    C99BIN_CMD=("$C99BIN_PATH" "$SOURCE_FILE" "-c" "-o" "$OUTPUT_FILE")
+    echo "C99Bin: Compiling $SOURCE_FILE -> $OUTPUT_FILE (object file)"
+else
+    # Executable compilation
+    C99BIN_CMD=("$C99BIN_PATH" "$SOURCE_FILE" "-o" "$OUTPUT_FILE")
+    echo "C99Bin: Compiling $SOURCE_FILE -> $OUTPUT_FILE (executable)"
+fi
 
 # Execute c99bin
 "${C99BIN_CMD[@]}"

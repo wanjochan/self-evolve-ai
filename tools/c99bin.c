@@ -603,7 +603,64 @@ int generate_dynamic_linking_info(const char* output_file, const ProgramAnalysis
     return 0;
 }
 
+/**
+ * 生成简化的目标文件格式
+ */
+int generate_object_file(const char* output_file, unsigned char* machine_code, size_t code_size, const ProgramAnalysis* analysis) {
+    printf("C99Bin: Creating object file %s...\n", output_file);
 
+    FILE* obj_file = fopen(output_file, "wb");
+    if (!obj_file) {
+        printf("❌ Failed to create object file: %s\n", output_file);
+        return -1;
+    }
+
+    // 简化的目标文件格式：
+    // [Header: 32 bytes]
+    // [Machine Code: variable size]
+    // [Symbol Table: variable size]
+
+    // 写入简化的头部
+    char header[32] = {0};
+    strcpy(header, "C99BIN_OBJ");  // 魔数
+    *(uint32_t*)(header + 16) = (uint32_t)code_size;  // 代码大小
+    *(uint32_t*)(header + 20) = analysis->has_main ? 1 : 0;  // 是否有main函数
+    *(uint32_t*)(header + 24) = analysis->has_printf ? 1 : 0;  // 是否有printf
+
+    if (fwrite(header, 1, 32, obj_file) != 32) {
+        printf("❌ Failed to write object file header\n");
+        fclose(obj_file);
+        return -1;
+    }
+
+    // 写入机器码
+    if (fwrite(machine_code, 1, code_size, obj_file) != code_size) {
+        printf("❌ Failed to write machine code to object file\n");
+        fclose(obj_file);
+        return -1;
+    }
+
+    // 写入简化的符号表
+    char symbol_table[64] = {0};
+    if (analysis->has_main) {
+        strcpy(symbol_table, "main");
+    }
+    if (analysis->has_printf) {
+        strcat(symbol_table, " printf");
+    }
+
+    uint32_t symbol_size = strlen(symbol_table);
+    if (fwrite(&symbol_size, 1, 4, obj_file) != 4 ||
+        fwrite(symbol_table, 1, symbol_size, obj_file) != symbol_size) {
+        printf("❌ Failed to write symbol table\n");
+        fclose(obj_file);
+        return -1;
+    }
+
+    fclose(obj_file);
+    printf("✅ Object file generated successfully\n");
+    return 0;
+}
 
 /**
  * 检查是否包含不支持的复杂语法 (模块友好版)
@@ -790,6 +847,41 @@ int parse_c_source(const char* source_file, ProgramAnalysis* analysis) {
 }
 
 /**
+ * 编译C源码到目标文件 (.o)
+ */
+int compile_to_object(const char* source_file, const char* output_file) {
+    printf("=== C99Bin Object Compiler ===\n");
+    printf("Source: %s\n", source_file);
+    printf("Object: %s\n", output_file);
+
+    // 解析C源码
+    ProgramAnalysis analysis;
+    if (parse_c_source(source_file, &analysis) != 0) {
+        return -1;
+    }
+
+    // 生成机器码
+    printf("C99Bin: Generating object code...\n");
+    unsigned char* machine_code;
+    size_t machine_code_size;
+
+    if (generate_machine_code(&analysis, &machine_code, &machine_code_size) != 0) {
+        printf("❌ Failed to generate machine code\n");
+        return -1;
+    }
+
+    // 生成简化的目标文件格式
+    printf("C99Bin: Generating object file...\n");
+    if (generate_object_file(output_file, machine_code, machine_code_size, &analysis) != 0) {
+        return -1;
+    }
+
+    printf("✅ Object compilation completed successfully!\n");
+    printf("Generated: %s (%zu bytes machine code)\n", output_file, machine_code_size);
+    return 0;
+}
+
+/**
  * 编译C源码到可执行文件
  */
 int compile_to_executable(const char* source_file, const char* output_file) {
@@ -840,16 +932,19 @@ int compile_to_executable(const char* source_file, const char* output_file) {
  * 显示帮助信息
  */
 void show_help(const char* program_name) {
-    printf("C99Bin - C99 Binary Compiler v1.0\n");
+    printf("C99Bin - C99 Binary Compiler v1.1\n");
     printf("Usage: %s [options] <source.c> [-o <output>]\n", program_name);
     printf("\n");
     printf("Options:\n");
-    printf("  -o <file>    Output executable file\n");
+    printf("  -c           Compile to object file only (generate .o file)\n");
+    printf("  -o <file>    Output file (executable or object)\n");
     printf("  -h, --help   Show this help message\n");
     printf("\n");
     printf("Examples:\n");
-    printf("  %s hello.c -o hello\n", program_name);
-    printf("  %s test.c\n", program_name);
+    printf("  %s hello.c -o hello          # Compile to executable\n", program_name);
+    printf("  %s hello.c -c -o hello.o     # Compile to object file\n", program_name);
+    printf("  %s hello.c -c                # Compile to hello.o\n", program_name);
+    printf("  %s test.c                    # Compile to a.out\n", program_name);
     printf("\n");
 }
 
@@ -861,15 +956,18 @@ int main(int argc, char* argv[]) {
         show_help(argv[0]);
         return 1;
     }
-    
+
     const char* source_file = NULL;
-    const char* output_file = "a.out";
-    
+    const char* output_file = NULL;
+    int compile_only = 0;  // -c flag
+
     // 解析命令行参数
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             show_help(argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "-c") == 0) {
+            compile_only = 1;
         } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_file = argv[++i];
@@ -887,13 +985,32 @@ int main(int argc, char* argv[]) {
         show_help(argv[0]);
         return 1;
     }
-    
+
+    // 设置默认输出文件
+    if (!output_file) {
+        if (compile_only) {
+            // 对于-c标志，默认为source.o
+            static char default_obj[256];
+            strcpy(default_obj, source_file);
+            char* dot = strrchr(default_obj, '.');
+            if (dot) *dot = '\0';
+            strcat(default_obj, ".o");
+            output_file = default_obj;
+        } else {
+            output_file = "a.out";
+        }
+    }
+
     // 检查源文件是否存在
     if (access(source_file, R_OK) != 0) {
         printf("Error: Cannot read source file %s\n", source_file);
         return 1;
     }
-    
+
     // 编译
-    return compile_to_executable(source_file, output_file);
+    if (compile_only) {
+        return compile_to_object(source_file, output_file);
+    } else {
+        return compile_to_executable(source_file, output_file);
+    }
 }
