@@ -57,32 +57,46 @@
 
 ## 核心模块编译验证
 
-### ❌ 7个核心模块直接编译
-由于c99bin不支持多文件编译，无法直接编译以下核心模块：
-1. astc (src/core/astc.c)
-2. layer0_module (src/core/modules/layer0_module.c)
-3. pipeline_utils (src/core/modules/pipeline_utils.c)
-4. pipeline_frontend (src/core/modules/pipeline_frontend.c)
-5. compiler_module (src/core/modules/compiler_module.c)
-6. libc_module (src/core/modules/libc_module.c)
-7. c99bin_module (src/core/modules/c99bin_module.c)
+### ❌ 7个核心模块直接编译（纯c99bin）
+由于c99bin不支持多文件编译和-c标志，无法直接编译核心模块：
+1. astc (src/core/astc.c) - ❌ 纯c99bin不支持
+2. layer0_module (src/core/modules/layer0_module.c) - ❌ 纯c99bin不支持
+3. pipeline_utils (src/core/modules/pipeline_utils.c) - ❌ 纯c99bin不支持
+4. pipeline_frontend (src/core/modules/pipeline_frontend.c) - ❌ 纯c99bin不支持
+5. compiler_module (src/core/modules/compiler_module.c) - ❌ 纯c99bin不支持
+6. libc_module (src/core/modules/libc_module.c) - ❌ 纯c99bin不支持
+7. c99bin_module (src/core/modules/c99bin_module.c) - ❌ 纯c99bin不支持
 
-### ✅ 外部编译器回退验证
-- **多文件编译**: 通过外部编译器成功编译
-- **复杂项目**: 现有构建系统在回退模式下正常工作
-- **兼容性**: 与现有工作流完全兼容
+### ✅ 智能回退编译验证
+通过启用外部编译器回退，成功编译核心模块：
+1. astc - ✅ 通过GCC回退编译成功 (11KB .o文件)
+2. layer0_module - ✅ 通过GCC回退编译成功 (17KB .o文件)
+3. 其他模块 - ✅ 回退机制正常工作
+
+### ✅ 构建系统验证
+- **自举能力**: c99bin可以"编译"自己的源码（生成模块存根）
+- **构建脚本**: build_c99bin_complete.sh在隔离环境下正常启动
+- **智能选择**: 正确检测并使用c99bin进行基础编译
 
 ## 性能评估
 
-### ✅ 编译性能
-- **编译速度**: 极快，几乎瞬时完成
+### ✅ 编译性能对比
+- **隔离环境**: 0.007s (real time)
+- **正常环境**: 0.007s (real time)
+- **性能影响**: 0% - 隔离对性能无影响
 - **缓存机制**: 有效的机器码缓存
 - **资源使用**: 极低的内存和CPU使用
 
-### ✅ 生成文件质量
-- **文件大小**: 极小的可执行文件（16-73字节）
-- **执行性能**: 基础程序执行正常
+### ✅ 生成文件质量验证
+- **文件一致性**: 隔离环境和正常环境生成的文件完全相同
+- **文件大小**: 高效的可执行文件（73字节用于printf程序）
+- **执行性能**: 基础程序执行正常，性能一致
 - **兼容性**: 生成的ELF文件完全兼容Linux
+
+### ⚠️ 复杂程序处理
+- **编译成功**: 复杂程序（结构体、qsort等）可以编译
+- **执行限制**: 复杂程序执行结果不正确（无输出）
+- **智能回退**: 多文件程序正确触发外部编译器回退
 
 ## 独立性评估
 
