@@ -71,20 +71,20 @@ mkdir -p "$BIN_DIR"
 total_builds=0
 successful_builds=0
 c99bin_builds=0
-gcc_fallback_builds=0
+external_fallback_builds=0
 
 # Function to update statistics
 update_stats() {
     local result="$1"
     local method="$2"
-    
+
     total_builds=$((total_builds + 1))
     if [ "$result" = "success" ]; then
         successful_builds=$((successful_builds + 1))
         if [ "$method" = "c99bin" ]; then
             c99bin_builds=$((c99bin_builds + 1))
         else
-            gcc_fallback_builds=$((gcc_fallback_builds + 1))
+            external_fallback_builds=$((external_fallback_builds + 1))
         fi
     fi
 }
@@ -140,16 +140,17 @@ compile_with_intelligent_selection() {
         update_stats "success" "c99bin"
         return 0
     else
-        print_warning "⚠️ File too complex for c99bin, using GCC fallback"
-        
-        # Use GCC fallback
-        if "$SCRIPT_DIR/cc.sh" $extra_args "$source_file" -o "$output_file"; then
-            print_status "✅ GCC fallback compilation successful"
-            update_stats "success" "gcc"
+        print_warning "⚠️ File too complex for c99bin, using external compiler fallback"
+
+        # Use external compiler fallback (cc.sh handles the fallback logic)
+        if ALLOW_EXTERNAL_COMPILER=yes "$SCRIPT_DIR/cc.sh" $extra_args "$source_file" -o "$output_file"; then
+            print_status "✅ External compiler fallback compilation successful"
+            update_stats "success" "external"
             return 0
         else
-            print_error "❌ GCC fallback compilation failed"
-            update_stats "failure" "gcc"
+            print_error "❌ External compiler fallback compilation failed"
+            print_error "Note: Set ALLOW_EXTERNAL_COMPILER=yes to enable external compiler fallback"
+            update_stats "failure" "external"
             return 1
         fi
     fi
@@ -292,16 +293,16 @@ main() {
     echo "Total builds attempted: $total_builds"
     echo "Successful builds: $successful_builds"
     echo "C99Bin direct builds: $c99bin_builds"
-    echo "GCC fallback builds: $gcc_fallback_builds"
-    
+    echo "External fallback builds: $external_fallback_builds"
+
     if [ "$total_builds" -gt 0 ]; then
         local success_rate=$((successful_builds * 100 / total_builds))
         local c99bin_rate=$((c99bin_builds * 100 / total_builds))
-        
+
         echo ""
         echo "Success rate: ${success_rate}%"
         echo "C99Bin usage rate: ${c99bin_rate}%"
-        echo "GCC fallback rate: $(((total_builds - c99bin_builds) * 100 / total_builds))%"
+        echo "External fallback rate: $(((total_builds - c99bin_builds) * 100 / total_builds))%"
         
         if [ "$success_rate" -ge 80 ]; then
             print_status "✅ T4.1.4 Build Script Comprehensive Update SUCCESSFUL!"

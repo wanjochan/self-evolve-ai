@@ -1,6 +1,5 @@
 #include <stdio.h>
-
 int main() {
-    printf("Hello from C99Bin!\n");
+    printf("Hello World\!\n");
     return 0;
 }
