@@ -1,4 +1,0 @@
-# c99bin compiled: tool
-# Source: /mnt/persist/workspace/tools/c2astc.c
-# Line count: 454
-# Extra args: -I /mnt/persist/workspace/src/core -std=c99 -O2 -Wall -ldl /mnt/persist/workspace/bin/astc.o /mnt/persist/workspace/bin/module_module.o
