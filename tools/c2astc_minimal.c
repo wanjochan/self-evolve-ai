@@ -95,18 +95,37 @@ int main(int argc, char* argv[]) {
     };
     fwrite(&header, sizeof(header), 1, out_file);
 
-    // 写入简单的ASTC字节码
-    // 指令1: LOAD_CONST return_value (保持完整的32位值)
+    // 写入简单的ASTC字节码 (小端序格式)
+    // 指令1: LOAD_CONST return_value
     uint32_t instr1 = (ASTC_LOAD_CONST << 24) | ((uint32_t)return_value & 0xFFFFFF);
-    fwrite(&instr1, sizeof(instr1), 1, out_file);
+    // 写入小端序
+    uint8_t bytes1[4] = {
+        instr1 & 0xFF,
+        (instr1 >> 8) & 0xFF,
+        (instr1 >> 16) & 0xFF,
+        (instr1 >> 24) & 0xFF
+    };
+    fwrite(bytes1, 4, 1, out_file);
 
     // 指令2: RETURN
     uint32_t instr2 = (ASTC_RETURN << 24);
-    fwrite(&instr2, sizeof(instr2), 1, out_file);
+    uint8_t bytes2[4] = {
+        instr2 & 0xFF,
+        (instr2 >> 8) & 0xFF,
+        (instr2 >> 16) & 0xFF,
+        (instr2 >> 24) & 0xFF
+    };
+    fwrite(bytes2, 4, 1, out_file);
 
     // 指令3: NOP (填充)
     uint32_t instr3 = (ASTC_NOP << 24);
-    fwrite(&instr3, sizeof(instr3), 1, out_file);
+    uint8_t bytes3[4] = {
+        instr3 & 0xFF,
+        (instr3 >> 8) & 0xFF,
+        (instr3 >> 16) & 0xFF,
+        (instr3 >> 24) & 0xFF
+    };
+    fwrite(bytes3, 4, 1, out_file);
 
     fclose(out_file);
     free(source_code);
