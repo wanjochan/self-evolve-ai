@@ -39,3 +39,6 @@ test_*.c
 
 # Core dump files
 /core.*
+
+/tmp
+/.c99bin_cache
