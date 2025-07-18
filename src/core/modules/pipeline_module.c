@@ -6729,31 +6729,66 @@ int vm_execute_astc(const char* astc_file, int argc, char* argv[]) {
 
     // 执行ASTC程序
     printf("Pipeline Module: Executing ASTC program...\n");
-    printf("Pipeline Module: ASTC content preview: %.200s\n", (char*)astc_data);
+    printf("Pipeline Module: ASTC content preview: %.4s\n", (char*)astc_data);
 
-    // 简单的ASTC解释器
-    char* line = strtok((char*)astc_data, "\n");
-    while (line) {
-        // 跳过注释和空行
-        if (line[0] == '#' || line[0] == '\0' || line[0] == '\n') {
-            line = strtok(NULL, "\n");
-            continue;
-        }
-
-        // 简单的指令解释
-        if (strncmp(line, "LOAD_CONST", 10) == 0) {
-            printf("Pipeline Module: Executing LOAD_CONST: %s\n", line + 11);
-        } else if (strncmp(line, "PRINT", 5) == 0) {
-            printf("Hello from compiled C99!\n");
-        } else if (strncmp(line, "RETURN", 6) == 0) {
-            printf("Pipeline Module: Program returned successfully\n");
-            break;
-        }
-
-        line = strtok(NULL, "\n");
+    // 检查ASTC魔数
+    if (file_size < 16 || memcmp(astc_data, "ASTC", 4) != 0) {
+        printf("Pipeline Module: Error - Invalid ASTC file format\n");
+        destroy_vm_context(vm_ctx);
+        free(astc_data);
+        return 7;
     }
 
+    // 解析ASTC头部
+    uint32_t* header = (uint32_t*)astc_data;
+    uint32_t version = header[1];
+    uint32_t prog_size = header[2];
+    uint32_t entry_point = header[3];
+
+    printf("Pipeline Module: ASTC version: %u, size: %u, entry: %u\n", version, prog_size, entry_point);
+
+    // 执行ASTC字节码
+    uint32_t* instructions = (uint32_t*)(astc_data + 16);
+    int num_instructions = prog_size / 4;
+    int return_value = 0;
+
+    printf("Pipeline Module: Executing %d instructions...\n", num_instructions);
+
+    for (int i = 0; i < num_instructions; i++) {
+        uint32_t instr = instructions[i];
+        uint8_t opcode = (instr >> 24) & 0xFF;
+        uint32_t operand = instr & 0xFFFFFF;
+
+        printf("Pipeline Module: Instruction %d: opcode=%u, operand=%u\n", i, opcode, operand);
+
+        switch (opcode) {
+            case 0: // ASTC_NOP
+                printf("Pipeline Module: NOP\n");
+                break;
+            case 1: // ASTC_LOAD_CONST
+                // 将24位操作数转换为有符号整数
+                if (operand & 0x800000) {
+                    // 负数：扩展符号位
+                    return_value = (int)(operand | 0xFF000000);
+                } else {
+                    // 正数
+                    return_value = (int)operand;
+                }
+                printf("Pipeline Module: LOAD_CONST %d\n", return_value);
+                break;
+            case 2: // ASTC_RETURN
+                printf("Pipeline Module: RETURN %d\n", return_value);
+                goto execution_complete;
+            default:
+                printf("Pipeline Module: Unknown opcode: %u\n", opcode);
+                break;
+        }
+    }
+
+execution_complete:
+
     printf("Pipeline Module: ASTC execution completed successfully\n");
+    printf("Pipeline Module: Program return value: %d\n", return_value);
     printf("Pipeline Module: Arguments: argc=%d\n", argc);
     for (int i = 0; i < argc && i < 10; i++) {
         printf("Pipeline Module:   argv[%d] = %s\n", i, argv[i] ? argv[i] : "NULL");
@@ -6763,7 +6798,7 @@ int vm_execute_astc(const char* astc_file, int argc, char* argv[]) {
     destroy_vm_context(vm_ctx);
     free(astc_data);
 
-    return 0;
+    return return_value;
 }
 
 // 这个函数将被放在偏移128处

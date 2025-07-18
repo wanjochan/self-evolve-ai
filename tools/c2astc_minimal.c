@@ -70,9 +70,11 @@ int main(int argc, char* argv[]) {
         while (*num_start && (*num_start == ' ' || *num_start == '\t')) {
             num_start++;
         }
-        if (*num_start >= '0' && *num_start <= '9') {
+        if (*num_start == '-' || (*num_start >= '0' && *num_start <= '9')) {
             return_value = atoi(num_start);
             printf("c2astc_minimal: 检测到返回值: %d\n", return_value);
+        } else {
+            printf("c2astc_minimal: 未检测到有效返回值，使用默认值0\n");
         }
     }
 
@@ -94,8 +96,8 @@ int main(int argc, char* argv[]) {
     fwrite(&header, sizeof(header), 1, out_file);
 
     // 写入简单的ASTC字节码
-    // 指令1: LOAD_CONST return_value
-    uint32_t instr1 = (ASTC_LOAD_CONST << 24) | (return_value & 0xFFFFFF);
+    // 指令1: LOAD_CONST return_value (保持完整的32位值)
+    uint32_t instr1 = (ASTC_LOAD_CONST << 24) | ((uint32_t)return_value & 0xFFFFFF);
     fwrite(&instr1, sizeof(instr1), 1, out_file);
 
     // 指令2: RETURN
