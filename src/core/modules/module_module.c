@@ -18,10 +18,8 @@
 #include <errno.h>
 #include <sys/time.h>  // T3.1 新增：时间测量
 
-// Simple bool type definition to avoid stdbool.h dependency
-typedef int bool;
-#define true 1
-#define false 0
+// Use standard bool type
+#include <stdbool.h>
 
 // ===============================================
 // 内部常量和配置
@@ -77,12 +75,7 @@ typedef struct {
 // 内部数据结构
 // ===============================================
 
-// 符号缓存条目
-typedef struct SymbolCacheEntry {
-    const char* symbol;             // 符号名称
-    void* address;                  // 符号地址
-    struct SymbolCacheEntry* next;  // 链表下一项
-} SymbolCacheEntry;
+// 符号缓存条目已在 module_loading_optimizer.h 中定义
 
 // 模块依赖信息
 typedef struct {
@@ -777,8 +770,8 @@ static void* find_cached_symbol(const char* symbol) {
     SymbolCacheEntry* entry = module_cache.symbol_cache[hash];
     
     while (entry) {
-        if (strcmp(entry->symbol, symbol) == 0) {
-            return entry->address;
+        if (strcmp(entry->symbol_name, symbol) == 0) {
+            return entry->symbol_addr;
         }
         entry = entry->next;
     }
@@ -797,8 +790,8 @@ static void cache_symbol(const char* symbol, void* address) {
     // 检查是否已存在
     SymbolCacheEntry* entry = module_cache.symbol_cache[hash];
     while (entry) {
-        if (strcmp(entry->symbol, symbol) == 0) {
-            entry->address = address;  // 更新地址
+        if (strcmp(entry->symbol_name, symbol) == 0) {
+            entry->symbol_addr = address;  // 更新地址
             return;
         }
         entry = entry->next;
@@ -810,13 +803,13 @@ static void cache_symbol(const char* symbol, void* address) {
         return;  // 内存分配失败
     }
     
-    entry->symbol = strdup(symbol);
-    if (!entry->symbol) {
+    entry->symbol_name = strdup(symbol);
+    if (!entry->symbol_name) {
         free(entry);
         return;  // 内存分配失败
     }
-    
-    entry->address = address;
+
+    entry->symbol_addr = address;
     entry->next = module_cache.symbol_cache[hash];
     module_cache.symbol_cache[hash] = entry;
 }
@@ -827,7 +820,7 @@ static void clear_symbol_cache(void) {
         SymbolCacheEntry* entry = module_cache.symbol_cache[i];
         while (entry) {
             SymbolCacheEntry* next = entry->next;
-            free((void*)entry->symbol);
+            free((void*)entry->symbol_name);
             free(entry);
             entry = next;
         }

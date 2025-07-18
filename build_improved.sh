@@ -328,6 +328,7 @@ build_core() {
     local core_sources=(
         "src/core/astc.c"
         "src/core/modules/module_module.c"
+        "src/core/module_loading_optimizer.c"
         "src/core/enhanced_debug_system.c"
         "src/core/performance_analysis_tool.c"
         "src/core/memory_management_optimizer.c"

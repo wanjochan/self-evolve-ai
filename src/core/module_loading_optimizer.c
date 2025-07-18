@@ -378,3 +378,12 @@ int module_optimizer_compare_performance(const ModuleLoadingStats* before, const
     printf("==================\n");
     return 0;
 }
+
+// 停止预加载线程
+void module_optimizer_stop_preload_thread(void) {
+    if (preload_thread_running) {
+        preload_thread_running = false;
+        // 等待线程结束
+        pthread_join(preload_thread, NULL);
+    }
+}
