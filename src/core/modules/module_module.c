@@ -6,6 +6,7 @@
  */
 
 #include "../module.h"
+#include "../module_loading_optimizer.h"  // T3.1 新增：性能优化器
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/time.h>  // T3.1 新增：时间测量
 
 // Simple bool type definition to avoid stdbool.h dependency
 typedef int bool;
@@ -164,6 +166,16 @@ static int module_init(void) {
     // 设置自己的状态为已就绪
     module_module.state = MODULE_READY;
 
+    // T3.1 性能优化：初始化模块加载优化器
+    if (!module_optimizer_is_initialized()) {
+        ModuleLoadingOptimizerConfig config = module_optimizer_get_default_config();
+        if (module_optimizer_init(&config) == 0) {
+            printf("Module: T3.1模块加载优化器已启动\n");
+        } else {
+            printf("Module: 警告: T3.1模块加载优化器启动失败\n");
+        }
+    }
+
     return 0;
 }
 
@@ -215,11 +227,26 @@ static void module_cleanup(void) {
 // ===============================================
 
 /**
- * 动态加载.native模块文件
+ * 动态加载.native模块文件 (T3.1 优化版本)
  */
 Module* module_load(const char* name) {
     if (!name) {
         return NULL;
+    }
+
+    // T3.1 性能优化：记录开始时间
+    double start_time = 0.0;
+    if (module_optimizer_is_initialized()) {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        start_time = tv.tv_sec + tv.tv_usec / 1000000.0;
+
+        // 尝试从优化器缓存加载
+        void* optimized_module = module_optimizer_lookup_symbol(name);
+        if (optimized_module) {
+            printf("Module: 从优化器缓存返回模块 %s\n", name);
+            return (Module*)optimized_module;
+        }
     }
 
     // 必要时初始化
@@ -233,6 +260,12 @@ Module* module_load(const char* name) {
     Module* existing = find_loaded_module(name);
     if (existing && existing->state == MODULE_READY) {
         printf("Module: 从缓存返回模块 %s\n", name);
+
+        // T3.1 性能优化：缓存到优化器
+        if (module_optimizer_is_initialized()) {
+            module_optimizer_cache_symbol(name, name, existing);
+        }
+
         return existing;
     }
 
@@ -305,6 +338,24 @@ Module* module_load(const char* name) {
         printf("Module: 模块 %s 已缓存 (缓存数量: %zu)\n", name, module_cache.count);
     } else {
         printf("Module: 警告: 模块缓存已满，无法缓存模块 %s\n", name);
+    }
+
+    // T3.1 性能优化：记录加载统计和缓存到优化器
+    if (module_optimizer_is_initialized() && start_time > 0.0) {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        double end_time = tv.tv_sec + tv.tv_usec / 1000000.0;
+        double load_time = end_time - start_time;
+
+        // 更新优化器统计
+        g_module_optimizer.stats.total_loads++;
+        g_module_optimizer.stats.total_load_time += load_time;
+        g_module_optimizer.stats.cache_misses++;  // 这是一次缓存未命中
+
+        // 缓存模块到优化器
+        module_optimizer_cache_symbol(name, name, module);
+
+        printf("Module: T3.1优化 - 模块 %s 加载时间: %.6f 秒\n", name, load_time);
     }
 
     return module;
