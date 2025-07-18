@@ -3,6 +3,7 @@
 # build_cross_platform.sh - 跨平台构建脚本
 #
 # 统一的跨平台构建系统，支持Linux、macOS、Windows等多个平台
+# 支持架构：x86_64、x86_32、arm64、arm32等
 #
 
 set -euo pipefail
@@ -50,6 +51,19 @@ init_build_environment() {
     
     log_success "平台: $PLATFORM_OS ($PLATFORM_TARGET)"
     log_success "编译器: $COMPILER_CC"
+
+    # 显示架构特定信息
+    case "$PLATFORM_ARCH" in
+        "arm64")
+            log_info "ARM64架构支持: Apple Silicon、ARM64 Linux"
+            ;;
+        "x64")
+            log_info "x64架构支持: Intel/AMD 64位处理器"
+            ;;
+        "x86")
+            log_info "x86架构支持: Intel/AMD 32位处理器"
+            ;;
+    esac
     
     # 创建必要目录
     mkdir -p "$PROJECT_ROOT/bin/layer2"
