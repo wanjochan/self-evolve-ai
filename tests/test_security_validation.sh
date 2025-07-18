@@ -113,11 +113,11 @@ test_permission_checks() {
     echo -e "${BLUE}=== 安全测试2: 权限检查 ===${NC}"
     
     # 检查文件权限
-    local modules_dir="$PROJECT_ROOT/bin/layer2"
+    local modules_dir="$PROJECT_ROOT/bin"
     local permission_ok=true
-    
+
     if [ -d "$modules_dir" ]; then
-        # 检查模块文件权限
+        # 检查模块文件权限 - 检查实际存在的.so文件
         for module_file in "$modules_dir"/*.so; do
             if [ -f "$module_file" ]; then
                 # 检查文件是否可执行
@@ -285,7 +285,20 @@ test_resource_limits() {
     echo "  进程数限制: $proc_limit"
     
     # 测试是否能够正常工作在限制内
-    if [ "$fd_limit" -gt 100 ] && [ "$proc_limit" -gt 10 ]; then
+    local fd_ok=false
+    local proc_ok=false
+
+    # 检查文件描述符限制
+    if [ "$fd_limit" = "unlimited" ] || [ "$fd_limit" -gt 100 ] 2>/dev/null; then
+        fd_ok=true
+    fi
+
+    # 检查进程限制
+    if [ "$proc_limit" = "unlimited" ] || [ "$proc_limit" -gt 10 ] 2>/dev/null; then
+        proc_ok=true
+    fi
+
+    if $fd_ok && $proc_ok; then
         print_test_result "资源限制检查" "PASS"
     else
         print_test_result "资源限制检查" "FAIL"

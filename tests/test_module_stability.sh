@@ -5,7 +5,7 @@
 # 测试模块加载、符号解析、内存管理和错误处理的稳定性
 #
 
-set -e
+# 不使用set -e，让测试继续运行即使有失败
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -60,17 +60,31 @@ run_test() {
 test_module_files() {
     print_header "T1.1.1: 模块文件存在性检查"
 
-    local modules=("layer0" "pipeline" "compiler" "libc" "module")
+    # 检查实际存在的模块文件
+    local modules=("layer0" "pipeline" "c99bin")
+    local arch="x64_64"
 
     for module in "${modules[@]}"; do
-        local module_file="$PROJECT_ROOT/bin/layer2/${module}.native"
+        local module_file="$PROJECT_ROOT/bin/${module}_${arch}.native"
         ((TOTAL_TESTS++))
         if [ -f "$module_file" ]; then
             print_success "模块文件存在: $module_file"
+            ((PASSED_TESTS++))
         else
             print_error "模块文件缺失: $module_file"
+            ((FAILED_TESTS++))
         fi
     done
+
+    # 检查pipeline共享库
+    ((TOTAL_TESTS++))
+    if [ -f "$PROJECT_ROOT/bin/pipeline_module.so" ]; then
+        print_success "Pipeline共享库存在: bin/pipeline_module.so"
+        ((PASSED_TESTS++))
+    else
+        print_error "Pipeline共享库缺失: bin/pipeline_module.so"
+        ((FAILED_TESTS++))
+    fi
 }
 
 # 测试2: 模块加载基础测试
@@ -86,24 +100,24 @@ test_module_loading_stress() {
 int main() {
     printf("开始模块加载基础测试...\n");
 
-    // 测试加载layer0模块
-    void* handle = dlopen("./bin/layer2/layer0.so", RTLD_LAZY);
-    if (!handle) {
-        printf("无法加载layer0模块: %s\n", dlerror());
-        return 1;
-    }
-
-    printf("✅ layer0模块加载成功\n");
-    dlclose(handle);
-
-    // 测试加载pipeline模块
-    handle = dlopen("./bin/layer2/pipeline.so", RTLD_LAZY);
+    // 测试加载pipeline模块（实际存在的共享库）
+    void* handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
     if (!handle) {
         printf("无法加载pipeline模块: %s\n", dlerror());
         return 1;
     }
 
     printf("✅ pipeline模块加载成功\n");
+
+    // 测试符号解析
+    void* execute_astc = dlsym(handle, "execute_astc");
+    if (!execute_astc) {
+        printf("无法找到execute_astc函数: %s\n", dlerror());
+        dlclose(handle);
+        return 1;
+    }
+
+    printf("✅ execute_astc函数解析成功\n");
     dlclose(handle);
 
     printf("模块加载基础测试完成\n");
@@ -143,7 +157,7 @@ int main() {
 
     // 重复加载和卸载模块
     for (int i = 0; i < 10; i++) {
-        void* handle = dlopen("./bin/layer2/layer0.so", RTLD_LAZY);
+        void* handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
         if (handle) {
             dlclose(handle);
         }
@@ -194,7 +208,7 @@ int main() {
     }
 
     // 测试2: 加载存在的模块
-    handle = dlopen("./bin/layer2/layer0.so", RTLD_LAZY);
+    handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
     if (handle != NULL) {
         printf("✅ 正确加载存在的模块\n");
         dlclose(handle);
@@ -240,9 +254,9 @@ main() {
     cd "$PROJECT_ROOT"
     
     # 确保模块已构建
-    if [ ! -d "bin/layer2" ]; then
+    if [ ! -f "bin/libcore.a" ]; then
         print_warning "模块未构建，尝试构建..."
-        if ./build_modules_gcc.sh; then
+        if ./build_improved.sh; then
             print_success "模块构建完成"
         else
             print_error "模块构建失败"

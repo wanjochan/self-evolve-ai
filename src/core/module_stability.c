@@ -150,9 +150,13 @@ void* stable_module_load(const char* module_name) {
         add_to_cache(entry);
     }
     
-    // 构建模块路径
+    // 构建模块路径 - 使用实际的模块文件位置
     char module_path[256];
-    snprintf(module_path, sizeof(module_path), "./bin/layer2/%s.so", module_name);
+    if (strcmp(module_name, "pipeline") == 0) {
+        snprintf(module_path, sizeof(module_path), "./bin/pipeline_module.so");
+    } else {
+        snprintf(module_path, sizeof(module_path), "./bin/%s_x64_64.native", module_name);
+    }
     
     // 尝试加载模块
     double start_time = get_current_time();
@@ -228,7 +232,11 @@ ModuleHealthStatus module_get_health(const char* module_name) {
     if (!entry) {
         // 对于未知模块，尝试检查是否存在但未加载
         char module_path[256];
-        snprintf(module_path, sizeof(module_path), "./bin/layer2/%s.so", module_name);
+        if (strcmp(module_name, "pipeline") == 0) {
+            snprintf(module_path, sizeof(module_path), "./bin/pipeline_module.so");
+        } else {
+            snprintf(module_path, sizeof(module_path), "./bin/%s_x64_64.native", module_name);
+        }
         if (access(module_path, F_OK) == 0) {
             return MODULE_HEALTH_UNKNOWN;  // 文件存在但未加载
         } else {
