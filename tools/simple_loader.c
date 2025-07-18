@@ -88,11 +88,15 @@ typedef struct {
 static int execute_astc_via_dlopen(const char* astc_file, int argc, char* argv[]) {
     printf("Loader: 使用dlopen方式加载Pipeline模块...\n");
 
-    // 加载共享库
-    void* handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
+    // 尝试加载.native文件对应的.so文件
+    void* handle = dlopen("./bin/pipeline_x64_64.native.tmp.so", RTLD_LAZY);
     if (!handle) {
-        printf("Loader: 错误: 无法加载Pipeline共享库: %s\n", dlerror());
-        return -1;
+        // 如果.tmp.so不存在，尝试原来的路径
+        handle = dlopen("./bin/pipeline_module.so", RTLD_LAZY);
+        if (!handle) {
+            printf("Loader: 错误: 无法加载Pipeline共享库: %s\n", dlerror());
+            return -1;
+        }
     }
 
     printf("Loader: Pipeline共享库加载成功\n");
