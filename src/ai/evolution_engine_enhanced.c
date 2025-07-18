@@ -6,7 +6,7 @@
  */
 
 #include "evolution_engine.h"
-#include "../core/include/logger.h"
+#include "../core/enhanced_debug_system.h"
 #include "../core/include/module_communication.h"
 #include "../core/include/astc_native_bridge.h"
 #include "../core/include/astc_program_modules.h"

@@ -9,7 +9,7 @@
 #include <string.h>
 #include "evolution_engine.h"
 #include "code_analyzer.h"
-#include "../core/include/core_astc.h"
+#include "../core/astc.h"
 #include "../core/include/module_attributes.h"
 
 // ===============================================

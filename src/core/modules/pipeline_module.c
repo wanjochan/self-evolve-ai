@@ -2253,8 +2253,13 @@ static bool tokenize(const char* source, Token*** tokens, int* token_count) {
             case ']': token_array[count++] = create_token(TOKEN_RBRACKET, "]", lexer.line, lexer.column); break;
             case '?': token_array[count++] = create_token(TOKEN_QUESTION, "?", lexer.line, lexer.column); break;
             case ':': token_array[count++] = create_token(TOKEN_COLON, ":", lexer.line, lexer.column); break;
+            default:
+                // 跳过未知字符，避免无限循环
+                printf("Tokenize: 警告: 跳过未知字符 '%c' (ASCII %d) 在行 %d 列 %d\n",
+                       c, (int)c, lexer.line, lexer.column);
+                break;
         }
-        
+
         lexer.current++;
         lexer.column++;
     }

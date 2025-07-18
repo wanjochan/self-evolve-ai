@@ -335,11 +335,22 @@ build_core() {
         "src/core/astc_execution_optimizer.c"
         "src/core/build_system_manager.c"
     )
+
+    # AI模块源文件 (Stage 2)
+    local ai_sources=(
+        "src/ai/code_analyzer.c"
+        "src/ai/evolution_engine.c"
+        "src/ai/evolution_engine_enhanced.c"
+        "src/ai/general_intelligence_emergence.c"
+        "src/ai/observability_system.c"
+        "src/ai/ai_integration.c"
+    )
     
     local core_objects=()
-    local include_dirs="-Isrc/core -Isrc/core/modules"
+    local ai_objects=()
+    local include_dirs="-Isrc/core -Isrc/core/modules -Isrc/ai -Isrc/ai/include"
     
-    # 编译源文件
+    # 编译核心源文件
     for source in "${core_sources[@]}"; do
         if [ -f "$source" ]; then
             local object="$TEMP_DIR/$(basename "$source" .c).o"
@@ -350,13 +361,33 @@ build_core() {
             fi
         fi
     done
+
+    # 编译AI模块源文件 (Stage 2)
+    for source in "${ai_sources[@]}"; do
+        if [ -f "$source" ]; then
+            local object="$TEMP_DIR/ai_$(basename "$source" .c).o"
+            if compile_source "$source" "$object" "$include_dirs" ""; then
+                ai_objects+=("$object")
+            else
+                log_warning "AI模块编译失败: $source"
+            fi
+        fi
+    done
     
-    # 创建静态库
+    # 创建核心静态库
     if [ ${#core_objects[@]} -gt 0 ]; then
         create_static_library "$OUTPUT_DIR/libcore.a" "${core_objects[*]}"
     else
         log_warning "没有找到核心源文件"
         return 1
+    fi
+
+    # 创建AI模块静态库 (Stage 2)
+    if [ ${#ai_objects[@]} -gt 0 ]; then
+        create_static_library "$OUTPUT_DIR/libai.a" "${ai_objects[*]}"
+        log_info "AI模块库创建成功: libai.a (${#ai_objects[@]} 个对象文件)"
+    else
+        log_info "AI模块暂时跳过 (源文件不完整或编译失败)"
     fi
     
     log_success "核心库构建完成"
@@ -367,9 +398,9 @@ build_core() {
 build_tools() {
     log_step "构建工具"
     
-    local tools=("c2astc" "c2native" "simple_loader")
-    local include_dirs="-Isrc/core -Itools"
-    local libraries="$OUTPUT_DIR/libcore.a -lm"
+    local tools=("c2astc" "c2native" "simple_loader" "ai_analyzer")
+    local include_dirs="-Isrc/core -Isrc/ai -Itools"
+    local libraries="$OUTPUT_DIR/libcore.a $OUTPUT_DIR/libai.a -lm"
     
     for tool in "${tools[@]}"; do
         local source="tools/$tool.c"

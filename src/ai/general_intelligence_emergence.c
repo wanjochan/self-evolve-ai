@@ -7,8 +7,8 @@
  * Stage 4: Fully Autonomous General Intelligence
  */
 
-#include "../core/include/core_astc.h"
-#include "../core/include/logger.h"
+#include "../core/astc.h"
+#include "../core/enhanced_debug_system.h"
 #include "include/evolution_engine.h"
 #include "include/observability_system.h"
 #include "include/evolution_experiment_framework.h"

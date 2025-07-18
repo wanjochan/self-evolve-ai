@@ -5,7 +5,7 @@
  * and AI-driven analysis of code execution patterns for evolution optimization.
  */
 
-#include "../core/include/core_astc.h"
+#include "../core/astc.h"
 #include "../core/include/logger.h"
 #include "../core/include/vm_enhanced.h"
 #include "include/evolution_engine.h"
