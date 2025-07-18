@@ -42,6 +42,7 @@ test_input_validation() {
     cat > "$PROJECT_ROOT/security_input_test.c" << 'EOF'
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <dlfcn.h>
 
 int main() {
