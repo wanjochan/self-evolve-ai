@@ -658,7 +658,11 @@ static ASTNode* parse_compound_statement(Parser* parser) {
     ASTNode* compound = ast_create_node(ASTC_COMPOUND_STMT, token->line, token->column);
     if (!compound) return NULL;
 
-    // 简化实现：不维护语句列表，只解析到第一个return
+    // 完整实现：维护完整的语句列表
+    size_t capacity = 8; // 初始容量
+    compound->data.compound_stmt.statements = malloc(capacity * sizeof(ASTNode*));
+    compound->data.compound_stmt.statement_count = 0;
+    
     while (!match_token(parser, TOKEN_RBRACE) && !match_token(parser, TOKEN_EOF)) {
         ASTNode* stmt = parse_statement(parser);
         if (!stmt) {
@@ -666,12 +670,20 @@ static ASTNode* parse_compound_statement(Parser* parser) {
             return NULL;
         }
 
-        // 简化：只保存第一个语句
-        if (!compound->data.compound_stmt.statements) {
-            compound->data.compound_stmt.statements = malloc(sizeof(ASTNode*));
-            compound->data.compound_stmt.statements[0] = stmt;
-            compound->data.compound_stmt.statement_count = 1;
+        // 动态扩展语句数组
+        if (compound->data.compound_stmt.statement_count >= capacity) {
+            capacity *= 2;
+            compound->data.compound_stmt.statements = realloc(
+                compound->data.compound_stmt.statements, 
+                capacity * sizeof(ASTNode*)
+            );
+            if (!compound->data.compound_stmt.statements) {
+                ast_free(compound);
+                return NULL;
+            }
         }
+        
+        compound->data.compound_stmt.statements[compound->data.compound_stmt.statement_count++] = stmt;
 
         // 如果遇到return语句，停止解析
         if (stmt->type == ASTC_RETURN_STMT) {
@@ -741,26 +753,65 @@ static ASTNode* parse_function(Parser* parser) {
 
 // 解析参数列表
 static ASTNode* parse_parameter_list(Parser* parser) {
-    // 简化的参数列表解析
+    // 完整的参数列表解析
     if (match_token(parser, TOKEN_VOID)) {
         parser->current++; // consume 'void'
         return NULL; // 无参数
     }
 
-    // 简化：只支持单个int参数
-    if (match_token(parser, TOKEN_INT)) {
-        parser->current++; // consume 'int'
+    // 支持多个参数的解析
+    ASTNode* param_list = ast_create_node(ASTC_PARAM_LIST, 0, 0);
+    if (!param_list) return NULL;
+    
+    size_t capacity = 4; // 初始参数容量
+    param_list->data.param_list.params = malloc(capacity * sizeof(ASTNode*));
+    param_list->data.param_list.param_count = 0;
+    
+    do {
+        // 解析参数类型
+        ASTNode* param_type = NULL;
+        if (match_token(parser, TOKEN_INT)) {
+            parser->current++; // consume type
+            param_type = ast_create_node(ASTC_TYPE_INT, 0, 0);
+        } else if (match_token(parser, TOKEN_CHAR)) {
+            parser->current++; // consume type
+            param_type = ast_create_node(ASTC_TYPE_CHAR, 0, 0);
+        } else if (match_token(parser, TOKEN_FLOAT)) {
+            parser->current++; // consume type
+            param_type = ast_create_node(ASTC_TYPE_FLOAT, 0, 0);
+        } else {
+            break; // 无法识别的类型
+        }
+        
         Token* param_name = consume_token(parser, TOKEN_IDENTIFIER, "Expected parameter name");
-        if (!param_name) return NULL;
+        if (!param_name) {
+            ast_free(param_type);
+            break;
+        }
 
         ASTNode* param = ast_create_node(ASTC_PARAM_DECL, param_name->line, param_name->column);
         param->data.var_decl.name = strdup(param_name->value);
-        param->data.var_decl.type = ast_create_node(ASTC_TYPE_INT, param_name->line, param_name->column);
+        param->data.var_decl.type = param_type;
 
-        return param;
+        // 动态扩展参数数组
+        if (param_list->data.param_list.param_count >= capacity) {
+            capacity *= 2;
+            param_list->data.param_list.params = realloc(
+                param_list->data.param_list.params,
+                capacity * sizeof(ASTNode*)
+            );
+        }
+        
+        param_list->data.param_list.params[param_list->data.param_list.param_count++] = param;
+        
+    } while (match_token(parser, TOKEN_COMMA) && (parser->current++, true));
+
+    if (param_list->data.param_list.param_count == 0) {
+        ast_free(param_list);
+        return NULL; // 无参数
     }
-
-    return NULL; // 无参数
+    
+    return param_list;
 }
 
 // 解析函数调用

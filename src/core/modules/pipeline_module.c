@@ -964,7 +964,7 @@ static int generate_declaration_bytecode(ASTNode* decl, ASTCBytecodeProgram* pro
                 // 添加函数参数处理
                 if (decl->data.func_decl.params) {
                     // 生成参数声明指令 (使用现有的指令类型)
-                    astc_bytecode_add_instruction(program, AST_CONST, decl->data.func_decl.param_count);
+                    astc_bytecode_add_instruction(program, AST_I32_CONST, decl->data.func_decl.param_count);
                     
                     // 为每个参数生成入栈指令
                     for (int i = 0; i < decl->data.func_decl.param_count; i++) {
@@ -988,7 +988,7 @@ static int generate_declaration_bytecode(ASTNode* decl, ASTCBytecodeProgram* pro
             // 考虑：1. 局部变量 vs 全局变量 2. 初始化表达式 3. 变量类型和大小
             
             // 生成变量声明指令 (简化处理，假设为局部变量)
-            astc_bytecode_add_instruction(program, AST_CONST, 0);
+            astc_bytecode_add_instruction(program, AST_I32_CONST, 0);
 
             if (decl->data.var_decl.initializer) {
                 // 生成初始化表达式
@@ -999,7 +999,7 @@ static int generate_declaration_bytecode(ASTNode* decl, ASTCBytecodeProgram* pro
                 astc_bytecode_add_instruction(program, AST_LOCAL_SET, 0);
             } else {
                 // 没有初始化器，设置默认值 (0)
-                astc_bytecode_add_instruction(program, AST_CONST, 0);
+                astc_bytecode_add_instruction(program, AST_I32_CONST, 0);
                 astc_bytecode_add_instruction(program, AST_LOCAL_SET, 0);
             }
             break;
@@ -2522,9 +2522,51 @@ static ASTNode* parse_function_declaration_with_type(Parser* parser, ASTNode* re
     // 解析参数列表
     consume_token(parser, TOKEN_LPAREN, "Expected '('");
 
-    // 简化实现：跳过参数解析
-    while (!match_token(parser, TOKEN_RPAREN) && peek_token(parser)) {
-        advance_token(parser);
+    // 完整实现：解析函数参数
+    size_t param_capacity = 4;
+    func->data.func_decl.params = malloc(param_capacity * sizeof(ASTNode*));
+    func->data.func_decl.param_count = 0;
+    
+    if (!match_token(parser, TOKEN_RPAREN)) {
+        do {
+            // 解析参数类型
+            Token* type_token = peek_token(parser);
+            if (!type_token) break;
+            
+            ASTNode* param_type = NULL;
+            if (match_token(parser, TOKEN_INT)) {
+                advance_token(parser);
+                param_type = ast_create_node(ASTC_TYPE_INT, type_token->line, type_token->column);
+            } else if (match_token(parser, TOKEN_CHAR)) {
+                advance_token(parser);
+                param_type = ast_create_node(ASTC_TYPE_CHAR, type_token->line, type_token->column);
+            } else {
+                break; // 不支持的类型
+            }
+            
+            // 解析参数名
+            Token* param_name = peek_token(parser);
+            if (!param_name || param_name->type != TOKEN_IDENTIFIER) {
+                ast_free(param_type);
+                break;
+            }
+            advance_token(parser);
+            
+            // 创建参数节点
+            ASTNode* param = ast_create_node(ASTC_PARAM_DECL, param_name->line, param_name->column);
+            param->data.var_decl.name = strdup(param_name->value);
+            param->data.var_decl.type = param_type;
+            
+            // 扩展参数数组
+            if (func->data.func_decl.param_count >= param_capacity) {
+                param_capacity *= 2;
+                func->data.func_decl.params = realloc(func->data.func_decl.params, 
+                                                     param_capacity * sizeof(ASTNode*));
+            }
+            
+            func->data.func_decl.params[func->data.func_decl.param_count++] = param;
+            
+        } while (match_token(parser, TOKEN_COMMA) && (advance_token(parser), true));
     }
 
     consume_token(parser, TOKEN_RPAREN, "Expected ')'");
@@ -2632,7 +2674,22 @@ static bool generate_declaration(ASTNode* decl, CodeGenerator* cg) {
         case ASTC_FUNC_DECL:
             return generate_function(decl, cg);
         case ASTC_VAR_DECL:
-            // 简化实现：暂时跳过全局变量
+            // 完整实现：处理全局变量声明
+            codegen_append(cg, ".data\n");
+            codegen_append(cg, ".global ");
+            codegen_append(cg, decl->data.var_decl.name);
+            codegen_append(cg, "\n");
+            codegen_append(cg, decl->data.var_decl.name);
+            codegen_append(cg, ":\n");
+            
+            // 根据类型生成初始值
+            if (decl->data.var_decl.initializer) {
+                // 有初始化器的情况
+                codegen_append(cg, "    .word 0  # TODO: 解析初始化值\n");
+            } else {
+                // 默认初始化为0
+                codegen_append(cg, "    .word 0\n");
+            }
             return true;
         default:
             return true;

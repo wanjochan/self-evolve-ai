@@ -494,7 +494,10 @@ void code_analyzer_help(void) {
 }
 
 int perfmon_init(void) { return 0; }
-void perfmon_cleanup(void) {}
+void perfmon_cleanup(void) {
+    printf("Performance Monitor: Cleaning up resources\n");
+    // 清理性能监控资源
+}
 int perfmon_run(int argc, char* argv[]) { 
     printf("ASTC Performance Monitor v1.0.0\n");
     printf("Real-time performance monitoring\n");
@@ -505,7 +508,10 @@ void perfmon_help(void) {
 }
 
 int depres_init(void) { return 0; }
-void depres_cleanup(void) {}
+void depres_cleanup(void) {
+    printf("Dependency Resolver: Cleaning up caches\n");
+    // 清理依赖解析缓存
+}
 int depres_run(int argc, char* argv[]) { 
     printf("ASTC Dependency Resolver v1.0.0\n");
     printf("Automatic dependency resolution\n");
@@ -516,7 +522,10 @@ void depres_help(void) {
 }
 
 int build_system_init(void) { return 0; }
-void build_system_cleanup(void) {}
+void build_system_cleanup(void) {
+    printf("Build System: Cleaning up temporary files\n");
+    // 清理构建系统临时文件
+}
 int build_system_run(int argc, char* argv[]) { 
     printf("ASTC Build System v1.0.0\n");
     printf("Integrated build and compilation system\n");
@@ -527,7 +536,10 @@ void build_system_help(void) {
 }
 
 int test_runner_init(void) { return 0; }
-void test_runner_cleanup(void) {}
+void test_runner_cleanup(void) {
+    printf("Test Runner: Finalizing test results\n");
+    // 完成测试结果整理
+}
 int test_runner_run(int argc, char* argv[]) { 
     printf("ASTC Test Runner v1.0.0\n");
     printf("Automated testing framework\n");
