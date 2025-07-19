@@ -1,0 +1,15 @@
+{
+  "stage2_performance_analysis": {
+    "timestamp": "1752942986",
+    "hotspot_statistics": {
+      "total_bottlenecks": 148,
+      "critical_bottlenecks": 68,
+      "high_bottlenecks": 148,
+      "total_impact": 6454.50,
+      "worst_file": "êOH@ÈU",
+      "worst_file_issues": 57
+    },
+    "bottlenecks": [
+    ]
+  }
+}
