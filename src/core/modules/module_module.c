@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /**
  * module_module.c - 模块系统的第一个模块
  * 

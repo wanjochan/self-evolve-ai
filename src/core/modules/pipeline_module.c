@@ -7,6 +7,7 @@
  * - Execution: ASTC字节码执行 (astc + vm)
  */
 
+#define _GNU_SOURCE
 #include "../module.h"
 #include "../astc.h"
 #include <stdlib.h>

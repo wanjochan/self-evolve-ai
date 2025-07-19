@@ -5,6 +5,7 @@
  * 为其他模块提供基础服务，是整个模块系统的基础层
  */
 
+#define _GNU_SOURCE
 #include "../module.h"
 #include "../astc.h"
 #include <stdlib.h>

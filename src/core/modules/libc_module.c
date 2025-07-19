@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /**
  * libc_module.c - Standardized LibC Module Implementation (Layer 2)
  * 

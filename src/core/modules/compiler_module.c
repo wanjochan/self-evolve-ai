@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /**
  * compiler_module.c - Compiler Module
  *
