@@ -199,8 +199,8 @@ int generate_machine_code(const ProgramAnalysis* analysis, unsigned char** code,
 
     // T3.3 - 集成现有的优化和缓存机制
     char source_hash[32];
-    char cache_key[256];
-    snprintf(cache_key, sizeof(cache_key), "%s_%d_%s",
+    char cache_key[512];  // 增加缓冲区大小
+    snprintf(cache_key, sizeof(cache_key), "%s_%d_%.200s",  // 限制字符串长度
              analysis->has_printf ? "printf" : "simple",
              analysis->return_value,
              analysis->printf_string);
@@ -668,11 +668,25 @@ int generate_object_file(const char* output_file, unsigned char* machine_code, s
 int check_unsupported_syntax(const char* content) {
     // 对于模块编译，我们更宽松一些，只检查真正无法处理的语法
     const char* unsupported[] = {
-        "asm(", "asm volatile", "__asm__",  // 内联汇编
         "#pragma", "__attribute__",         // 编译器特定指令
         "goto ", "setjmp", "longjmp",      // 控制流跳转
         NULL
     };
+
+    // 特殊检查：内联汇编（但忽略字符串和注释中的）
+    // 简化检查：只查找函数体中的内联汇编
+    const char* asm_patterns[] = {
+        ";\n    asm(", "{\n    asm(",     // 函数体中的内联汇编
+        ";\n    __asm__(", "{\n    __asm__(",
+        NULL
+    };
+    
+    for (int i = 0; asm_patterns[i] != NULL; i++) {
+        if (strstr(content, asm_patterns[i])) {
+            printf("⚠️  Warning: Found unsupported syntax 'inline assembly'\n");
+            return 1;
+        }
+    }
 
     for (int i = 0; unsupported[i] != NULL; i++) {
         if (strstr(content, unsupported[i])) {
@@ -702,7 +716,7 @@ int parse_c_source(const char* source_file, ProgramAnalysis* analysis) {
     }
 
     char line[512];  // 增加行缓冲区大小
-    char full_content[8192] = {0};  // 增加总缓冲区大小
+    char full_content[32768] = {0};  // 大幅增加总缓冲区大小以支持自举
     size_t content_len = 0;
 
     while (fgets(line, sizeof(line), f)) {
