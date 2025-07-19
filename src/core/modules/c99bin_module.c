@@ -75,6 +75,7 @@ C99BinResult c99bin_optimize_ast(ASTNode* ast, int optimization_level);
 static bool c99bin_constant_folding_pass(ASTNode* ast);
 static bool c99bin_dead_code_elimination_pass(ASTNode* ast);
 static bool c99bin_advanced_optimization_pass(ASTNode* ast);
+static void c99bin_free_ast_node(struct ASTNode* node);
 
 // T3.2.2 - 错误诊断和警告系统
 typedef struct {
@@ -2204,7 +2205,7 @@ static void c99bin_free_ast_node(struct ASTNode* node) {
     
     // 根据节点类型递归清理子节点
     switch (node->type) {
-        case AST_BINARY_OP:
+        case ASTC_BINARY_OP:
             if (node->data.binary_op.left) {
                 c99bin_free_ast_node(node->data.binary_op.left);
             }
@@ -2213,13 +2214,13 @@ static void c99bin_free_ast_node(struct ASTNode* node) {
             }
             break;
             
-        case AST_UNARY_OP:
+        case ASTC_UNARY_OP:
             if (node->data.unary_op.operand) {
                 c99bin_free_ast_node(node->data.unary_op.operand);
             }
             break;
             
-        case AST_IF_STMT:
+        case ASTC_IF_STMT:
             if (node->data.if_stmt.condition) {
                 c99bin_free_ast_node(node->data.if_stmt.condition);
             }
@@ -2231,7 +2232,7 @@ static void c99bin_free_ast_node(struct ASTNode* node) {
             }
             break;
             
-        case AST_COMPOUND_STMT:
+        case ASTC_COMPOUND_STMT:
             if (node->data.compound_stmt.statements) {
                 for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
                     c99bin_free_ast_node(node->data.compound_stmt.statements[i]);
@@ -2240,7 +2241,7 @@ static void c99bin_free_ast_node(struct ASTNode* node) {
             }
             break;
             
-        case AST_IDENTIFIER:
+        case ASTC_EXPR_IDENTIFIER:
             if (node->data.identifier.name) {
                 free(node->data.identifier.name);
             }
