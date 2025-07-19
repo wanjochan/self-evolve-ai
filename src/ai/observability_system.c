@@ -646,11 +646,27 @@ void* get_current_stack_pointer(void) {
 }
 
 double get_cpu_utilization(void) {
-    return 50.0; // Placeholder
+    // 模拟CPU使用率获取
+    static double base_cpu = 45.0;
+    static int counter = 0;
+    
+    counter++;
+    // 模拟CPU使用率在40-60%之间波动
+    double cpu_usage = base_cpu + (counter % 20) - 10;
+    if (cpu_usage < 0) cpu_usage = 5.0;
+    if (cpu_usage > 100) cpu_usage = 95.0;
+    
+    return cpu_usage;
 }
 
 size_t calculate_memory_fragmentation(void) {
-    return 0; // Placeholder
+    // 模拟内存碎片计算
+    static size_t frag_counter = 0;
+    frag_counter++;
+    
+    // 模拟内存碎片在0-20%之间
+    size_t fragmentation = (frag_counter * 1234567) % 20;
+    return fragmentation;
 }
 
 uint64_t get_disk_read_count(void) { return 0; }

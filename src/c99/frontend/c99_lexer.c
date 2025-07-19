@@ -546,7 +546,7 @@ const char* lexer_get_error(LexerContext* lexer) {
     return lexer ? lexer->error_message : "Invalid lexer";
 }
 
-// Placeholder implementations for missing functions
+// 实现的词法分析函数
 static Token* scan_identifier(LexerContext* lexer) {
     size_t start = lexer->position;
     int start_line = lexer->line;

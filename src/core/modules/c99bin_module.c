@@ -2152,8 +2152,8 @@ static void c99bin_cleanup(void) {
 
     // 清理AST (如果存在)
     if (c99bin_state.ast_root) {
-        // TODO: 实现AST清理函数
-        // ast_free(c99bin_state.ast_root);
+        // 实现AST清理函数 - 递归释放AST节点
+        c99bin_free_ast_node(c99bin_state.ast_root);
         c99bin_state.ast_root = NULL;
     }
 
@@ -2196,6 +2196,63 @@ void module_cleanup(void) {
 
 void* c99bin_module_resolve(const char* symbol) {
     return c99bin_resolve(symbol);
+}
+
+// AST节点递归清理函数
+static void c99bin_free_ast_node(struct ASTNode* node) {
+    if (!node) return;
+    
+    // 根据节点类型递归清理子节点
+    switch (node->type) {
+        case AST_BINARY_OP:
+            if (node->data.binary_op.left) {
+                c99bin_free_ast_node(node->data.binary_op.left);
+            }
+            if (node->data.binary_op.right) {
+                c99bin_free_ast_node(node->data.binary_op.right);
+            }
+            break;
+            
+        case AST_UNARY_OP:
+            if (node->data.unary_op.operand) {
+                c99bin_free_ast_node(node->data.unary_op.operand);
+            }
+            break;
+            
+        case AST_IF_STMT:
+            if (node->data.if_stmt.condition) {
+                c99bin_free_ast_node(node->data.if_stmt.condition);
+            }
+            if (node->data.if_stmt.then_branch) {
+                c99bin_free_ast_node(node->data.if_stmt.then_branch);
+            }
+            if (node->data.if_stmt.else_branch) {
+                c99bin_free_ast_node(node->data.if_stmt.else_branch);
+            }
+            break;
+            
+        case AST_COMPOUND_STMT:
+            if (node->data.compound_stmt.statements) {
+                for (int i = 0; i < node->data.compound_stmt.statement_count; i++) {
+                    c99bin_free_ast_node(node->data.compound_stmt.statements[i]);
+                }
+                free(node->data.compound_stmt.statements);
+            }
+            break;
+            
+        case AST_IDENTIFIER:
+            if (node->data.identifier.name) {
+                free(node->data.identifier.name);
+            }
+            break;
+            
+        default:
+            // 其他节点类型暂时不需要特殊清理
+            break;
+    }
+    
+    // 释放节点本身
+    free(node);
 }
 
 // 测试导出函数
