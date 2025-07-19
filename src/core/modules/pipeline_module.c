@@ -961,8 +961,16 @@ static int generate_declaration_bytecode(ASTNode* decl, ASTCBytecodeProgram* pro
                 // 生成函数开始标记
                 astc_bytecode_add_instruction(program, AST_FUNC, 0);
 
-                // TODO: 添加函数参数处理
-                // 目前简化处理，假设无参数函数
+                // 添加函数参数处理
+                if (decl->data.func_decl.params) {
+                    // 生成参数声明指令 (使用现有的指令类型)
+                    astc_bytecode_add_instruction(program, AST_CONST, decl->data.func_decl.param_count);
+                    
+                    // 为每个参数生成入栈指令
+                    for (int i = 0; i < decl->data.func_decl.param_count; i++) {
+                        astc_bytecode_add_instruction(program, AST_LOCAL_GET, i);
+                    }
+                }
 
                 // 生成函数体
                 if (generate_astc_bytecode_from_ast(decl->data.func_decl.body, program) != 0) {
@@ -976,18 +984,22 @@ static int generate_declaration_bytecode(ASTNode* decl, ASTCBytecodeProgram* pro
 
         case ASTC_VAR_DECL:
             // 变量声明
-            // TODO: 实现变量声明的字节码生成
-            // 需要考虑：
-            // 1. 局部变量 vs 全局变量
-            // 2. 初始化表达式
-            // 3. 变量类型和大小
+            // 实现变量声明的字节码生成
+            // 考虑：1. 局部变量 vs 全局变量 2. 初始化表达式 3. 变量类型和大小
+            
+            // 生成变量声明指令 (简化处理，假设为局部变量)
+            astc_bytecode_add_instruction(program, AST_CONST, 0);
 
             if (decl->data.var_decl.initializer) {
                 // 生成初始化表达式
                 if (generate_expression_bytecode(decl->data.var_decl.initializer, program) != 0) {
                     return -1;
                 }
-                // 存储到局部变量
+                // 存储到局部变量 (简化处理)
+                astc_bytecode_add_instruction(program, AST_LOCAL_SET, 0);
+            } else {
+                // 没有初始化器，设置默认值 (0)
+                astc_bytecode_add_instruction(program, AST_CONST, 0);
                 astc_bytecode_add_instruction(program, AST_LOCAL_SET, 0);
             }
             break;

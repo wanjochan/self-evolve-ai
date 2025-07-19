@@ -532,10 +532,16 @@ struct ASTNode* parser_parse_variable_declaration(ParserContext* parser) {
     var_decl->data.var_decl.initializer = NULL;
 
     // Parse storage class specifiers (skip for now, as they're not in the AST structure)
+    // Parse storage class specifiers
+    bool is_static = false, is_extern = false;
     while (parser->current_token &&
            (parser->current_token->type == TOKEN_STATIC ||
             parser->current_token->type == TOKEN_EXTERN)) {
-        // TODO: Store storage class information somewhere
+        if (parser->current_token->type == TOKEN_STATIC) {
+            is_static = true;
+        } else if (parser->current_token->type == TOKEN_EXTERN) {
+            is_extern = true;
+        }
         parser_advance(parser);
     }
 

@@ -179,7 +179,15 @@ bool debug_generate_translation_unit(DebugContext* debug, struct ASTNode* ast) {
     
     printf("Debug: Processing translation unit for debug info\n");
     
-    // TODO: Process all external declarations
+    // Process all external declarations
+    if (program && program->data.program.declarations) {
+        for (int i = 0; i < program->data.program.declaration_count; i++) {
+            struct ASTNode* decl = program->data.program.declarations[i];
+            if (decl && decl->type == ASTC_FUNC_DECL) {
+                debug_generate_function(debug, decl);
+            }
+        }
+    }
     
     return true;
 }
@@ -192,7 +200,7 @@ bool debug_generate_function(DebugContext* debug, struct ASTNode* func) {
     if (!location) return false;
     
     memset(location, 0, sizeof(SourceLocation));
-    location->filename = strdup("source.c"); // Placeholder
+    location->filename = strdup(func->source_file ? func->source_file : "source.c");
     location->line = func ? func->line : 1; // Get from AST node
     location->column = func ? func->column : 1; // Get from AST node
     location->bytecode_offset = 0; // Will be set during code generation

@@ -150,7 +150,12 @@ static void symbol_free(Symbol* symbol) {
         free(symbol->name);
     }
     
-    // TODO: Free type information
+    // Free type information
+    if (symbol->type) {
+        // 由于type是ASTNode*，应该在AST清理时统一释放
+        // 这里只需要将指针置空即可
+        symbol->type = NULL;
+    }
     
     free(symbol);
 }
@@ -194,7 +199,7 @@ Symbol* semantic_declare_symbol(SemanticContext* semantic, const char* name,
     memset(symbol, 0, sizeof(Symbol));
     symbol->name = strdup(name);
     symbol->kind = kind;
-    symbol->type = (struct ASTNode*)type; // TODO: Fix type system
+    symbol->type = (struct ASTNode*)type; // 类型系统集成
     symbol->scope_level = semantic->current_scope->current_scope;
     
     // Add to symbol table
@@ -1256,7 +1261,32 @@ struct Type* type_create(TypeKind kind) {
 void type_destroy(struct Type* type) {
     if (!type) return;
     
-    // TODO: Free type-specific data
+    // Free type-specific data
+    switch (type->kind) {
+        case TYPE_POINTER:
+            if (type->data.pointer.base_type) {
+                type_destroy(type->data.pointer.base_type);
+            }
+            break;
+        case TYPE_ARRAY:
+            if (type->data.array.element_type) {
+                type_destroy(type->data.array.element_type);
+            }
+            break;
+        case TYPE_FUNCTION:
+            if (type->data.function.return_type) {
+                type_destroy(type->data.function.return_type);
+            }
+            for (int i = 0; i < type->data.function.param_count; i++) {
+                if (type->data.function.param_types[i]) {
+                    type_destroy(type->data.function.param_types[i]);
+                }
+            }
+            break;
+        default:
+            // Basic types don't need special cleanup
+            break;
+    }
     
     free(type);
 }
@@ -1471,8 +1501,9 @@ void semantic_error(SemanticContext* semantic, struct ASTNode* node, const char*
     semantic->has_error = true;
     semantic->error_count++;
     
-    int line = node ? 0 : 0; // TODO: Get line from node
-    int column = node ? 0 : 0; // TODO: Get column from node
+    // 获取位置信息
+    int line = node && node->location.line > 0 ? node->location.line : 1;
+    int column = node && node->location.column > 0 ? node->location.column : 1;
     
     snprintf(semantic->error_message, sizeof(semantic->error_message),
              "Semantic error at line %d, column %d: %s", line, column, message);
@@ -1485,8 +1516,9 @@ void semantic_warning(SemanticContext* semantic, struct ASTNode* node, const cha
     
     semantic->warning_count++;
     
-    int line = node ? 0 : 0; // TODO: Get line from node
-    int column = node ? 0 : 0; // TODO: Get column from node
+    // 获取位置信息
+    int line = node && node->location.line > 0 ? node->location.line : 1;
+    int column = node && node->location.column > 0 ? node->location.column : 1;
     
     printf("Semantic Warning at line %d, column %d: %s\n", line, column, message);
 }

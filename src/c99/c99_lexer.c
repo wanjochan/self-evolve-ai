@@ -197,6 +197,10 @@ static void advance_char(C99Lexer* lexer) {
     }
 }
 
+// 前向声明
+static Token* scan_string_literal(C99Lexer* lexer);
+static Token* scan_character_constant(C99Lexer* lexer);
+
 static Token* create_token(TokenType type, const char* value, size_t length, 
                           int line, int column, size_t offset) {
     Token* token = malloc(sizeof(Token));
@@ -634,16 +638,12 @@ Token* c99_lexer_next_token(C99Lexer* lexer) {
 
     // 字符串字面量
     if (c == '"') {
-        // TODO: 实现字符串扫描
-        advance_char(lexer);
-        return create_token(TOKEN_STRING_LITERAL, "\"\"", 2, lexer->line, lexer->column - 1, lexer->current - 1);
+        return scan_string_literal(lexer);
     }
 
     // 字符常量
     if (c == '\'') {
-        // TODO: 实现字符常量扫描
-        advance_char(lexer);
-        return create_token(TOKEN_CHARACTER_CONSTANT, "''", 2, lexer->line, lexer->column - 1, lexer->current - 1);
+        return scan_character_constant(lexer);
     }
 
     // 换行符
@@ -738,4 +738,67 @@ Token* c99_lexer_peek_token(C99Lexer* lexer) {
     lexer->in_directive = saved_in_directive;
 
     return token;
+}
+
+// 扫描字符串字面量
+static Token* scan_string_literal(C99Lexer* lexer) {
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    size_t start_pos = lexer->current;
+    
+    advance_char(lexer); // 跳过开始的 '"'
+    
+    while (lexer->current < lexer->source_length && peek_char(lexer, 0) != '"') {
+        char c = peek_char(lexer, 0);
+        if (c == '\\') {
+            advance_char(lexer); // 跳过转义字符
+            if (lexer->current < lexer->source_length) {
+                advance_char(lexer); // 跳过被转义的字符
+            }
+        } else if (c == '\n') {
+            // 字符串不能跨行
+            break;
+        } else {
+            advance_char(lexer);
+        }
+    }
+    
+    if (lexer->current < lexer->source_length && peek_char(lexer, 0) == '"') {
+        advance_char(lexer); // 跳过结束的 '"'
+    }
+    
+    size_t length = lexer->current - start_pos;
+    const char* text = lexer->source + start_pos;
+    
+    return create_token(TOKEN_STRING_LITERAL, text, length, start_line, start_column, start_pos);
+}
+
+// 扫描字符常量
+static Token* scan_character_constant(C99Lexer* lexer) {
+    int start_line = lexer->line;
+    int start_column = lexer->column;
+    size_t start_pos = lexer->current;
+    
+    advance_char(lexer); // 跳过开始的 '\''
+    
+    if (lexer->current < lexer->source_length && peek_char(lexer, 0) != '\'') {
+        char c = peek_char(lexer, 0);
+        if (c == '\\') {
+            advance_char(lexer); // 跳过转义字符
+            if (lexer->current < lexer->source_length) {
+                advance_char(lexer); // 跳过被转义的字符
+            }
+        } else {
+            advance_char(lexer);
+        }
+    }
+    
+    if (lexer->current < lexer->source_length && peek_char(lexer, 0) == '\'') {
+        advance_char(lexer); // 跳过结束的 '\''
+    }
+    
+    size_t length = lexer->current - start_pos;
+    const char* text = lexer->source + start_pos;
+    
+    return create_token(TOKEN_CHARACTER_CONSTANT, text, length, start_line, start_column, start_pos);
 }
