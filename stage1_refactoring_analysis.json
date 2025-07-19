@@ -1,0 +1,18 @@
+{
+  "stage2_refactoring_analysis": {
+    "timestamp": "1752945344",
+    "quality_metrics": {
+      "total_smells": 1374,
+      "high_severity_smells": 610,
+      "overall_quality_score": 0.00,
+      "technical_debt_hours": 16112.00,
+      "function_level_issues": 15,
+      "duplication_issues": 8,
+      "naming_issues": 736,
+      "comment_issues": 5,
+      "error_handling_issues": 610
+    },
+    "refactoring_opportunities": [
+    ]
+  }
+}
