@@ -833,9 +833,46 @@ static ASTNode* parse_function_call(Parser* parser, const char* func_name, int l
         return NULL;
     }
 
-    // 简化：不解析参数，直接跳到')'
-    while (!match_token(parser, TOKEN_RPAREN) && !match_token(parser, TOKEN_EOF)) {
-        parser->current++; // 跳过参数内容
+    // T1.1.2增强: 解析函数参数，支持setjmp/longjmp等复杂调用
+    if (!match_token(parser, TOKEN_RPAREN)) {
+        // 解析参数列表
+        call->data.call_expr.args = malloc(sizeof(ASTNode*) * 8); // 最多8个参数
+        int capacity = 8;
+        
+        do {
+            // 扩展容量如果需要
+            if (call->data.call_expr.arg_count >= capacity) {
+                capacity *= 2;
+                call->data.call_expr.args = realloc(call->data.call_expr.args, 
+                                                   sizeof(ASTNode*) * capacity);
+            }
+            
+            // 解析一个参数表达式
+            ASTNode* arg = parse_assignment_expression(parser);
+            if (!arg) {
+                // 解析失败，清理并返回
+                for (int i = 0; i < call->data.call_expr.arg_count; i++) {
+                    ast_free(call->data.call_expr.args[i]);
+                }
+                free(call->data.call_expr.args);
+                ast_free(call);
+                return NULL;
+            }
+            
+            call->data.call_expr.args[call->data.call_expr.arg_count++] = arg;
+            
+            // 检查是否有更多参数
+            if (match_token(parser, TOKEN_COMMA)) {
+                parser->current++; // 消费逗号
+            } else {
+                break;
+            }
+        } while (!match_token(parser, TOKEN_RPAREN) && !match_token(parser, TOKEN_EOF));
+    }
+    
+    // 检查特殊函数类型 (setjmp/longjmp)
+    if (strcmp(func_name, "setjmp") == 0 || strcmp(func_name, "longjmp") == 0) {
+        call->data.call_expr.is_libc_call = true; // 标记为特殊调用
     }
 
     if (!consume_token(parser, TOKEN_RPAREN, "Expected ')' after function arguments")) {
@@ -990,7 +1027,7 @@ static ASTNode* parse_variable_declaration(Parser* parser) {
 
     var_decl->data.var_decl.name = strdup(name_token->value);
 
-    // 设置类型
+    // 设置类型 (T1.1.2增强: 支持jmp_buf类型)
     ASTNodeType type_node_type;
     switch (type_token->type) {
         case TOKEN_INT:
@@ -1007,6 +1044,9 @@ static ASTNode* parse_variable_declaration(Parser* parser) {
             break;
         case TOKEN_VOID:
             type_node_type = ASTC_TYPE_VOID;
+            break;
+        case TOKEN_JMP_BUF:  // T1.1.2增强: 支持jmp_buf类型
+            type_node_type = ASTC_TYPE_INT; // 暂时映射为int，后续可扩展
             break;
         default:
             type_node_type = ASTC_TYPE_INT; // 默认

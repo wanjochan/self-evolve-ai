@@ -39,8 +39,8 @@
 
 #### 状态追踪更新
 - 当前状态: EXECUTING (执行阶段)
-- 状态变更原因: T1.1.1词法分析器增强已完成
-- 下一步计划: 开始T1.1.2语法分析器完善
+- 状态变更原因: T1.1.1和T1.1.2都已完成
+- 下一步计划: 开始T1.1.3语义分析器开发
 
 ## 知识库
 
@@ -126,6 +126,13 @@
    - ✅ 在pipeline_common.h中添加了TOKEN_SETJMP, TOKEN_LONGJMP, TOKEN_JMP_BUF
    - ✅ 在pipeline_frontend.c的关键字表中添加了setjmp/longjmp支持
    - ✅ 测试验证：3/3个新关键字正确识别
+
+2. ✅ **T1.1.2 语法分析器完善** - 基于现有架构的深度增强
+   - ✅ 增强函数调用解析：替换简单参数跳过为完整表达式解析
+   - ✅ 添加jmp_buf类型支持：在parse_variable_declaration中支持TOKEN_JMP_BUF
+   - ✅ setjmp/longjmp特殊标记：识别并标记为特殊libc调用
+   - ✅ 动态内存管理：支持可变长度参数列表，proper cleanup
+   - ✅ 架构兼容性：完全基于现有pipeline_frontend.c架构
    - 💡 重要教训：必须基于现有模块化架构进行增强，不能重新发明轮子
 
 ### 下一步行动计划
