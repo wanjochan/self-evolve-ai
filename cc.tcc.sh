@@ -15,17 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Function to compile with c99bin
 compile_with_c99bin() {
-    # First, try the new c99bin executable
-    if [ -x "$SCRIPT_DIR/tools/c99bin" ]; then
-        echo "🚀 Using C99Bin compiler (self-hosting)" >&2
-        "$SCRIPT_DIR/tools/c99bin" "$@"
-        return $?
-    elif [ -x "$SCRIPT_DIR/c99bin.sh" ]; then
-        echo "🔄 Using C99Bin wrapper script" >&2
+    if [ -x "$SCRIPT_DIR/c99bin.sh" ]; then
         "$SCRIPT_DIR/c99bin.sh" "$@"
         return $?
+    elif [ -x "$SCRIPT_DIR/tools/c99bin" ]; then
+        "$SCRIPT_DIR/tools/c99bin" "$@"
+        return $?
     else
-        echo "⚠️  C99Bin compiler not found" >&2
         return 1
     fi
 }
@@ -33,9 +29,8 @@ compile_with_c99bin() {
 # Function to compile with external fallback (if enabled)
 compile_with_fallback() {
     if [ "$ALLOW_EXTERNAL_COMPILER" = "yes" ] && command -v gcc >/dev/null 2>&1; then
-        echo "🔧 Warning: Using external GCC as fallback compiler" >&2
-        echo "📋 Note: Set ALLOW_EXTERNAL_COMPILER=no to disable external dependencies" >&2
-        echo "🎯 Recommendation: Build c99bin with ./build_c99bin_executable.sh" >&2
+        echo "Warning: Using external GCC as fallback compiler" >&2
+        echo "Note: Set ALLOW_EXTERNAL_COMPILER=no to disable external dependencies" >&2
         gcc "$@"
         return $?
     else
@@ -56,29 +51,15 @@ main() {
     fi
 
     # If all compilation methods fail
-    echo "❌ Error: Compilation failed" >&2
-    echo "" >&2
-    echo "📋 C99Bin Status:" >&2
+    echo "Error: Compilation failed" >&2
     echo "- C99Bin compiler not available or compilation failed" >&2
     echo "- External compiler fallback disabled or not available" >&2
     echo "" >&2
-    echo "🚀 To build C99Bin compiler:" >&2
-    echo "  ./build_c99bin_executable.sh" >&2
-    echo "" >&2
-    echo "🔧 To enable external compiler fallback:" >&2
+    echo "To enable external compiler fallback:" >&2
     echo "  export ALLOW_EXTERNAL_COMPILER=yes" >&2
     echo "" >&2
-    echo "📍 C99Bin files status:" >&2
-    if [ -x "$SCRIPT_DIR/tools/c99bin" ]; then
-        echo "  ✅ C99Bin executable: $SCRIPT_DIR/tools/c99bin"
-    else
-        echo "  ❌ C99Bin executable: MISSING"
-    fi
-    if [ -x "$SCRIPT_DIR/c99bin.sh" ]; then
-        echo "  ✅ C99Bin wrapper: $SCRIPT_DIR/c99bin.sh"
-    else
-        echo "  ❌ C99Bin wrapper: MISSING"
-    fi
+    echo "To build c99bin compiler:" >&2
+    echo "  ./c99bin_tools_build.sh" >&2
     exit 1
 }
 
