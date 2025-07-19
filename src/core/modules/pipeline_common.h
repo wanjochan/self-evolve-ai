@@ -131,7 +131,12 @@ typedef enum {
     TOKEN_RESTRICT,
     TOKEN_BOOL,
     TOKEN_COMPLEX,
-    TOKEN_IMAGINARY
+    TOKEN_IMAGINARY,
+    
+    // setjmp/longjmp支持 (T1.1.1增强)
+    TOKEN_SETJMP,
+    TOKEN_LONGJMP,
+    TOKEN_JMP_BUF
 } TokenType;
 
 typedef struct {

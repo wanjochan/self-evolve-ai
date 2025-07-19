@@ -92,6 +92,8 @@ static TokenType get_keyword_type(const char* identifier) {
         {"static", TOKEN_STATIC}, {"extern", TOKEN_EXTERN}, {"const", TOKEN_CONST},
         {"volatile", TOKEN_VOLATILE}, {"inline", TOKEN_INLINE}, {"restrict", TOKEN_RESTRICT},
         {"_Bool", TOKEN_BOOL}, {"_Complex", TOKEN_COMPLEX}, {"_Imaginary", TOKEN_IMAGINARY},
+        // T1.1.1增强: setjmp/longjmp支持
+        {"setjmp", TOKEN_SETJMP}, {"longjmp", TOKEN_LONGJMP}, {"jmp_buf", TOKEN_JMP_BUF},
         {NULL, TOKEN_EOF}
     };
     
