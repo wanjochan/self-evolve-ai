@@ -15,6 +15,17 @@
 #include <time.h>
 #include <stdint.h>
 
+#ifdef __linux__
+#include <unistd.h>
+#include <sys/resource.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#include <sys/resource.h>
+#endif
+
 // Optimization levels
 typedef enum {
     OPT_LEVEL_NONE = 0,        // No optimization
@@ -96,6 +107,47 @@ static struct {
     } hot_spots[256];
     int hot_spot_count;
 } g_optimizer = {0};
+
+// Get current memory usage in bytes
+static uint64_t get_current_memory_usage(void) {
+#ifdef __linux__
+    // Read from /proc/self/status
+    FILE* file = fopen("/proc/self/status", "r");
+    if (file) {
+        char line[256];
+        while (fgets(line, sizeof(line), file)) {
+            if (strncmp(line, "VmRSS:", 6) == 0) {
+                uint64_t rss_kb;
+                if (sscanf(line, "VmRSS: %lu kB", &rss_kb) == 1) {
+                    fclose(file);
+                    return rss_kb * 1024; // Convert to bytes
+                }
+            }
+        }
+        fclose(file);
+    }
+    return 32 * 1024 * 1024; // Fallback
+    
+#elif defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return pmc.WorkingSetSize;
+    }
+    return 32 * 1024 * 1024; // Fallback
+    
+#elif defined(__APPLE__)
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t info_count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, 
+                  (task_info_t)&info, &info_count) == KERN_SUCCESS) {
+        return info.resident_size;
+    }
+    return 32 * 1024 * 1024; // Fallback
+    
+#else
+    return 32 * 1024 * 1024; // Fallback for other platforms
+#endif
+}
 
 // Initialize performance optimizer
 int performance_optimizer_init(void) {
@@ -202,8 +254,8 @@ int capture_performance_metrics(PerformanceMetrics* metrics) {
     metrics->jit_compilation_time_ns = vm_stats.jit_compilation_time * 1000000;
     
     // Get memory statistics
-    // TODO: Implement actual memory usage tracking
-    metrics->memory_usage_bytes = 32 * 1024 * 1024; // Placeholder
+    // Implement actual memory usage tracking
+    metrics->memory_usage_bytes = get_current_memory_usage();
     
     // Get module loading statistics
     uint64_t total_loads, total_unloads, failed_loads;
