@@ -1211,7 +1211,7 @@ ASTCAssemblyProgram* astc_bytecode_to_assembly(ASTCBytecodeProgram* bytecode_pro
         switch (instr->opcode) {
             case AST_I32_CONST:
             case AST_I64_CONST:
-                snprintf(operand_str, sizeof(operand_str), "%lld", instr->operand.i64);
+                snprintf(operand_str, sizeof(operand_str), "%ld", (long)instr->operand.i64);
                 break;
             case AST_F32_CONST:
                 snprintf(operand_str, sizeof(operand_str), "%f", instr->operand.f32);
@@ -2777,7 +2777,7 @@ static bool generate_expression(ASTNode* expr, CodeGenerator* cg) {
             // 生成常量
             if (expr->data.constant.type == ASTC_TYPE_INT) {
                 char buffer[64];
-                snprintf(buffer, sizeof(buffer), "    mov rax, %lld\n", expr->data.constant.int_val);
+                snprintf(buffer, sizeof(buffer), "    mov rax, %ld\n", (long)expr->data.constant.int_val);
                 codegen_append(cg, buffer);
             }
             return true;
@@ -6154,7 +6154,7 @@ static bool vm_execute(VMContext* ctx) {
                 // 返回指令
                 if (ctx->stack_pointer > 0) {
                     uint64_t return_value = ctx->stack[--ctx->stack_pointer];
-                    printf("ASTC VM Return: %llu\n", return_value);
+                    printf("ASTC VM Return: %lu\n", (unsigned long)return_value);
                 } else {
                     printf("ASTC VM Return: void\n");
                 }

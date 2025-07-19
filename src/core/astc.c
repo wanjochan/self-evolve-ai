@@ -224,7 +224,7 @@ void ast_print(struct ASTNode* node, int indent) {
         case ASTC_EXPR_CONSTANT:
             printf(", type=%d", node->data.constant.type);
             if (node->data.constant.type == ASTC_TYPE_INT) {
-                printf(", value=%lld", node->data.constant.int_val);
+                printf(", value=%ld", (long)node->data.constant.int_val);
             } else if (node->data.constant.type == ASTC_TYPE_FLOAT) {
                 printf(", value=%f", node->data.constant.float_val);
             }
