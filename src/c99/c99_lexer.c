@@ -443,13 +443,21 @@ static Token* scan_number(C99Lexer* lexer) {
         if (is_float) {
             token->data.floating.is_float = is_float_suffix;
             token->data.floating.is_long_double = is_long_double;
-            // TODO: 解析实际的浮点值
+            // 解析浮点值
+            char* endptr;
+            token->data.floating.float_value = strtod(text, &endptr);
         } else {
             token->data.integer.base = base;
             token->data.integer.is_unsigned = is_unsigned;
             token->data.integer.is_long = is_long;
             token->data.integer.is_long_long = is_long_long;
-            // TODO: 解析实际的整数值
+            // 解析整数值
+            char* endptr;
+            if (is_unsigned) {
+                token->data.integer.int_value = (long long)strtoull(text, &endptr, base);
+            } else {
+                token->data.integer.int_value = strtoll(text, &endptr, base);
+            }
         }
     }
 
